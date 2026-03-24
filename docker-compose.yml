@@ -1,16 +1,23 @@
-version: "3.9"
-
 services:
-  niceapimanager-backend:
+  niceapimanager:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: niceapimanager-backend
+    container_name: niceapimanager
     ports:
-      - "8000:8000"
+      - "18101:8000"
     env_file:
       - .env
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
-

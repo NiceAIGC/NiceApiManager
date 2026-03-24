@@ -21,13 +21,6 @@
 - 提供 `Docker` / `docker compose` 一体化启动方式
 - 整个管理台支持密码登录后访问
 
-当前明确不做的内容：
-
-- 不保存 `tokens` 表
-- 不保存 `usage_logs` 表
-- 不开放 `/api/tokens` 和 `/api/usage/logs`
-- `APScheduler` 仅预留，不启动定时任务
-
 ## 目录结构
 
 ```text
@@ -120,82 +113,87 @@ npm run build --prefix web
 
 ## Docker 运行
 
+`docker compose` 使用的是单服务部署：
+
+- 服务名：`niceapimanager-backend`
+- 暴露端口：宿主机 `8000` -> 容器 `8000`
+- 数据目录：宿主机 `./data` -> 容器 `/app/data`
+- 启动命令：容器启动时自动执行 `alembic upgrade head`，然后启动 `uvicorn`
+
+基础使用步骤：
+
+### 1. 准备环境变量
+
 ```bash
 cp .env.example .env
-docker compose up --build
 ```
 
-启动后接口地址：
+公网部署前至少修改：
+
+- `NICE_API_MANAGER_AUTH_PASSWORD`
+- `NICE_API_MANAGER_AUTH_SECRET_KEY`
+
+### 2. 构建并启动服务
+
+```bash
+docker compose up --build -d
+```
+
+### 3. 检查服务状态
+
+```bash
+docker compose ps
+docker compose logs -f niceapimanager-backend
+```
+
+容器启动后会自动执行数据库迁移；`docker compose ps` 中状态变为 `healthy` 后即可访问。
+
+### 4. 访问管理台
+
+默认地址：
 
 - 管理台：`http://localhost:8000`
 - 文档地址：`http://localhost:8000/docs`
 - 健康检查：`http://localhost:8000/health`
 
-## 已实现接口
+首次登录密码来自 `.env` 中的 `NICE_API_MANAGER_AUTH_PASSWORD`。
 
-- `POST /api/instances`
-- `GET /api/instances`
-- `PATCH /api/instances/{id}`
-- `DELETE /api/instances/{id}`
-- `POST /api/instances/batch-create`
-- `PATCH /api/instances/batch-update`
-- `POST /api/instances/batch-delete`
-- `POST /api/instances/{id}/test`
-- `POST /api/instances/{id}/sync`
-- `POST /api/sync/all`
-- `GET /api/dashboard/overview`
-- `GET /api/groups`
-- `GET /api/pricing/models`
-- `GET /api/sync-runs`
-- `GET /api/auth/status`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
+### 5. 停止或重建
 
-## 已实现页面
+停止服务：
 
-- `/dashboard`
-- `/instances`
-- `/groups`
-- `/pricing`
-- `/sync-runs`
-- `/login`
+```bash
+docker compose down
+```
 
-## 当前前端能力
+重新构建并启动：
 
-- 顶部统一布局头部显示当前页面标题
-- 仪表盘支持按标签筛选、按显示额度范围筛选
-- 仪表盘中的显示额度按分档高亮：
-  - `> 100`
-  - `10 ~ 100`
-  - `0 ~ 10`
-  - `< 0`
-- 实例列表支持单条编辑、单条测试、单条同步
-- 实例列表支持勾选后批量编辑和批量删除
-- 实例列表支持通过多行表单批量新增实例
+```bash
+docker compose up --build -d
+```
 
-## 数据同步说明
+如果只想重启容器而不重建镜像：
 
-手动同步单个实例时，后端会按下面顺序访问远端 `New API`：
+```bash
+docker compose restart
+```
 
-1. `POST /api/user/login`
-2. `GET /api/user/self`
-3. `GET /api/user/self/groups`
-4. `GET /api/pricing`
+### 6. 数据持久化说明
 
-并将结果写入本地 SQLite：
+- SQLite 数据库默认写入 `./data/niceapimanager.db`
+- 执行 `docker compose down` 不会删除 `./data` 中的持久化数据
+- 如需全新初始化，可以先停止容器，再手动清理 `./data`
 
-- `instances`
-- `instance_sessions`
-- `user_snapshots`
-- `group_ratios`
-- `pricing_models`
-- `sync_runs`
+### 7. 手动验证
 
-## 设计约束
+可以用下面的命令确认容器内服务已正常响应：
 
-- 远端账号密码按需求明文保存
-- 本地 SQLite 默认位于 `./data/niceapimanager.db`
-- 每次同步会覆盖当前实例的 `group_ratios` 和 `pricing_models`
-- `user_snapshots` 和 `sync_runs` 会保留历史记录
-- 显示金额按远端 `/api/status` 返回的 `quota_per_unit` 换算
-- React 前端只对接当前后端接口，不依赖额外未实现接口
+```bash
+curl http://localhost:8000/health
+```
+
+预期返回：
+
+```json
+{"status":"ok"}
+```
