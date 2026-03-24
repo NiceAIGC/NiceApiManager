@@ -24,6 +24,7 @@ function buildEmptyItem(): InstanceCreatePayload {
     username: '',
     password: '',
     enabled: true,
+    billing_mode: 'prepaid',
     tags: [],
   };
 }
@@ -53,6 +54,7 @@ export function InstanceBatchModal({
           username: item.username,
           password: '',
           enabled: item.enabled,
+          billing_mode: item.billing_mode,
           tags: item.tags,
         })),
       });
@@ -131,6 +133,18 @@ export function InstanceBatchModal({
                       rules={[{ required: true, message: '请输入用户名' }]}
                     >
                       <Input placeholder="远端 NewAPI 用户名" />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'billing_mode']}
+                      label="计费方式"
+                      rules={[{ required: true, message: '请选择计费方式' }]}
+                    >
+                      <Select
+                        options={[
+                          { label: '预付费', value: 'prepaid' },
+                          { label: '后付费', value: 'postpaid' },
+                        ]}
+                      />
                     </Form.Item>
                     <Form.Item
                       name={[field.name, 'password']}

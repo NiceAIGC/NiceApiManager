@@ -6,7 +6,8 @@ import { fetchDashboardOverview } from '../api/dashboard';
 import { fetchInstances } from '../api/instances';
 import { StatCard } from '../components/StatCard';
 import { StatusTag } from '../components/StatusTag';
-import { formatDateTime, formatMoney, formatNumber } from '../utils/format';
+import type { DashboardInstanceSummary } from '../types/api';
+import { formatBillingMode, formatDateTime, formatMoney, formatNumber } from '../utils/format';
 
 const { Text } = Typography;
 
@@ -111,13 +112,13 @@ export function DashboardPage() {
             onChange={(value) => setSelectedTag(value)}
           />
           <InputNumber
-            placeholder="最小显示额度"
+            placeholder="最小余额"
             style={{ width: 160 }}
             value={minDisplayQuota}
             onChange={(value) => setMinDisplayQuota(value)}
           />
           <InputNumber
-            placeholder="最大显示额度"
+            placeholder="最大余额"
             style={{ width: 160 }}
             value={maxDisplayQuota}
             onChange={(value) => setMaxDisplayQuota(value)}
@@ -128,7 +129,7 @@ export function DashboardPage() {
               setMaxDisplayQuota(null);
             }}
           >
-            清空额度筛选
+            清空余额筛选
           </Button>
         </div>
       </div>
@@ -142,11 +143,21 @@ export function DashboardPage() {
         </Col>
         <Col xs={24} md={12} xl={6}>
           <StatCard
-            title="总显示额度"
+            title="预付费总余额"
             value={formatMoney(summary.totalDisplayQuota)}
-            caption={`已用 ${formatMoney(summary.totalDisplayUsedQuota)}`}
+            caption="仅统计预付费站点"
           />
         </Col>
+        <Col xs={24} md={12} xl={6}>
+          <StatCard
+            title="周期已用额度"
+            value={formatMoney(summary.totalDisplayUsedQuota)}
+            caption="预付费/后付费统一累计"
+          />
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]}>
         <Col xs={24} md={12} xl={6}>
           <StatCard
             title="今日请求数"
@@ -169,7 +180,7 @@ export function DashboardPage() {
               title: '实例',
               dataIndex: 'instance_name',
               key: 'instance_name',
-              render: (value: string, record) => (
+              render: (value: string, record: DashboardInstanceSummary) => (
                 <Space direction="vertical" size={0}>
                   <Text strong>{value}</Text>
                   <Text type="secondary">ID #{record.instance_id}</Text>
@@ -189,6 +200,16 @@ export function DashboardPage() {
               render: (value: boolean) => (value ? '启用' : '停用'),
             },
             {
+              title: '计费方式',
+              dataIndex: 'billing_mode',
+              key: 'billing_mode',
+              render: (value: 'prepaid' | 'postpaid') => (
+                <Tag color={value === 'postpaid' ? 'processing' : 'gold'}>
+                  {formatBillingMode(value)}
+                </Tag>
+              ),
+            },
+            {
               title: '标签',
               dataIndex: 'tags',
               key: 'tags',
@@ -205,16 +226,19 @@ export function DashboardPage() {
               render: (value?: string | null) => value || '-',
             },
             {
-              title: '显示额度',
+              title: '当前余额',
               dataIndex: 'latest_display_quota',
               key: 'latest_display_quota',
-              render: (value?: number | null) => {
+              render: (value: number | null | undefined, record: DashboardInstanceSummary) => {
+                if (record.billing_mode === 'postpaid') {
+                  return '-';
+                }
                 const meta = getQuotaLevelMeta(value);
                 return <span className={meta.className}>{meta.label}</span>;
               },
             },
             {
-              title: '已用显示额度',
+              title: '周期已用额度',
               dataIndex: 'latest_display_used_quota',
               key: 'latest_display_used_quota',
               render: (value?: number | null) => formatMoney(value),

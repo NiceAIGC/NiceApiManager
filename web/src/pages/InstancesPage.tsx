@@ -37,7 +37,7 @@ import type {
   InstanceUpdatePayload,
 } from '../types/api';
 import { getErrorMessage } from '../api/client';
-import { formatDateTime, formatMoney, formatNumber } from '../utils/format';
+import { formatBillingMode, formatDateTime, formatMoney, formatNumber } from '../utils/format';
 
 const { Text } = Typography;
 
@@ -209,6 +209,16 @@ export function InstancesPage() {
         title: '用户名',
         dataIndex: 'username',
         key: 'username',
+      },
+      {
+        title: '计费方式',
+        dataIndex: 'billing_mode',
+        key: 'billing_mode',
+        render: (value: Instance['billing_mode']) => (
+          <Tag color={value === 'postpaid' ? 'processing' : 'gold'}>
+            {formatBillingMode(value)}
+          </Tag>
+        ),
       },
       {
         title: '标签',
@@ -460,10 +470,15 @@ export function InstancesPage() {
             <Descriptions.Item label="远端用户 ID">{testResult.remote_user_id}</Descriptions.Item>
             <Descriptions.Item label="远端用户名">{testResult.remote_username}</Descriptions.Item>
             <Descriptions.Item label="远端分组">{testResult.remote_group || '-'}</Descriptions.Item>
-            <Descriptions.Item label="内部额度">{formatNumber(testResult.quota)}</Descriptions.Item>
+            <Descriptions.Item label="计费方式">{formatBillingMode(testResult.billing_mode)}</Descriptions.Item>
+            {testResult.billing_mode === 'prepaid' ? (
+              <Descriptions.Item label="内部额度">{formatNumber(testResult.quota)}</Descriptions.Item>
+            ) : null}
             <Descriptions.Item label="内部已用额度">{formatNumber(testResult.used_quota)}</Descriptions.Item>
-            <Descriptions.Item label="显示额度">{formatMoney(testResult.display_quota)}</Descriptions.Item>
-            <Descriptions.Item label="已用显示额度">{formatMoney(testResult.display_used_quota)}</Descriptions.Item>
+            {testResult.billing_mode === 'prepaid' ? (
+              <Descriptions.Item label="显示余额">{formatMoney(testResult.display_quota)}</Descriptions.Item>
+            ) : null}
+            <Descriptions.Item label="周期已用额度">{formatMoney(testResult.display_used_quota)}</Descriptions.Item>
             <Descriptions.Item label="quota_per_unit">
               {formatNumber(testResult.quota_per_unit)}
             </Descriptions.Item>

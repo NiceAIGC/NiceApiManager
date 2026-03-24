@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _uses_postpaid_billing(instance: Instance) -> bool:
+    """Return whether the instance is configured for postpaid billing."""
+    return instance.billing_mode == "postpaid"
+
+
 def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestResponse:
     """Validate login and read-only endpoints for one configured instance."""
     client = NewAPIClient(
@@ -55,9 +60,14 @@ def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestR
         remote_user_id=session_data.remote_user_id,
         remote_username=user_data.get("username") or instance.username,
         remote_group=user_data.get("group"),
+        billing_mode=instance.billing_mode,
         quota=int(user_data.get("quota", 0)),
         used_quota=int(user_data.get("used_quota", 0)),
-        display_quota=_display_amount(user_data.get("quota"), instance.quota_per_unit),
+        display_quota=(
+            None
+            if _uses_postpaid_billing(instance)
+            else _display_amount(user_data.get("quota"), instance.quota_per_unit)
+        ),
         display_used_quota=_display_amount(user_data.get("used_quota"), instance.quota_per_unit),
         quota_per_unit=instance.quota_per_unit,
         request_count=int(user_data.get("request_count", 0)),

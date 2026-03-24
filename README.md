@@ -10,6 +10,7 @@
 当前版本能力：
 
 - 管理多个 `New API` 实例配置
+- 支持区分预付费 / 后付费实例，后付费仅统计周期已用额度
 - 支持实例标签筛选
 - 支持批量新增、批量编辑、批量删除实例
 - 测试实例登录和只读接口连通性
@@ -54,7 +55,6 @@ NICE_API_MANAGER_CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 NICE_API_MANAGER_REQUEST_TIMEOUT=20
 NICE_API_MANAGER_SYNC_VERIFY_SSL=true
 NICE_API_MANAGER_SCHEDULER_TIMEZONE=Asia/Shanghai
-NICE_API_MANAGER_SCHEDULER_ENABLED=false
 NICE_API_MANAGER_AUTH_PASSWORD=nicenicenice
 NICE_API_MANAGER_AUTH_SECRET_KEY=nicenicenice-secret-key-change-me
 NICE_API_MANAGER_AUTH_SESSION_DAYS=30

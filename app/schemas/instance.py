@@ -1,6 +1,7 @@
 """Instance management schemas."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,6 +14,7 @@ class InstanceCreate(BaseModel):
     username: str
     password: str
     enabled: bool = True
+    billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     tags: list[str] = Field(default_factory=list)
 
 
@@ -24,6 +26,7 @@ class InstanceUpdate(BaseModel):
     username: str
     password: str | None = None
     enabled: bool = True
+    billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     tags: list[str] = Field(default_factory=list)
 
 
@@ -37,6 +40,7 @@ class InstanceResponse(BaseModel):
     base_url: str
     username: str
     enabled: bool
+    billing_mode: Literal["prepaid", "postpaid"]
     tags: list[str] = Field(default_factory=list)
     quota_per_unit: float | None = None
     last_sync_at: datetime | None = None
@@ -63,6 +67,7 @@ class InstanceTestResponse(BaseModel):
     remote_user_id: int
     remote_username: str
     remote_group: str | None = None
+    billing_mode: Literal["prepaid", "postpaid"]
     quota: int
     used_quota: int
     display_quota: float | None = None

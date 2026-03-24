@@ -48,6 +48,7 @@ def create_instance(db: Session, payload: InstanceCreate) -> Instance:
         username=payload.username.strip(),
         password=payload.password,
         enabled=payload.enabled,
+        billing_mode=payload.billing_mode,
         tags_json=_normalize_tags(payload.tags),
     )
     db.add(instance)
@@ -65,6 +66,7 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
             username=payload.username.strip(),
             password=payload.password,
             enabled=payload.enabled,
+            billing_mode=payload.billing_mode,
             tags_json=_normalize_tags(payload.tags),
         )
         for payload in payloads
@@ -86,6 +88,7 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
     instance.base_url = payload.base_url.rstrip("/")
     instance.username = payload.username.strip()
     instance.enabled = payload.enabled
+    instance.billing_mode = payload.billing_mode
     instance.tags_json = _normalize_tags(payload.tags)
 
     if payload.password:
@@ -123,6 +126,7 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         instance.base_url = payload.base_url.rstrip("/")
         instance.username = payload.username.strip()
         instance.enabled = payload.enabled
+        instance.billing_mode = payload.billing_mode
         instance.tags_json = _normalize_tags(payload.tags)
         if payload.password:
             instance.password = payload.password
@@ -198,6 +202,7 @@ def _instance_to_response(instance: Instance) -> InstanceResponse:
     return InstanceResponse.model_validate(instance).model_copy(
         update={
             "tags": instance.tags_json or [],
+            "billing_mode": instance.billing_mode,
             "quota_per_unit": instance.quota_per_unit,
             "remote_user_id": instance.session.remote_user_id if instance.session else None,
             "session_expires_at": instance.session.expires_at if instance.session else None,

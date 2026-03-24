@@ -24,3 +24,7 @@ export function formatMoney(value?: number | null): string {
     maximumFractionDigits: 2,
   }).format(value);
 }
+
+export function formatBillingMode(value?: string | null): string {
+  return value === 'postpaid' ? '后付费' : '预付费';
+}

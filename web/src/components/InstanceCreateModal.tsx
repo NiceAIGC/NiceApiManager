@@ -30,6 +30,7 @@ export function InstanceCreateModal({
         name: initialValues?.name ?? '',
         username: initialValues?.username ?? '',
         password: '',
+        billing_mode: initialValues?.billing_mode ?? 'prepaid',
         tags: initialValues?.tags ?? [],
       });
     } else {
@@ -76,6 +77,19 @@ export function InstanceCreateModal({
           rules={[{ required: true, message: '请输入用户名' }]}
         >
           <Input placeholder="远端 NewAPI 用户名" />
+        </Form.Item>
+        <Form.Item
+          name="billing_mode"
+          label="计费方式"
+          rules={[{ required: true, message: '请选择计费方式' }]}
+          extra="默认预付费；后付费站点只统计周期内已用额度，不展示余额。"
+        >
+          <Select
+            options={[
+              { label: '预付费', value: 'prepaid' },
+              { label: '后付费', value: 'postpaid' },
+            ]}
+          />
         </Form.Item>
         <Form.Item
           name="password"

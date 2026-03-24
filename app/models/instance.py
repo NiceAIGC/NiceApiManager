@@ -30,6 +30,7 @@ class Instance(Base):
     username: Mapped[str] = mapped_column(String(100))
     password: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    billing_mode: Mapped[str] = mapped_column(String(16), default="prepaid", nullable=False)
     tags_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     quota_per_unit: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1,6 +1,7 @@
 """Dashboard response schemas."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -13,6 +14,7 @@ class DashboardInstanceSummary(BaseModel):
     instance_id: int
     instance_name: str
     enabled: bool
+    billing_mode: Literal["prepaid", "postpaid"]
     tags: list[str]
     quota_per_unit: float | None = None
     health_status: str

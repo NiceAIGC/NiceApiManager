@@ -31,6 +31,11 @@ def _quota_to_display_amount(value: int | None, quota_per_unit: float | None) ->
     return value / quota_per_unit
 
 
+def _uses_postpaid_billing(instance: Instance) -> bool:
+    """Return whether the instance is configured for postpaid billing."""
+    return instance.billing_mode == "postpaid"
+
+
 def _current_day_start_utc() -> datetime:
     """Return the current local-day boundary converted into naive UTC."""
     try:
@@ -109,13 +114,16 @@ def build_dashboard_overview(db: Session, tag: str | None = None) -> DashboardOv
             unhealthy_instance_count += 1
 
         if latest_snapshot:
-            total_quota += latest_snapshot.quota
             total_used_quota += latest_snapshot.used_quota
             total_request_count += latest_snapshot.request_count
-            total_display_quota += _quota_to_display_amount(latest_snapshot.quota, instance.quota_per_unit) or 0.0
             total_display_used_quota += (
                 _quota_to_display_amount(latest_snapshot.used_quota, instance.quota_per_unit) or 0.0
             )
+            if not _uses_postpaid_billing(instance):
+                total_quota += latest_snapshot.quota
+                total_display_quota += (
+                    _quota_to_display_amount(latest_snapshot.quota, instance.quota_per_unit) or 0.0
+                )
 
         instance_today_request_count = _today_request_count(db, instance.id, latest_snapshot, day_start_utc)
         today_request_count += instance_today_request_count
@@ -125,17 +133,26 @@ def build_dashboard_overview(db: Session, tag: str | None = None) -> DashboardOv
                 instance_id=instance.id,
                 instance_name=instance.name,
                 enabled=instance.enabled,
+                billing_mode=instance.billing_mode,
                 tags=instance.tags_json or [],
                 quota_per_unit=instance.quota_per_unit,
                 health_status=instance.last_health_status,
                 health_error=instance.last_health_error,
                 last_sync_at=instance.last_sync_at,
                 latest_group_name=latest_snapshot.group_name if latest_snapshot else None,
-                latest_quota=latest_snapshot.quota if latest_snapshot else None,
+                latest_quota=(
+                    None
+                    if _uses_postpaid_billing(instance)
+                    else (latest_snapshot.quota if latest_snapshot else None)
+                ),
                 latest_used_quota=latest_snapshot.used_quota if latest_snapshot else None,
-                latest_display_quota=_quota_to_display_amount(
-                    latest_snapshot.quota if latest_snapshot else None,
-                    instance.quota_per_unit,
+                latest_display_quota=(
+                    None
+                    if _uses_postpaid_billing(instance)
+                    else _quota_to_display_amount(
+                        latest_snapshot.quota if latest_snapshot else None,
+                        instance.quota_per_unit,
+                    )
                 ),
                 latest_display_used_quota=_quota_to_display_amount(
                     latest_snapshot.used_quota if latest_snapshot else None,

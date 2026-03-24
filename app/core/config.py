@@ -25,7 +25,6 @@ class Settings(BaseSettings):
     request_timeout: float = 20.0
     sync_verify_ssl: bool = True
     scheduler_timezone: str = "Asia/Shanghai"
-    scheduler_enabled: bool = False
     auth_password: str = "nicenicenice"
     auth_secret_key: str = "nicenicenice-secret-key-change-me"
     auth_session_days: int = 30

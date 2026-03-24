@@ -2,6 +2,7 @@ export interface DashboardInstanceSummary {
   instance_id: number;
   instance_name: string;
   enabled: boolean;
+  billing_mode: 'prepaid' | 'postpaid';
   tags: string[];
   quota_per_unit?: number | null;
   health_status: string;
@@ -36,6 +37,7 @@ export interface Instance {
   base_url: string;
   username: string;
   enabled: boolean;
+  billing_mode: 'prepaid' | 'postpaid';
   tags: string[];
   quota_per_unit?: number | null;
   last_sync_at?: string | null;
@@ -58,6 +60,7 @@ export interface InstanceCreatePayload {
   username: string;
   password: string;
   enabled: boolean;
+  billing_mode: 'prepaid' | 'postpaid';
   tags: string[];
 }
 
@@ -67,6 +70,7 @@ export interface InstanceUpdatePayload {
   username: string;
   password?: string;
   enabled: boolean;
+  billing_mode: 'prepaid' | 'postpaid';
   tags: string[];
 }
 
@@ -80,6 +84,7 @@ export interface InstanceTestResponse {
   remote_user_id: number;
   remote_username: string;
   remote_group?: string | null;
+  billing_mode: 'prepaid' | 'postpaid';
   quota: number;
   used_quota: number;
   display_quota?: number | null;

@@ -124,6 +124,7 @@ def update_instance_route(
     return InstanceResponse.model_validate(instance).model_copy(
         update={
             "tags": instance.tags_json or [],
+            "billing_mode": instance.billing_mode,
             "quota_per_unit": instance.quota_per_unit,
             "remote_user_id": instance.session.remote_user_id if instance.session else None,
             "session_expires_at": instance.session.expires_at if instance.session else None,
