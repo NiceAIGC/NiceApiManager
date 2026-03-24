@@ -1,12 +1,19 @@
+## syntax=docker/dockerfile:1.7
+
 FROM node:22-alpine AS web-builder
 
 WORKDIR /web
 
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund
 
-COPY web ./
-RUN npm run build
+COPY web/index.html ./
+COPY web/tsconfig.json web/tsconfig.app.json web/tsconfig.node.json ./
+COPY web/vite.config.ts ./
+COPY web/src ./src
+RUN --mount=type=cache,target=/root/.npm \
+    npm run build:docker
 
 FROM python:3.12-slim
 
@@ -20,7 +27,8 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:0.7.3 /uv /uvx /bin/
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 COPY alembic.ini ./
 COPY alembic ./alembic

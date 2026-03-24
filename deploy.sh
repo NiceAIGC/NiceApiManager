@@ -62,6 +62,7 @@ echo "[deploy] 项目目录: $ROOT_DIR"
 echo "[deploy] compose 服务名: $SERVICE_NAME"
 echo "[deploy] 容器名: $CONTAINER_NAME"
 echo "[deploy] 健康检查地址: $HEALTH_URL"
+echo "[deploy] Docker BuildKit: enabled"
 
 if [[ "$WITH_PULL" -eq 1 ]]; then
   echo "[deploy] 拉取最新代码"
@@ -69,7 +70,7 @@ if [[ "$WITH_PULL" -eq 1 ]]; then
 fi
 
 echo "[deploy] 开始重建并重启容器"
-docker compose up -d --build --force-recreate "$SERVICE_NAME"
+DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose up -d --build --force-recreate "$SERVICE_NAME"
 
 echo "[deploy] 等待健康检查: $HEALTH_URL"
 for _ in {1..20}; do

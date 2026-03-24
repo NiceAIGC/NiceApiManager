@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:docker": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -27,4 +28,3 @@
     "vite": "^6.2.2"
   }
 }
-
