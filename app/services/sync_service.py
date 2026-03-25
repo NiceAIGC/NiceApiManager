@@ -227,13 +227,9 @@ def _ensure_session(
     client: NewAPIClient,
 ) -> NewAPISessionData:
     """Reuse a cached session if still valid, otherwise log in again."""
-    if instance.remote_user_id is not None and instance.access_token:
-        return NewAPISessionData(
-            remote_user_id=instance.remote_user_id,
-            cookie_value="",
-            access_token=instance.access_token,
-            expires_at=None,
-        )
+    token_session = _try_access_token_session(instance, client)
+    if token_session is not None:
+        return token_session
 
     cached_session = db.scalar(
         select(InstanceSession).where(InstanceSession.instance_id == instance.id)
@@ -285,6 +281,38 @@ def _ensure_session(
         )
 
     return session_data
+
+
+def _try_access_token_session(
+    instance: Instance,
+    client: NewAPIClient,
+) -> NewAPISessionData | None:
+    """Prefer access-token auth and only fall back when credentials are available."""
+    if instance.remote_user_id is None or not instance.access_token:
+        return None
+
+    try:
+        client.get_user_self(
+            instance.remote_user_id,
+            "",
+            instance.access_token,
+        )
+    except NewAPIClientError as exc:
+        if instance.username and instance.password:
+            logger.info(
+                "Access token auth failed for instance %s, falling back to username/password: %s",
+                instance.id,
+                exc,
+            )
+            return None
+        raise
+
+    return NewAPISessionData(
+        remote_user_id=instance.remote_user_id,
+        cookie_value="",
+        access_token=instance.access_token,
+        expires_at=None,
+    )
 
 
 def _prepare_instance_client(instance: Instance) -> tuple[NewAPIClient, dict[str, object]]:

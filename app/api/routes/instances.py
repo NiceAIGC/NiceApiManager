@@ -1,10 +1,11 @@
 """Instance management routes."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.core.database import is_sqlite_locked_error
 from app.schemas.instance import (
     BatchInstanceCreateRequest,
     BatchInstanceDeleteRequest,
@@ -33,6 +34,17 @@ from app.services.sync_service import test_instance_connectivity
 router = APIRouter()
 
 
+def _raise_if_sqlite_locked(exc: OperationalError, db: Session) -> None:
+    """Translate SQLite busy errors into a retryable API response."""
+    db.rollback()
+    if is_sqlite_locked_error(exc):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="本地数据库正忙，请稍后重试。",
+        ) from exc
+    raise exc
+
+
 @router.post(
     "/instances",
     response_model=InstanceResponse,
@@ -51,6 +63,8 @@ def create_instance_route(
             status_code=status.HTTP_409_CONFLICT,
             detail="Instance name already exists.",
         ) from exc
+    except OperationalError as exc:
+        _raise_if_sqlite_locked(exc, db)
     return InstanceResponse.model_validate(instance).model_copy(
         update={
             "tags": instance.tags_json or [],
@@ -97,6 +111,8 @@ def batch_create_instances_route(
             status_code=status.HTTP_409_CONFLICT,
             detail="One or more instance names already exist.",
         ) from exc
+    except OperationalError as exc:
+        _raise_if_sqlite_locked(exc, db)
 
 
 @router.patch("/instances/batch-update", response_model=BatchInstanceResponse)
@@ -113,6 +129,8 @@ def batch_update_instances_route(
             status_code=status.HTTP_409_CONFLICT,
             detail="One or more instance names already exist.",
         ) from exc
+    except OperationalError as exc:
+        _raise_if_sqlite_locked(exc, db)
 
 
 @router.post("/instances/batch-delete", response_model=BatchInstanceDeleteResponse)
@@ -121,7 +139,10 @@ def batch_delete_instances_route(
     db: Session = Depends(get_db),
 ) -> BatchInstanceDeleteResponse:
     """Delete multiple configured instances."""
-    return delete_instances_batch(db, payload.ids)
+    try:
+        return delete_instances_batch(db, payload.ids)
+    except OperationalError as exc:
+        _raise_if_sqlite_locked(exc, db)
 
 
 @router.patch("/instances/{instance_id}", response_model=InstanceResponse)
@@ -140,6 +161,8 @@ def update_instance_route(
             status_code=status.HTTP_409_CONFLICT,
             detail="Instance name already exists.",
         ) from exc
+    except OperationalError as exc:
+        _raise_if_sqlite_locked(exc, db)
 
     return InstanceResponse.model_validate(instance).model_copy(
         update={
@@ -161,7 +184,10 @@ def delete_instance_route(
 ) -> None:
     """Delete one configured instance."""
     instance = get_instance_or_404(db, instance_id)
-    delete_instance(db, instance)
+    try:
+        delete_instance(db, instance)
+    except OperationalError as exc:
+        _raise_if_sqlite_locked(exc, db)
 
 
 @router.post("/instances/{instance_id}/test", response_model=InstanceTestResponse)
@@ -171,4 +197,7 @@ def test_instance_route(
 ) -> InstanceTestResponse:
     """Test read-only connectivity against the configured NewAPI instance."""
     instance = get_instance_or_404(db, instance_id)
-    return test_instance_connectivity(db, instance)
+    try:
+        return test_instance_connectivity(db, instance)
+    except OperationalError as exc:
+        _raise_if_sqlite_locked(exc, db)
