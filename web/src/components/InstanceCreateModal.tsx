@@ -1,4 +1,4 @@
-import { Modal, Form, Input, Select, Switch } from 'antd';
+import { Modal, Form, Input, InputNumber, Select, Switch } from 'antd';
 import { useEffect } from 'react';
 
 import type { Instance, InstanceCreatePayload, InstanceUpdatePayload } from '../types/api';
@@ -31,8 +31,11 @@ export function InstanceCreateModal({
         enabled: initialValues?.enabled ?? true,
         base_url: initialValues?.base_url ?? 'https://',
         name: initialValues?.name ?? '',
+        program_type: initialValues?.program_type ?? 'newapi',
         username: initialValues?.username ?? '',
         password: '',
+        remote_user_id: initialValues?.remote_user_id ?? undefined,
+        access_token: '',
         billing_mode: initialValues?.billing_mode ?? 'prepaid',
         tags: initialValues?.tags ?? [],
       });
@@ -40,6 +43,11 @@ export function InstanceCreateModal({
       form.resetFields();
     }
   }, [form, initialValues, open]);
+
+  const accessTokenExtra =
+    mode === 'edit' && initialValues?.has_access_token
+      ? '留空则保持现有访问密钥。'
+      : '与远端用户 ID 配合使用；账密和 ID+密钥二选一即可。';
 
   return (
     <Modal
@@ -80,11 +88,46 @@ export function InstanceCreateModal({
           />
         </Form.Item>
         <Form.Item
+          name="program_type"
+          label="程序类型"
+          rules={[{ required: true, message: '请选择程序类型' }]}
+          extra="默认按 NewAPI 处理；如站点是二开程序，可切到对应类型。"
+        >
+          <Select
+            options={[
+              { label: 'NewAPI', value: 'newapi' },
+              { label: 'RixAPI', value: 'rixapi' },
+              { label: 'ShellAPI', value: 'shellapi' },
+            ]}
+          />
+        </Form.Item>
+        <Form.Item
           name="username"
           label="用户名"
-          rules={[{ required: true, message: '请输入用户名' }]}
+          extra="使用账密登录时填写。与远端用户 ID + 访问密钥二选一即可。"
         >
-          <Input placeholder="远端 NewAPI 用户名" />
+          <Input placeholder="远端站点用户名" />
+        </Form.Item>
+        <Form.Item
+          name="password"
+          label="密码"
+          extra={mode === 'create' ? '使用账密登录时填写。' : '留空则保持现有密码。'}
+        >
+          <Input.Password placeholder={mode === 'create' ? '远端站点密码' : '留空则保持现有密码'} />
+        </Form.Item>
+        <Form.Item
+          name="remote_user_id"
+          label="远端用户 ID"
+          extra="使用 Access Token / 管理密钥时填写。"
+        >
+          <InputNumber style={{ width: '100%' }} min={1} precision={0} placeholder="例如：11766" />
+        </Form.Item>
+        <Form.Item
+          name="access_token"
+          label="访问密钥"
+          extra={accessTokenExtra}
+        >
+          <Input.Password placeholder={mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥'} />
         </Form.Item>
         <Form.Item
           name="billing_mode"
@@ -98,13 +141,6 @@ export function InstanceCreateModal({
               { label: '后付费', value: 'postpaid' },
             ]}
           />
-        </Form.Item>
-        <Form.Item
-          name="password"
-          label="密码"
-          rules={mode === 'create' ? [{ required: true, message: '请输入密码' }] : undefined}
-        >
-          <Input.Password placeholder={mode === 'create' ? '远端 NewAPI 密码' : '留空则保持现有密码'} />
         </Form.Item>
         <Form.Item
           name="tags"

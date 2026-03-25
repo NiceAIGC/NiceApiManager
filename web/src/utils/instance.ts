@@ -22,6 +22,7 @@ export function normalizeInstancePayload<T extends InstanceCreatePayload | Insta
     name: payload.name.trim(),
     base_url: normalizeBaseUrl(payload.base_url),
     username: payload.username.trim(),
+    access_token: payload.access_token?.trim(),
     tags: Array.from(new Set(payload.tags.map((item) => item.trim()).filter(Boolean))),
   };
 }

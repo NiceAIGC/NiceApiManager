@@ -49,7 +49,7 @@ import type {
   InstanceUpdatePayload,
 } from '../types/api';
 import { getErrorMessage } from '../api/client';
-import { formatBillingMode, formatDateTime, formatMoney, formatNumber } from '../utils/format';
+import { formatBillingMode, formatDateTime, formatMoney, formatNumber, formatProgramType } from '../utils/format';
 
 const { Text } = Typography;
 
@@ -419,8 +419,23 @@ export function InstancesPage() {
             >
               {record.base_url}
             </a>
-            <Text type="secondary">用户：{record.username}</Text>
+            <Text type="secondary">
+              类型：{formatProgramType(record.program_type)}
+              {' · '}
+              {record.username ? `用户：${record.username}` : `ID：${record.remote_user_id ?? '-'}`}
+            </Text>
           </Space>
+        ),
+      },
+      {
+        title: '程序类型',
+        dataIndex: 'program_type',
+        key: 'program_type',
+        width: 110,
+        render: (value: Instance['program_type']) => (
+          <Tag color={value === 'shellapi' ? 'purple' : value === 'rixapi' ? 'blue' : 'default'}>
+            {formatProgramType(value)}
+          </Tag>
         ),
       },
       {
@@ -518,7 +533,8 @@ export function InstancesPage() {
         dataIndex: 'session_expires_at',
         key: 'session_expires_at',
         width: 180,
-        render: (value?: string | null) => formatDateTime(value),
+        render: (value?: string | null, record?: Instance) =>
+          record?.has_access_token ? 'Access Token' : formatDateTime(value),
       },
       {
         title: '最近同步',
@@ -689,7 +705,7 @@ export function InstancesPage() {
             onChange: (keys) => setSelectedRowKeys(keys.map((item) => Number(item))),
           }}
           columns={columns}
-          scroll={{ x: 2200 }}
+          scroll={{ x: 2350 }}
           locale={{ emptyText: <Empty description="暂无实例配置" /> }}
           pagination={false}
         />
@@ -749,6 +765,7 @@ export function InstancesPage() {
       >
         {testResult ? (
           <Descriptions bordered size="small" column={1}>
+            <Descriptions.Item label="程序类型">{formatProgramType(testResult.program_type)}</Descriptions.Item>
             <Descriptions.Item label="远端用户 ID">{testResult.remote_user_id}</Descriptions.Item>
             <Descriptions.Item label="远端用户名">{testResult.remote_username}</Descriptions.Item>
             <Descriptions.Item label="远端分组">{testResult.remote_group || '-'}</Descriptions.Item>

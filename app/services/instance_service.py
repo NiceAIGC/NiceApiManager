@@ -4,9 +4,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import get_settings
 from app.models import Instance
 from app.models.user_snapshot import UserSnapshot
-from app.core.config import get_settings
 from app.schemas.instance import (
     BatchInstanceDeleteResponse,
     BatchInstanceResponse,
@@ -38,13 +38,45 @@ def _normalize_tags(tags: list[str] | None) -> list[str]:
     return normalized
 
 
+def _normalize_optional_text(value: str | None) -> str:
+    """Trim optional text input while preserving empty-string semantics."""
+    return (value or "").strip()
+
+
+def _validate_instance_auth(username: str, password: str, remote_user_id: int | None, access_token: str | None) -> None:
+    """Ensure each instance keeps at least one complete authentication method."""
+    has_password_auth = bool(username and password)
+    has_token_auth = remote_user_id is not None and bool(access_token)
+    if has_password_auth or has_token_auth:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail="请填写用户名和密码，或填写远端用户 ID 和访问密钥。",
+    )
+
+
+def _clear_cached_session(db: Session, instance: Instance) -> None:
+    """Drop cached login state after authentication-related fields change."""
+    if instance.session is not None:
+        db.delete(instance.session)
+
+
 def create_instance(db: Session, payload: InstanceCreate) -> Instance:
     """Create and persist a new instance record."""
+    username = payload.username.strip()
+    password = _normalize_optional_text(payload.password)
+    access_token = _normalize_optional_text(payload.access_token) or None
+    _validate_instance_auth(username, password, payload.remote_user_id, access_token)
+
     instance = Instance(
         name=payload.name.strip(),
         base_url=normalize_base_url(payload.base_url),
-        username=payload.username.strip(),
-        password=payload.password,
+        program_type=payload.program_type,
+        username=username,
+        password=password,
+        remote_user_id=payload.remote_user_id,
+        access_token=access_token,
         enabled=payload.enabled,
         billing_mode=payload.billing_mode,
         tags_json=_normalize_tags(payload.tags),
@@ -57,18 +89,26 @@ def create_instance(db: Session, payload: InstanceCreate) -> Instance:
 
 def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> BatchInstanceResponse:
     """Create multiple instances in one transaction."""
-    instances = [
-        Instance(
-            name=payload.name.strip(),
-            base_url=normalize_base_url(payload.base_url),
-            username=payload.username.strip(),
-            password=payload.password,
-            enabled=payload.enabled,
-            billing_mode=payload.billing_mode,
-            tags_json=_normalize_tags(payload.tags),
+    instances = []
+    for payload in payloads:
+        username = payload.username.strip()
+        password = _normalize_optional_text(payload.password)
+        access_token = _normalize_optional_text(payload.access_token) or None
+        _validate_instance_auth(username, password, payload.remote_user_id, access_token)
+        instances.append(
+            Instance(
+                name=payload.name.strip(),
+                base_url=normalize_base_url(payload.base_url),
+                program_type=payload.program_type,
+                username=username,
+                password=password,
+                remote_user_id=payload.remote_user_id,
+                access_token=access_token,
+                enabled=payload.enabled,
+                billing_mode=payload.billing_mode,
+                tags_json=_normalize_tags(payload.tags),
+            )
         )
-        for payload in payloads
-    ]
 
     db.add_all(instances)
     db.commit()
@@ -83,15 +123,49 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
 
 def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) -> Instance:
     """Update a configured instance and persist the changes."""
+    new_username = payload.username.strip()
+    new_remote_user_id = payload.remote_user_id
+    new_program_type = payload.program_type
+    new_base_url = normalize_base_url(payload.base_url)
+
+    if new_username:
+        new_password = instance.password
+        if payload.password not in (None, ""):
+            new_password = payload.password
+    else:
+        new_password = ""
+
+    if new_remote_user_id is not None:
+        new_access_token = instance.access_token
+        if payload.access_token not in (None, ""):
+            new_access_token = _normalize_optional_text(payload.access_token) or None
+    else:
+        new_access_token = None
+
+    _validate_instance_auth(new_username, new_password, new_remote_user_id, new_access_token)
+    auth_changed = any(
+        [
+            instance.base_url != new_base_url,
+            instance.program_type != new_program_type,
+            instance.username != new_username,
+            instance.password != new_password,
+            instance.remote_user_id != new_remote_user_id,
+            instance.access_token != new_access_token,
+        ]
+    )
+
     instance.name = payload.name.strip()
-    instance.base_url = normalize_base_url(payload.base_url)
-    instance.username = payload.username.strip()
+    instance.base_url = new_base_url
+    instance.program_type = new_program_type
+    instance.username = new_username
+    instance.password = new_password
+    instance.remote_user_id = new_remote_user_id
+    instance.access_token = new_access_token
     instance.enabled = payload.enabled
     instance.billing_mode = payload.billing_mode
     instance.tags_json = _normalize_tags(payload.tags)
-
-    if payload.password:
-        instance.password = payload.password
+    if auth_changed:
+        _clear_cached_session(db, instance)
 
     db.commit()
     db.refresh(instance)
@@ -121,14 +195,49 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
 
     for payload in payloads:
         instance = instances_by_id[payload.id]
+        new_username = payload.username.strip()
+        new_remote_user_id = payload.remote_user_id
+        new_program_type = payload.program_type
+        new_base_url = normalize_base_url(payload.base_url)
+
+        if new_username:
+            new_password = instance.password
+            if payload.password not in (None, ""):
+                new_password = payload.password
+        else:
+            new_password = ""
+
+        if new_remote_user_id is not None:
+            new_access_token = instance.access_token
+            if payload.access_token not in (None, ""):
+                new_access_token = _normalize_optional_text(payload.access_token) or None
+        else:
+            new_access_token = None
+
+        _validate_instance_auth(new_username, new_password, new_remote_user_id, new_access_token)
+        auth_changed = any(
+            [
+                instance.base_url != new_base_url,
+                instance.program_type != new_program_type,
+                instance.username != new_username,
+                instance.password != new_password,
+                instance.remote_user_id != new_remote_user_id,
+                instance.access_token != new_access_token,
+            ]
+        )
+
         instance.name = payload.name.strip()
-        instance.base_url = normalize_base_url(payload.base_url)
-        instance.username = payload.username.strip()
+        instance.base_url = new_base_url
+        instance.program_type = new_program_type
+        instance.username = new_username
+        instance.password = new_password
+        instance.remote_user_id = new_remote_user_id
+        instance.access_token = new_access_token
         instance.enabled = payload.enabled
         instance.billing_mode = payload.billing_mode
         instance.tags_json = _normalize_tags(payload.tags)
-        if payload.password:
-            instance.password = payload.password
+        if auth_changed:
+            _clear_cached_session(db, instance)
 
     db.commit()
 
@@ -232,6 +341,7 @@ def _instance_to_response(
     return InstanceResponse.model_validate(instance).model_copy(
         update={
             "tags": instance.tags_json or [],
+            "program_type": instance.program_type,
             "billing_mode": instance.billing_mode,
             "quota_per_unit": instance.quota_per_unit,
             "latest_group_name": latest_snapshot.group_name if latest_snapshot else None,
@@ -258,7 +368,8 @@ def _instance_to_response(
                 day_start_utc,
                 settings.scheduler_timezone,
             ),
-            "remote_user_id": instance.session.remote_user_id if instance.session else None,
+            "remote_user_id": instance.session.remote_user_id if instance.session else instance.remote_user_id,
+            "has_access_token": bool(instance.access_token),
             "session_expires_at": instance.session.expires_at if instance.session else None,
         }
     )

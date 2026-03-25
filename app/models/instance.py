@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.time import utcnow
@@ -28,8 +28,11 @@ class Instance(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     base_url: Mapped[str] = mapped_column(String(255))
-    username: Mapped[str] = mapped_column(String(100))
+    program_type: Mapped[str] = mapped_column(String(16), default="newapi", nullable=False)
+    username: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     password: Mapped[str] = mapped_column(Text)
+    remote_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     billing_mode: Mapped[str] = mapped_column(String(16), default="prepaid", nullable=False)
     tags_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)

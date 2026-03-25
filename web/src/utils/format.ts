@@ -28,3 +28,14 @@ export function formatMoney(value?: number | null): string {
 export function formatBillingMode(value?: string | null): string {
   return value === 'postpaid' ? '后付费' : '预付费';
 }
+
+export function formatProgramType(value?: string | null): string {
+  switch (value) {
+    case 'rixapi':
+      return 'RixAPI';
+    case 'shellapi':
+      return 'ShellAPI';
+    default:
+      return 'NewAPI';
+  }
+}

@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.clients.newapi import NewAPIClient, NewAPIClientError, NewAPISessionData
+from app.clients.newapi import NewAPIClient, NewAPIClientError, NewAPISessionData, detect_program_type
 from app.core.config import get_settings
 from app.core.time import utcnow
 from app.models import DailyUsageStat, GroupRatio, Instance, InstanceSession, PricingModel, SyncRun, UserSnapshot
@@ -27,18 +27,24 @@ LOG_PAGE_SIZE = 100
 
 def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestResponse:
     """Validate login and read-only endpoints for one configured instance."""
-    client = NewAPIClient(
-        base_url=instance.base_url,
-        timeout=settings.request_timeout,
-        verify=settings.sync_verify_ssl,
-    )
-
     try:
-        status_data = client.get_status()
+        client, status_data = _prepare_instance_client(instance)
         session_data = _ensure_session(db, instance, client)
-        user_data = client.get_user_self(session_data.remote_user_id, session_data.cookie_value)
-        group_data = client.get_user_groups(session_data.remote_user_id, session_data.cookie_value)
-        pricing_payload = client.get_pricing(session_data.remote_user_id, session_data.cookie_value)
+        user_data = client.get_user_self(
+            session_data.remote_user_id,
+            session_data.cookie_value,
+            session_data.access_token,
+        )
+        group_data = client.get_user_groups(
+            session_data.remote_user_id,
+            session_data.cookie_value,
+            session_data.access_token,
+        )
+        pricing_payload = client.get_pricing(
+            session_data.remote_user_id,
+            session_data.cookie_value,
+            session_data.access_token,
+        )
     except NewAPIClientError as exc:
         instance.last_health_status = "unhealthy"
         instance.last_health_error = str(exc)
@@ -56,6 +62,7 @@ def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestR
     return InstanceTestResponse(
         success=True,
         instance_id=instance.id,
+        program_type=instance.program_type,
         remote_user_id=session_data.remote_user_id,
         remote_username=user_data.get("username") or instance.username,
         remote_group=user_data.get("group"),
@@ -89,18 +96,24 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
     db.commit()
     db.refresh(sync_run)
 
-    client = NewAPIClient(
-        base_url=instance.base_url,
-        timeout=settings.request_timeout,
-        verify=settings.sync_verify_ssl,
-    )
-
     try:
-        status_data = client.get_status()
+        client, status_data = _prepare_instance_client(instance)
         session_data = _ensure_session(db, instance, client)
-        user_data = client.get_user_self(session_data.remote_user_id, session_data.cookie_value)
-        group_data = client.get_user_groups(session_data.remote_user_id, session_data.cookie_value)
-        pricing_payload = client.get_pricing(session_data.remote_user_id, session_data.cookie_value)
+        user_data = client.get_user_self(
+            session_data.remote_user_id,
+            session_data.cookie_value,
+            session_data.access_token,
+        )
+        group_data = client.get_user_groups(
+            session_data.remote_user_id,
+            session_data.cookie_value,
+            session_data.access_token,
+        )
+        pricing_payload = client.get_pricing(
+            session_data.remote_user_id,
+            session_data.cookie_value,
+            session_data.access_token,
+        )
 
         snapshot_at = utcnow()
         instance.quota_per_unit = _extract_quota_per_unit(status_data)
@@ -214,16 +227,29 @@ def _ensure_session(
     client: NewAPIClient,
 ) -> NewAPISessionData:
     """Reuse a cached session if still valid, otherwise log in again."""
+    if instance.remote_user_id is not None and instance.access_token:
+        return NewAPISessionData(
+            remote_user_id=instance.remote_user_id,
+            cookie_value="",
+            access_token=instance.access_token,
+            expires_at=None,
+        )
+
     cached_session = db.scalar(
         select(InstanceSession).where(InstanceSession.instance_id == instance.id)
     )
 
     if cached_session and _session_is_still_usable(cached_session):
         try:
-            client.get_user_self(cached_session.remote_user_id, cached_session.cookie_value)
+            client.get_user_self(
+                cached_session.remote_user_id,
+                cached_session.cookie_value,
+                cached_session.access_token,
+            )
             return NewAPISessionData(
                 remote_user_id=cached_session.remote_user_id,
                 cookie_value=cached_session.cookie_value,
+                access_token=cached_session.access_token,
                 expires_at=cached_session.expires_at,
             )
         except NewAPIClientError:
@@ -237,6 +263,7 @@ def _ensure_session(
 
     cached_session.remote_user_id = session_data.remote_user_id
     cached_session.cookie_value = session_data.cookie_value
+    cached_session.access_token = session_data.access_token
     cached_session.expires_at = session_data.expires_at
 
     try:
@@ -253,10 +280,28 @@ def _ensure_session(
         return NewAPISessionData(
             remote_user_id=concurrent_session.remote_user_id,
             cookie_value=concurrent_session.cookie_value,
+            access_token=concurrent_session.access_token,
             expires_at=concurrent_session.expires_at,
         )
 
     return session_data
+
+
+def _prepare_instance_client(instance: Instance) -> tuple[NewAPIClient, dict[str, object]]:
+    """Build a client and auto-correct the configured program type from `/api/status`."""
+    client = NewAPIClient(
+        base_url=instance.base_url,
+        program_type=instance.program_type,
+        timeout=settings.request_timeout,
+        verify=settings.sync_verify_ssl,
+    )
+    status_data = client.get_status()
+    detected_program_type = detect_program_type(status_data, instance.program_type)
+    if detected_program_type != instance.program_type:
+        instance.program_type = detected_program_type
+        client = client.with_program_type(detected_program_type)
+
+    return client, status_data
 
 
 def _session_is_still_usable(session: InstanceSession) -> bool:
@@ -303,7 +348,7 @@ def _replace_group_ratios(
                 instance_id=instance_id,
                 group_name=group_name,
                 group_desc=row.get("desc"),
-                ratio=float(row.get("ratio", 0)),
+                ratio=_coerce_float(row.get("ratio", 0)),
                 snapshot_at=snapshot_at,
             )
         )
@@ -333,10 +378,10 @@ def _replace_pricing_models(
                 model_name=str(row.get("model_name")),
                 vendor_id=row.get("vendor_id"),
                 vendor_name=vendors.get(row.get("vendor_id")),
-                quota_type=int(row.get("quota_type", 0)),
-                model_ratio=float(row.get("model_ratio", 0)),
-                model_price=float(row.get("model_price", 0)),
-                completion_ratio=float(row.get("completion_ratio", 0)),
+                quota_type=_coerce_int(row.get("quota_type", 0)),
+                model_ratio=_coerce_float(row.get("model_ratio", 0)),
+                model_price=_coerce_float(row.get("model_price", 0)),
+                completion_ratio=_coerce_float(row.get("completion_ratio", 0)),
                 enable_groups_json=list(row.get("enable_groups") or []),
                 supported_endpoint_types_json=list(row.get("supported_endpoint_types") or []),
                 snapshot_at=snapshot_at,
@@ -461,6 +506,7 @@ def _fetch_consumption_logs(
         payload = client.get_user_logs(
             session_data.remote_user_id,
             session_data.cookie_value,
+            session_data.access_token,
             page=page,
             page_size=LOG_PAGE_SIZE,
             log_type=2,
@@ -491,3 +537,19 @@ def _iter_usage_dates(start_date: date, end_date: date):
     while current <= end_date:
         yield current
         current += timedelta(days=1)
+
+
+def _coerce_float(value: object, default: float = 0.0) -> float:
+    """Convert upstream numeric-like values into floats without crashing the sync."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_int(value: object, default: int = 0) -> int:
+    """Convert upstream numeric-like values into ints without crashing the sync."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default

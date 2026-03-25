@@ -3,7 +3,10 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+ProgramType = Literal["newapi", "rixapi", "shellapi"]
 
 
 class InstanceCreate(BaseModel):
@@ -11,11 +14,27 @@ class InstanceCreate(BaseModel):
 
     name: str
     base_url: str
-    username: str
-    password: str
+    program_type: ProgramType = "newapi"
+    username: str = ""
+    password: str | None = None
+    remote_user_id: int | None = None
+    access_token: str | None = None
     enabled: bool = True
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     tags: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_auth_fields(self) -> "InstanceCreate":
+        username = self.username.strip()
+        password = (self.password or "").strip()
+        access_token = (self.access_token or "").strip()
+        has_password_auth = bool(username and password)
+        has_token_auth = self.remote_user_id is not None and bool(access_token)
+
+        if not has_password_auth and not has_token_auth:
+            raise ValueError("请填写用户名和密码，或填写远端用户 ID 和访问密钥。")
+
+        return self
 
 
 class InstanceUpdate(BaseModel):
@@ -23,8 +42,11 @@ class InstanceUpdate(BaseModel):
 
     name: str
     base_url: str
-    username: str
+    program_type: ProgramType = "newapi"
+    username: str = ""
     password: str | None = None
+    remote_user_id: int | None = None
+    access_token: str | None = None
     enabled: bool = True
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     tags: list[str] = Field(default_factory=list)
@@ -38,6 +60,7 @@ class InstanceResponse(BaseModel):
     id: int
     name: str
     base_url: str
+    program_type: ProgramType
     username: str
     enabled: bool
     billing_mode: Literal["prepaid", "postpaid"]
@@ -56,6 +79,7 @@ class InstanceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     remote_user_id: int | None = None
+    has_access_token: bool = False
     session_expires_at: datetime | None = None
 
 
@@ -71,6 +95,7 @@ class InstanceTestResponse(BaseModel):
 
     success: bool
     instance_id: int
+    program_type: ProgramType
     remote_user_id: int
     remote_username: str
     remote_group: str | None = None

@@ -1,5 +1,5 @@
-import { Button, Card, Form, Input, Modal, Select, Space, Switch } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch } from 'antd';
 import { useEffect } from 'react';
 
 import type { BatchInstanceUpdatePayload, Instance, InstanceCreatePayload } from '../types/api';
@@ -23,8 +23,11 @@ function buildEmptyItem(): InstanceCreatePayload {
   return {
     name: '',
     base_url: 'https://',
+    program_type: 'newapi',
     username: '',
     password: '',
+    remote_user_id: undefined,
+    access_token: '',
     enabled: true,
     billing_mode: 'prepaid',
     tags: [],
@@ -54,8 +57,11 @@ export function InstanceBatchModal({
           id: item.id,
           name: item.name,
           base_url: item.base_url,
+          program_type: item.program_type,
           username: item.username,
           password: '',
+          remote_user_id: item.remote_user_id ?? undefined,
+          access_token: '',
           enabled: item.enabled,
           billing_mode: item.billing_mode,
           tags: item.tags,
@@ -71,7 +77,7 @@ export function InstanceBatchModal({
     <Modal
       open={open}
       title={mode === 'create' ? '批量新增实例' : '批量编辑实例'}
-      width={960}
+      width={1100}
       destroyOnHidden
       onCancel={onCancel}
       onOk={() => form.submit()}
@@ -139,11 +145,17 @@ export function InstanceBatchModal({
                       />
                     </Form.Item>
                     <Form.Item
-                      name={[field.name, 'username']}
-                      label="用户名"
-                      rules={[{ required: true, message: '请输入用户名' }]}
+                      name={[field.name, 'program_type']}
+                      label="程序类型"
+                      rules={[{ required: true, message: '请选择程序类型' }]}
                     >
-                      <Input placeholder="远端 NewAPI 用户名" />
+                      <Select
+                        options={[
+                          { label: 'NewAPI', value: 'newapi' },
+                          { label: 'RixAPI', value: 'rixapi' },
+                          { label: 'ShellAPI', value: 'shellapi' },
+                        ]}
+                      />
                     </Form.Item>
                     <Form.Item
                       name={[field.name, 'billing_mode']}
@@ -158,11 +170,32 @@ export function InstanceBatchModal({
                       />
                     </Form.Item>
                     <Form.Item
+                      name={[field.name, 'username']}
+                      label="用户名"
+                      extra="账密登录时填写。"
+                    >
+                      <Input placeholder="远端站点用户名" />
+                    </Form.Item>
+                    <Form.Item
                       name={[field.name, 'password']}
                       label="密码"
-                      rules={mode === 'create' ? [{ required: true, message: '请输入密码' }] : undefined}
+                      extra={mode === 'create' ? '账密登录时填写。' : '留空则保持现有密码。'}
                     >
-                      <Input.Password placeholder={mode === 'create' ? '远端 NewAPI 密码' : '留空则保持现有密码'} />
+                      <Input.Password placeholder={mode === 'create' ? '远端站点密码' : '留空则保持现有密码'} />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'remote_user_id']}
+                      label="远端用户 ID"
+                      extra="ID + 密钥模式时填写。"
+                    >
+                      <InputNumber style={{ width: '100%' }} min={1} precision={0} placeholder="例如：11766" />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'access_token']}
+                      label="访问密钥"
+                      extra={mode === 'create' ? 'ID + 密钥模式时填写。' : '留空则保持现有访问密钥。'}
+                    >
+                      <Input.Password placeholder={mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥'} />
                     </Form.Item>
                     <Form.Item name={[field.name, 'tags']} label="标签">
                       <Select

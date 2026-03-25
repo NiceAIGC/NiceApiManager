@@ -49,6 +49,7 @@ export interface Instance {
   id: number;
   name: string;
   base_url: string;
+  program_type: 'newapi' | 'rixapi' | 'shellapi';
   username: string;
   enabled: boolean;
   billing_mode: 'prepaid' | 'postpaid';
@@ -67,6 +68,7 @@ export interface Instance {
   created_at: string;
   updated_at: string;
   remote_user_id?: number | null;
+  has_access_token: boolean;
   session_expires_at?: string | null;
 }
 
@@ -78,8 +80,11 @@ export interface InstanceListResponse {
 export interface InstanceCreatePayload {
   name: string;
   base_url: string;
+  program_type: 'newapi' | 'rixapi' | 'shellapi';
   username: string;
-  password: string;
+  password?: string;
+  remote_user_id?: number | null;
+  access_token?: string;
   enabled: boolean;
   billing_mode: 'prepaid' | 'postpaid';
   tags: string[];
@@ -88,8 +93,11 @@ export interface InstanceCreatePayload {
 export interface InstanceUpdatePayload {
   name: string;
   base_url: string;
+  program_type: 'newapi' | 'rixapi' | 'shellapi';
   username: string;
   password?: string;
+  remote_user_id?: number | null;
+  access_token?: string;
   enabled: boolean;
   billing_mode: 'prepaid' | 'postpaid';
   tags: string[];
@@ -102,6 +110,7 @@ export interface BatchInstanceUpdatePayload extends InstanceUpdatePayload {
 export interface InstanceTestResponse {
   success: boolean;
   instance_id: number;
+  program_type: 'newapi' | 'rixapi' | 'shellapi';
   remote_user_id: number;
   remote_username: string;
   remote_group?: string | null;
