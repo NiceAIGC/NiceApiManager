@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from datetime import date, datetime, time, timedelta, timezone
 
@@ -11,23 +12,23 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.clients.newapi import NewAPIClient, NewAPIClientError, NewAPISessionData, detect_program_type
-from app.core.config import get_settings
+from app.core.database import SessionLocal, is_sqlite_locked_error
 from app.core.time import utcnow
 from app.models import DailyUsageStat, GroupRatio, Instance, InstanceSession, PricingModel, SyncRun, UserSnapshot
 from app.schemas.instance import InstanceTestResponse
 from app.schemas.sync_run import BulkSyncInstanceResult, BulkSyncResponse
+from app.services.app_setting_service import RuntimeAppSettings, get_runtime_app_settings
 from app.services.snapshot_metrics import quota_to_display_amount, resolve_timezone, uses_postpaid_billing
 
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
-HISTORY_LOOKBACK_DAYS = 30
 
 
 def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestResponse:
     """Validate login and read-only endpoints for one configured instance."""
     try:
-        client, status_data = _prepare_instance_client(instance)
+        runtime_settings = get_runtime_app_settings(db)
+        client, status_data = _prepare_instance_client(instance, runtime_settings)
         session_data = _ensure_session(db, instance, client)
         user_data = client.get_user_self(
             session_data.remote_user_id,
@@ -96,7 +97,8 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
     db.refresh(sync_run)
 
     try:
-        client, status_data = _prepare_instance_client(instance)
+        runtime_settings = get_runtime_app_settings(db)
+        client, status_data = _prepare_instance_client(instance, runtime_settings)
         session_data = _ensure_session(db, instance, client)
         user_data = client.get_user_self(
             session_data.remote_user_id,
@@ -125,6 +127,7 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
             client=client,
             session_data=session_data,
             synced_at=snapshot_at,
+            runtime_settings=runtime_settings,
         )
 
         finished_at = utcnow()
@@ -135,7 +138,7 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
             "quota": int(user_data.get("quota", 0)),
             "used_quota": int(user_data.get("used_quota", 0)),
             "request_count": int(user_data.get("request_count", 0)),
-            "history_days": HISTORY_LOOKBACK_DAYS,
+            "history_days": runtime_settings.sync_history_lookback_days,
             "history_source": history_source,
         }
         if history_warning:
@@ -180,45 +183,100 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
         raise
 
 
-def sync_all_instances(db: Session) -> BulkSyncResponse:
-    """Run manual sync sequentially for every enabled instance."""
-    instances = db.scalars(
-        select(Instance).where(Instance.enabled.is_(True)).order_by(Instance.id.asc())
-    ).all()
+def sync_all_instances(db: Session, instance_ids: list[int] | None = None) -> BulkSyncResponse:
+    """Run manual sync against all enabled instances with configurable concurrency."""
+    runtime_settings = get_runtime_app_settings(db)
+    normalized_ids = list(dict.fromkeys(instance_ids or []))
+    stmt = select(Instance.id, Instance.name).where(Instance.enabled.is_(True))
+    if normalized_ids:
+        stmt = stmt.where(Instance.id.in_(normalized_ids))
 
-    results: list[BulkSyncInstanceResult] = []
-    success_count = 0
-    failed_count = 0
+    instances = db.execute(stmt.order_by(Instance.id.asc())).all()
+    max_workers = min(runtime_settings.sync_max_workers, len(instances)) if instances else runtime_settings.sync_max_workers
 
-    for instance in instances:
-        try:
-            sync_run = sync_single_instance(db, instance, trigger_type="manual")
-            results.append(
-                BulkSyncInstanceResult(
-                    instance_id=instance.id,
-                    instance_name=instance.name,
-                    status="success",
-                    sync_run_id=sync_run.id,
-                )
-            )
-            success_count += 1
-        except HTTPException as exc:
-            results.append(
-                BulkSyncInstanceResult(
-                    instance_id=instance.id,
-                    instance_name=instance.name,
-                    status="failed",
-                    error_message=str(exc.detail),
-                )
-            )
-            failed_count += 1
+    if not instances:
+        return BulkSyncResponse(
+            total=0,
+            max_workers=max_workers,
+            success_count=0,
+            failed_count=0,
+            items=[],
+        )
+
+    results_by_instance_id: dict[int, BulkSyncInstanceResult] = {}
+
+    if max_workers == 1:
+        for instance_id, instance_name in instances:
+            results_by_instance_id[instance_id] = _sync_instance_in_worker(instance_id, instance_name)
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="sync-all") as executor:
+            futures = {
+                executor.submit(_sync_instance_in_worker, instance_id, instance_name): (instance_id, instance_name)
+                for instance_id, instance_name in instances
+            }
+            for future in as_completed(futures):
+                instance_id, instance_name = futures[future]
+                try:
+                    results_by_instance_id[instance_id] = future.result()
+                except Exception as exc:  # pragma: no cover - defensive safety net
+                    logger.exception("Unexpected bulk sync worker failure for instance %s", instance_id)
+                    results_by_instance_id[instance_id] = BulkSyncInstanceResult(
+                        instance_id=instance_id,
+                        instance_name=instance_name,
+                        status="failed",
+                        error_message=str(exc),
+                    )
+
+    results = [results_by_instance_id[instance_id] for instance_id, _ in instances]
+    success_count = sum(1 for result in results if result.status == "success")
+    failed_count = len(results) - success_count
 
     return BulkSyncResponse(
         total=len(results),
+        max_workers=max_workers,
         success_count=success_count,
         failed_count=failed_count,
         items=results,
     )
+
+
+def _sync_instance_in_worker(instance_id: int, instance_name: str) -> BulkSyncInstanceResult:
+    """Run one sync inside its own DB session so bulk sync can parallelize safely."""
+    with SessionLocal() as db:
+        instance = db.scalar(select(Instance).where(Instance.id == instance_id))
+        if instance is None:
+            return BulkSyncInstanceResult(
+                instance_id=instance_id,
+                instance_name=instance_name,
+                status="failed",
+                error_message="实例不存在或已被删除。",
+            )
+
+        try:
+            sync_run = sync_single_instance(db, instance=instance, trigger_type="manual")
+            return BulkSyncInstanceResult(
+                instance_id=instance_id,
+                instance_name=instance_name,
+                status="success",
+                sync_run_id=sync_run.id,
+            )
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+            return BulkSyncInstanceResult(
+                instance_id=instance_id,
+                instance_name=instance_name,
+                status="failed",
+                error_message=detail,
+            )
+        except Exception as exc:  # pragma: no cover - worker-level safety net
+            db.rollback()
+            logger.exception("Bulk sync failed for instance %s", instance_id)
+            return BulkSyncInstanceResult(
+                instance_id=instance_id,
+                instance_name=instance_name,
+                status="failed",
+                error_message="本地数据库正忙，请稍后重试。" if is_sqlite_locked_error(exc) else str(exc),
+            )
 
 
 def _ensure_session(
@@ -315,13 +373,16 @@ def _try_access_token_session(
     )
 
 
-def _prepare_instance_client(instance: Instance) -> tuple[NewAPIClient, dict[str, object]]:
+def _prepare_instance_client(
+    instance: Instance,
+    runtime_settings: RuntimeAppSettings,
+) -> tuple[NewAPIClient, dict[str, object]]:
     """Build a client and auto-correct the configured program type from `/api/status`."""
     client = NewAPIClient(
         base_url=instance.base_url,
         program_type=instance.program_type,
-        timeout=settings.request_timeout,
-        verify=settings.sync_verify_ssl,
+        timeout=runtime_settings.request_timeout,
+        verify=runtime_settings.sync_verify_ssl,
     )
     status_data = client.get_status()
     detected_program_type = detect_program_type(status_data, instance.program_type)
@@ -438,11 +499,12 @@ def _sync_recent_daily_usage(
     client: NewAPIClient,
     session_data: NewAPISessionData,
     synced_at: datetime,
+    runtime_settings: RuntimeAppSettings,
 ) -> tuple[str, str | None]:
     """Refresh recent daily usage totals from remote consumption logs."""
-    tzinfo = resolve_timezone(settings.scheduler_timezone)
+    tzinfo = resolve_timezone(runtime_settings.scheduler_timezone)
     today_local = synced_at.replace(tzinfo=timezone.utc).astimezone(tzinfo).date()
-    start_date = today_local - timedelta(days=HISTORY_LOOKBACK_DAYS - 1)
+    start_date = today_local - timedelta(days=runtime_settings.sync_history_lookback_days - 1)
     start_at_utc = datetime.combine(start_date, time.min, tzinfo=tzinfo).astimezone(timezone.utc)
     end_at_utc = datetime.combine(today_local + timedelta(days=1), time.min, tzinfo=tzinfo).astimezone(timezone.utc)
     aggregated = {

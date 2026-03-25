@@ -1,5 +1,7 @@
 """Dashboard response schemas."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Literal
 
@@ -54,6 +56,25 @@ class DashboardTrendPoint(BaseModel):
     label: str
     used_display_amount: float
     request_count: int
+    breakdown: list["DashboardTrendBreakdownItem"]
+
+
+class DashboardTrendBreakdownItem(BaseModel):
+    """One stacked segment inside a dashboard trend bar."""
+
+    key: str
+    instance_id: int | None = None
+    instance_name: str
+    used_display_amount: float
+
+
+class DashboardTrendSeriesItem(BaseModel):
+    """Legend metadata for dashboard trend stacks."""
+
+    key: str
+    instance_id: int | None = None
+    instance_name: str
+    total_used_display_amount: float
 
 
 class DashboardTrendResponse(BaseModel):
@@ -62,4 +83,5 @@ class DashboardTrendResponse(BaseModel):
     days: int
     start_date: str
     end_date: str
+    series: list[DashboardTrendSeriesItem]
     points: list[DashboardTrendPoint]

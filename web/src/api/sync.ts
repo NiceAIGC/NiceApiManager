@@ -1,4 +1,4 @@
-import type { BulkSyncResponse, SyncRunListResponse } from '../types/api';
+import type { BulkSyncPayload, BulkSyncResponse, SyncRunListResponse } from '../types/api';
 import { apiClient } from './client';
 
 export interface SyncRunsQuery {
@@ -7,8 +7,9 @@ export interface SyncRunsQuery {
   limit: number;
 }
 
-export async function syncAllInstances(): Promise<BulkSyncResponse> {
-  const { data } = await apiClient.post<BulkSyncResponse>('/sync/all');
+export async function syncAllInstances(instanceIds?: number[]): Promise<BulkSyncResponse> {
+  const payload: BulkSyncPayload | undefined = instanceIds?.length ? { instance_ids: instanceIds } : undefined;
+  const { data } = await apiClient.post<BulkSyncResponse>('/sync/all', payload);
   return data;
 }
 
@@ -16,4 +17,3 @@ export async function fetchSyncRuns(params: SyncRunsQuery): Promise<SyncRunListR
   const { data } = await apiClient.get<SyncRunListResponse>('/sync-runs', { params });
   return data;
 }
-

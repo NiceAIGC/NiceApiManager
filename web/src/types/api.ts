@@ -38,12 +38,28 @@ export interface DashboardTrendPoint {
   label: string;
   used_display_amount: number;
   request_count: number;
+  breakdown: DashboardTrendBreakdownItem[];
+}
+
+export interface DashboardTrendBreakdownItem {
+  key: string;
+  instance_id?: number | null;
+  instance_name: string;
+  used_display_amount: number;
+}
+
+export interface DashboardTrendSeriesItem {
+  key: string;
+  instance_id?: number | null;
+  instance_name: string;
+  total_used_display_amount: number;
 }
 
 export interface DashboardTrendResponse {
   days: number;
   start_date: string;
   end_date: string;
+  series: DashboardTrendSeriesItem[];
   points: DashboardTrendPoint[];
 }
 
@@ -51,6 +67,7 @@ export interface DashboardTrendQuery extends InstanceQuery {
   days?: number;
   start_date?: string;
   end_date?: string;
+  breakdown_limit?: number;
 }
 
 export interface Instance {

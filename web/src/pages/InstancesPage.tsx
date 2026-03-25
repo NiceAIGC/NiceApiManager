@@ -35,11 +35,12 @@ import {
   updateInstance,
   updateInstancesBatch,
 } from '../api/instances';
+import { syncAllInstances } from '../api/sync';
 import { InstanceBatchModal } from '../components/InstanceBatchModal';
 import { InstanceCreateModal } from '../components/InstanceCreateModal';
 import { StatCard } from '../components/StatCard';
 import { StatusTag } from '../components/StatusTag';
-import { SyncProgressModal, type SyncProgressItem } from '../components/SyncProgressModal';
+import { SyncProgressModal, type SyncProgressItem, type SyncProgressStatus } from '../components/SyncProgressModal';
 import type {
   BatchInstanceUpdatePayload,
   Instance,
@@ -81,6 +82,10 @@ const INITIAL_SYNC_PROGRESS: SyncProgressState = {
   currentName: null,
   items: [],
 };
+
+function normalizeSyncStatus(status?: string): SyncProgressStatus {
+  return status === 'success' || status === 'failed' || status === 'running' ? status : 'pending';
+}
 
 function getBalanceBadgeClass(value?: number | null) {
   if (value == null) {
@@ -353,58 +358,44 @@ export function InstancesPage() {
       })),
     });
 
-    let successCount = 0;
-    let failedCount = 0;
+    try {
+      const result = await syncAllInstances(syncTargets.map((item) => item.id));
+      const resultMap = new Map(result.items.map((item) => [item.instance_id, item]));
 
-    for (let index = 0; index < syncTargets.length; index += 1) {
-      const target = syncTargets[index];
+      setSyncProgress({
+        open: true,
+        running: false,
+        total: result.total,
+        completed: result.total,
+        successCount: result.success_count,
+        failedCount: result.failed_count,
+        currentName: null,
+        items: syncTargets.map((item) => {
+          const current = resultMap.get(item.id);
+          return {
+            key: item.id,
+            name: item.name,
+            status: normalizeSyncStatus(current?.status),
+            errorMessage: current?.error_message ?? null,
+          };
+        }),
+      });
+
+      await refreshAllData();
+
+      if (result.failed_count) {
+        message.warning(`同步完成：成功 ${result.success_count}，失败 ${result.failed_count}，并发 ${result.max_workers}`);
+        return;
+      }
+      message.success(`已完成 ${result.success_count} 个实例同步，并发 ${result.max_workers}`);
+    } catch (error) {
       setSyncProgress((current) => ({
         ...current,
-        currentName: target.name,
-        items: current.items.map((item) =>
-          item.key === target.id ? { ...item, status: 'running', errorMessage: null } : item,
-        ),
+        running: false,
+        currentName: null,
       }));
-
-      try {
-        await syncInstance(target.id);
-        successCount += 1;
-        setSyncProgress((current) => ({
-          ...current,
-          completed: index + 1,
-          successCount,
-          failedCount,
-          items: current.items.map((item) => (item.key === target.id ? { ...item, status: 'success' } : item)),
-        }));
-      } catch (error) {
-        failedCount += 1;
-        const errorMessage = getErrorMessage(error);
-        setSyncProgress((current) => ({
-          ...current,
-          completed: index + 1,
-          successCount,
-          failedCount,
-          items: current.items.map((item) =>
-            item.key === target.id ? { ...item, status: 'failed', errorMessage } : item,
-          ),
-        }));
-      }
+      message.error(getErrorMessage(error));
     }
-
-    setSyncProgress((current) => ({
-      ...current,
-      running: false,
-      currentName: null,
-      successCount,
-      failedCount,
-    }));
-    await refreshAllData();
-
-    if (failedCount) {
-      message.warning(`同步完成：成功 ${successCount}，失败 ${failedCount}`);
-      return;
-    }
-    message.success(`已完成 ${successCount} 个实例同步`);
   };
 
   const columns = useMemo(

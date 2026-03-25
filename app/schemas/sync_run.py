@@ -47,11 +47,17 @@ class BulkSyncInstanceResult(BaseModel):
     error_message: str | None = None
 
 
+class BulkSyncRequest(BaseModel):
+    """Optional input used to scope a bulk sync to selected instances."""
+
+    instance_ids: list[int] | None = None
+
+
 class BulkSyncResponse(BaseModel):
     """Summary returned after manual sync-all."""
 
     total: int
+    max_workers: int
     success_count: int
     failed_count: int
     items: list[BulkSyncInstanceResult]
-

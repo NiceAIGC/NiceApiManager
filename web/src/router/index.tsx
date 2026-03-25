@@ -6,6 +6,7 @@ import { GroupsPage } from '../pages/GroupsPage';
 import { InstancesPage } from '../pages/InstancesPage';
 import { LoginPage } from '../pages/LoginPage';
 import { PricingPage } from '../pages/PricingPage';
+import { SettingsPage } from '../pages/SettingsPage';
 import { SyncRunsPage } from '../pages/SyncRunsPage';
 import { RequireAuth } from './RequireAuth';
 
@@ -44,6 +45,10 @@ export const router = createBrowserRouter([
           {
             path: 'sync-runs',
             element: <SyncRunsPage />,
+          },
+          {
+            path: 'settings',
+            element: <SettingsPage />,
           },
         ],
       },

@@ -4,7 +4,6 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.config import get_settings
 from app.models import Instance
 from app.models.user_snapshot import UserSnapshot
 from app.schemas.instance import (
@@ -16,11 +15,9 @@ from app.schemas.instance import (
     InstanceResponse,
     InstanceUpdate,
 )
+from app.services.app_setting_service import get_runtime_app_settings
 from app.services.instance_filters import apply_instance_filters, normalize_base_url
 from app.services.snapshot_metrics import current_day_start_utc, quota_to_display_amount, today_request_count, uses_postpaid_billing
-
-
-settings = get_settings()
 
 
 def _normalize_tags(tags: list[str] | None) -> list[str]:
@@ -116,8 +113,12 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
     for instance in instances:
         db.refresh(instance)
 
-    day_start_utc = current_day_start_utc(settings.scheduler_timezone)
-    items = [_instance_to_response(db, instance, day_start_utc=day_start_utc) for instance in instances]
+    scheduler_timezone = get_runtime_app_settings(db).scheduler_timezone
+    day_start_utc = current_day_start_utc(scheduler_timezone)
+    items = [
+        _instance_to_response(db, instance, day_start_utc=day_start_utc, scheduler_timezone=scheduler_timezone)
+        for instance in instances
+    ]
     return BatchInstanceResponse(count=len(items), items=items)
 
 
@@ -247,8 +248,12 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         .where(Instance.id.in_(ids))
         .order_by(Instance.id.asc())
     ).all()
-    day_start_utc = current_day_start_utc(settings.scheduler_timezone)
-    items = [_instance_to_response(db, instance, day_start_utc=day_start_utc) for instance in refreshed_instances]
+    scheduler_timezone = get_runtime_app_settings(db).scheduler_timezone
+    day_start_utc = current_day_start_utc(scheduler_timezone)
+    items = [
+        _instance_to_response(db, instance, day_start_utc=day_start_utc, scheduler_timezone=scheduler_timezone)
+        for instance in refreshed_instances
+    ]
     return BatchInstanceResponse(count=len(items), items=items)
 
 
@@ -317,9 +322,13 @@ def list_instances(
             health_status=health_status,
         )
     ).all()
-    day_start_utc = current_day_start_utc(settings.scheduler_timezone)
+    scheduler_timezone = get_runtime_app_settings(db).scheduler_timezone
+    day_start_utc = current_day_start_utc(scheduler_timezone)
 
-    items = [_instance_to_response(db, instance, day_start_utc=day_start_utc) for instance in instances]
+    items = [
+        _instance_to_response(db, instance, day_start_utc=day_start_utc, scheduler_timezone=scheduler_timezone)
+        for instance in instances
+    ]
 
     return InstanceListResponse(total=len(items), items=items)
 
@@ -329,6 +338,7 @@ def _instance_to_response(
     instance: Instance,
     *,
     day_start_utc,
+    scheduler_timezone: str,
 ) -> InstanceResponse:
     """Convert one ORM instance into the API response shape."""
     latest_snapshot = db.scalars(
@@ -366,7 +376,7 @@ def _instance_to_response(
                 instance.id,
                 latest_snapshot,
                 day_start_utc,
-                settings.scheduler_timezone,
+                scheduler_timezone,
             ),
             "remote_user_id": instance.session.remote_user_id if instance.session else instance.remote_user_id,
             "has_access_token": bool(instance.access_token),

@@ -30,11 +30,16 @@ a {
 
 .app-shell {
   min-height: 100vh;
+  align-items: flex-start;
 }
 
 .app-sider {
   background: #001529 !important;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
+  position: sticky !important;
+  top: 0;
+  height: 100vh;
+  overflow: auto;
 }
 
 .brand-block {
@@ -75,6 +80,7 @@ a {
 
 .page-content {
   padding: 24px;
+  min-width: 0;
 }
 
 .page-title {
@@ -174,6 +180,186 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
   margin-top: 16px;
+}
+
+.stacked-usage-chart-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stacked-usage-chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stacked-usage-chart-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.stacked-usage-chart-legend {
+  display: flex;
+}
+
+.stacked-usage-chart-layout {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 420px;
+}
+
+.stacked-usage-chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px 0 28px;
+}
+
+.stacked-usage-chart-axis-label {
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.stacked-usage-chart-scroll {
+  position: relative;
+  min-height: 420px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.stacked-usage-chart-grid {
+  position: absolute;
+  inset: 40px 0 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.stacked-usage-chart-grid-line {
+  border-top: 1px solid #f0f0f0;
+}
+
+.stacked-usage-chart-bars {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
+  align-items: end;
+  gap: 12px;
+  min-height: 420px;
+  padding: 0 0 28px;
+}
+
+.stacked-usage-chart-bar-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stacked-usage-chart-bar-total {
+  min-height: 32px;
+  color: #595959;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.stacked-usage-chart-bar-shell {
+  display: flex;
+  align-items: end;
+  width: 100%;
+  height: 320px;
+}
+
+.stacked-usage-chart-bar-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+}
+
+.stacked-usage-chart-segment {
+  width: 100%;
+  min-height: 0;
+}
+
+.stacked-usage-chart-bar-label {
+  min-height: 18px;
+  color: #8c8c8c;
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.instance-overview-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.instance-overview-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.instance-overview-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.instance-overview-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.instance-overview-track,
+.instance-overview-status-track {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.instance-overview-bar {
+  display: flex;
+  min-height: 16px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #f5f5f5;
+}
+
+.instance-overview-bar-used {
+  background: #1677ff;
+}
+
+.instance-overview-bar-remaining {
+  background: #b7eb8f;
+}
+
+.instance-overview-values {
+  color: #595959;
+  font-size: 13px;
+}
+
+.instance-overview-status-fill {
+  min-height: 16px;
+  border-radius: 999px;
 }
 
 .chart-card {
@@ -471,5 +657,18 @@ a {
 
   .classic-chart-bars {
     gap: 8px;
+  }
+
+  .stacked-usage-chart-layout {
+    grid-template-columns: 60px minmax(0, 1fr);
+  }
+
+  .stacked-usage-chart-bar-shell {
+    height: 260px;
+  }
+
+  .instance-overview-meta {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

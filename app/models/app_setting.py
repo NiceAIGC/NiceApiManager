@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Text
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.time import utcnow
@@ -18,6 +18,11 @@ class AppSetting(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     auth_password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sync_max_workers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    request_timeout: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sync_verify_ssl: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    scheduler_timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sync_history_lookback_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -45,6 +45,11 @@ const menuItems = [
     icon: <ReloadOutlined />,
     label: '同步记录',
   },
+  {
+    key: '/settings',
+    icon: <SettingOutlined />,
+    label: '系统设置',
+  },
 ];
 
 export function AppLayout() {
@@ -81,7 +86,7 @@ export function AppLayout() {
       <Sider width={240} className="app-sider" breakpoint="lg" collapsedWidth={0}>
         <div className="brand-block">
           <div className="brand-title">NiceApiManager</div>
-          <div className="brand-subtitle">NewAPI 聚合管理后台</div>
+          <div className="brand-subtitle">中转站聚合管理后台</div>
         </div>
         <Menu
           theme="dark"
@@ -98,7 +103,7 @@ export function AppLayout() {
             <Typography.Title level={4} className="app-header-title">
               {menuItems.find((item) => item.key === location.pathname)?.label || 'NiceApiManager'}
             </Typography.Title>
-            <Text type="secondary">前后端一体部署的 NewAPI 管理台</Text>
+            <Text type="secondary">前后端一体部署的中转站管理台</Text>
           </Space>
           <Space>
             <Button icon={<SettingOutlined />} onClick={() => setPasswordModalOpen(true)}>

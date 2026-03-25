@@ -7,15 +7,17 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.time import utcnow
 from app.models import DailyUsageStat, Instance, UserSnapshot
 from app.schemas.dashboard import (
+    DashboardTrendBreakdownItem,
     DashboardInstanceSummary,
     DashboardOverviewResponse,
     DashboardTrendPoint,
     DashboardTrendResponse,
+    DashboardTrendSeriesItem,
 )
+from app.services.app_setting_service import get_runtime_app_settings
 from app.services.instance_filters import apply_instance_filters
 from app.services.snapshot_metrics import (
     current_day_start_utc,
@@ -24,8 +26,6 @@ from app.services.snapshot_metrics import (
     today_request_count,
     uses_postpaid_billing,
 )
-
-settings = get_settings()
 
 
 def _filtered_instances(
@@ -60,6 +60,7 @@ def build_dashboard_overview(
     health_status: str | None = None,
 ) -> DashboardOverviewResponse:
     """Aggregate latest snapshot values for the filtered instance set."""
+    runtime_settings = get_runtime_app_settings(db)
     instances = _filtered_instances(
         db,
         search=search,
@@ -68,7 +69,7 @@ def build_dashboard_overview(
         enabled=enabled,
         health_status=health_status,
     )
-    day_start_utc = current_day_start_utc(settings.scheduler_timezone)
+    day_start_utc = current_day_start_utc(runtime_settings.scheduler_timezone)
 
     items: list[DashboardInstanceSummary] = []
     total_quota = 0
@@ -117,7 +118,7 @@ def build_dashboard_overview(
             instance.id,
             latest_snapshot,
             day_start_utc,
-            settings.scheduler_timezone,
+            runtime_settings.scheduler_timezone,
         )
         today_request_count_total += instance_today_request_count
 
@@ -179,6 +180,7 @@ def build_dashboard_trends(
     days: int | None = 7,
     start_date: date | None = None,
     end_date: date | None = None,
+    breakdown_limit: int = 8,
     search: str | None = None,
     tags: str | list[str] | None = None,
     billing_mode: str | None = None,
@@ -186,6 +188,7 @@ def build_dashboard_trends(
     health_status: str | None = None,
 ) -> DashboardTrendResponse:
     """Aggregate daily consumption and request-count deltas for charts."""
+    runtime_settings = get_runtime_app_settings(db)
     instances = _filtered_instances(
         db,
         search=search,
@@ -195,7 +198,7 @@ def build_dashboard_trends(
         health_status=health_status,
     )
 
-    tzinfo = resolve_timezone(settings.scheduler_timezone)
+    tzinfo = resolve_timezone(runtime_settings.scheduler_timezone)
 
     today_local = utcnow().replace(tzinfo=timezone.utc).astimezone(tzinfo).date()
     if start_date and end_date:
@@ -227,6 +230,7 @@ def build_dashboard_trends(
             days=0,
             start_date=resolved_start_date.isoformat(),
             end_date=resolved_end_date.isoformat(),
+            series=[],
             points=[],
         )
 
@@ -236,8 +240,12 @@ def build_dashboard_trends(
     last_end_utc = day_windows[-1][4]
     used_amounts = [0.0 for _ in day_windows]
     request_counts = [0 for _ in day_windows]
+    used_breakdown_by_instance: dict[int, list[float]] = {}
+    instance_names: dict[int, str] = {}
 
     for instance in instances:
+        instance_names[instance.id] = instance.name
+        instance_used_amounts = [0.0 for _ in day_windows]
         daily_stats = db.scalars(
             select(DailyUsageStat)
             .where(
@@ -255,6 +263,8 @@ def build_dashboard_trends(
                     continue
                 used_amounts[index] += daily_stat.used_display_amount
                 request_counts[index] += daily_stat.request_count
+                instance_used_amounts[index] += daily_stat.used_display_amount
+            used_breakdown_by_instance[instance.id] = instance_used_amounts
             continue
 
         baseline_snapshot = db.scalars(
@@ -297,20 +307,97 @@ def build_dashboard_trends(
                 else current_snapshot.request_count - previous_requests
             )
 
-            used_amounts[index] += quota_to_display_amount(max(used_delta, 0), instance.quota_per_unit) or 0.0
+            used_amount = quota_to_display_amount(max(used_delta, 0), instance.quota_per_unit) or 0.0
+            used_amounts[index] += used_amount
             request_counts[index] += max(request_delta, 0)
+            instance_used_amounts[index] += used_amount
             previous_snapshot = current_snapshot
+
+        used_breakdown_by_instance[instance.id] = instance_used_amounts
+
+    normalized_breakdown_limit = max(1, min(breakdown_limit, 20))
+    ranked_instances = sorted(
+        (
+            (
+                instance_id,
+                instance_names[instance_id],
+                sum(values),
+            )
+            for instance_id, values in used_breakdown_by_instance.items()
+            if sum(values) > 0
+        ),
+        key=lambda item: item[2],
+        reverse=True,
+    )
+    selected_instances = ranked_instances[:normalized_breakdown_limit]
+    selected_instance_ids = {item[0] for item in selected_instances}
+
+    series = [
+        DashboardTrendSeriesItem(
+            key=str(instance_id),
+            instance_id=instance_id,
+            instance_name=instance_name,
+            total_used_display_amount=total_used_amount,
+        )
+        for instance_id, instance_name, total_used_amount in selected_instances
+    ]
+
+    other_total_used_amount = sum(
+        total_used_amount
+        for instance_id, _, total_used_amount in ranked_instances
+        if instance_id not in selected_instance_ids
+    )
+    if other_total_used_amount > 0:
+        series.append(
+            DashboardTrendSeriesItem(
+                key="others",
+                instance_name="其他实例",
+                total_used_display_amount=other_total_used_amount,
+            )
+        )
 
     return DashboardTrendResponse(
         days=total_days,
         start_date=resolved_start_date.isoformat(),
         end_date=resolved_end_date.isoformat(),
+        series=series,
         points=[
             DashboardTrendPoint(
                 date=date_text,
                 label=label,
                 used_display_amount=used_amounts[index],
                 request_count=request_counts[index],
+                breakdown=[
+                    *[
+                        DashboardTrendBreakdownItem(
+                            key=str(instance_id),
+                            instance_id=instance_id,
+                            instance_name=instance_name,
+                            used_display_amount=used_breakdown_by_instance[instance_id][index],
+                        )
+                        for instance_id, instance_name, _ in selected_instances
+                        if used_breakdown_by_instance[instance_id][index] > 0
+                    ],
+                    *(
+                        [
+                            DashboardTrendBreakdownItem(
+                                key="others",
+                                instance_name="其他实例",
+                                used_display_amount=sum(
+                                    values[index]
+                                    for current_instance_id, values in used_breakdown_by_instance.items()
+                                    if current_instance_id not in selected_instance_ids
+                                ),
+                            )
+                        ]
+                        if any(
+                            values[index] > 0
+                            for current_instance_id, values in used_breakdown_by_instance.items()
+                            if current_instance_id not in selected_instance_ids
+                        )
+                        else []
+                    ),
+                ],
             )
             for index, (_, date_text, label, _, _) in enumerate(day_windows)
         ],
