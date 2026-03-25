@@ -22,6 +22,8 @@ export interface DashboardOverviewResponse {
   enabled_instance_count: number;
   healthy_instance_count: number;
   unhealthy_instance_count: number;
+  prepaid_instance_count: number;
+  postpaid_instance_count: number;
   total_quota: number;
   total_used_quota: number;
   total_display_quota: number;
@@ -29,6 +31,18 @@ export interface DashboardOverviewResponse {
   total_request_count: number;
   today_request_count: number;
   items: DashboardInstanceSummary[];
+}
+
+export interface DashboardTrendPoint {
+  date: string;
+  label: string;
+  used_display_amount: number;
+  request_count: number;
+}
+
+export interface DashboardTrendResponse {
+  days: number;
+  points: DashboardTrendPoint[];
 }
 
 export interface Instance {
@@ -40,6 +54,13 @@ export interface Instance {
   billing_mode: 'prepaid' | 'postpaid';
   tags: string[];
   quota_per_unit?: number | null;
+  latest_group_name?: string | null;
+  latest_quota?: number | null;
+  latest_used_quota?: number | null;
+  latest_display_quota?: number | null;
+  latest_display_used_quota?: number | null;
+  latest_request_count?: number | null;
+  today_request_count: number;
   last_sync_at?: string | null;
   last_health_status: string;
   last_health_error?: string | null;
@@ -185,6 +206,11 @@ export interface AuthStatusResponse {
   session_days: number;
 }
 
+export interface ChangePasswordPayload {
+  current_password: string;
+  new_password: string;
+}
+
 export interface BatchInstanceResponse {
   count: number;
   items: Instance[];
@@ -193,4 +219,12 @@ export interface BatchInstanceResponse {
 export interface BatchInstanceDeleteResponse {
   count: number;
   deleted_ids: number[];
+}
+
+export interface InstanceQuery {
+  search?: string;
+  tags?: string[];
+  billing_mode?: 'prepaid' | 'postpaid';
+  enabled?: boolean;
+  health_status?: string;
 }

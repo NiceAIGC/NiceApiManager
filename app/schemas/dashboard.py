@@ -36,6 +36,8 @@ class DashboardOverviewResponse(BaseModel):
     enabled_instance_count: int
     healthy_instance_count: int
     unhealthy_instance_count: int
+    prepaid_instance_count: int
+    postpaid_instance_count: int
     total_quota: int
     total_used_quota: int
     total_display_quota: float
@@ -43,3 +45,19 @@ class DashboardOverviewResponse(BaseModel):
     total_request_count: int
     today_request_count: int
     items: list[DashboardInstanceSummary]
+
+
+class DashboardTrendPoint(BaseModel):
+    """Aggregated daily totals used by dashboard charts."""
+
+    date: str
+    label: str
+    used_display_amount: float
+    request_count: int
+
+
+class DashboardTrendResponse(BaseModel):
+    """Daily trend series for dashboard charts."""
+
+    days: int
+    points: list[DashboardTrendPoint]

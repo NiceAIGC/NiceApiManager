@@ -1,6 +1,6 @@
 """Authentication request and response schemas."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
@@ -14,3 +14,10 @@ class AuthStatusResponse(BaseModel):
 
     authenticated: bool
     session_days: int
+
+
+class ChangePasswordRequest(BaseModel):
+    """Payload used to change the admin password."""
+
+    current_password: str
+    new_password: str = Field(min_length=6)

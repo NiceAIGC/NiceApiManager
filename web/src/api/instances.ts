@@ -2,22 +2,35 @@ import type {
   BatchInstanceDeleteResponse,
   BatchInstanceResponse,
   BatchInstanceUpdatePayload,
+  Instance,
   InstanceCreatePayload,
+  InstanceQuery,
   InstanceListResponse,
   InstanceTestResponse,
   InstanceUpdatePayload,
 } from '../types/api';
 import { apiClient } from './client';
 
-export async function fetchInstances(tag?: string): Promise<InstanceListResponse> {
+function buildInstanceQueryParams(filters?: InstanceQuery) {
+  if (!filters) {
+    return undefined;
+  }
+
+  return {
+    ...filters,
+    tags: filters.tags?.length ? filters.tags.join(',') : undefined,
+  };
+}
+
+export async function fetchInstances(filters?: InstanceQuery): Promise<InstanceListResponse> {
   const { data } = await apiClient.get<InstanceListResponse>('/instances', {
-    params: tag ? { tag } : undefined,
+    params: buildInstanceQueryParams(filters),
   });
   return data;
 }
 
 export async function createInstance(payload: InstanceCreatePayload) {
-  const { data } = await apiClient.post('/instances', payload);
+  const { data } = await apiClient.post<Instance>('/instances', payload);
   return data;
 }
 
@@ -34,7 +47,7 @@ export async function testInstance(instanceId: number): Promise<InstanceTestResp
 }
 
 export async function updateInstance(instanceId: number, payload: InstanceUpdatePayload) {
-  const { data } = await apiClient.patch(`/instances/${instanceId}`, payload);
+  const { data } = await apiClient.patch<Instance>(`/instances/${instanceId}`, payload);
   return data;
 }
 

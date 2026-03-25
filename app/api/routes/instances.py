@@ -51,16 +51,33 @@ def create_instance_route(
             status_code=status.HTTP_409_CONFLICT,
             detail="Instance name already exists.",
         ) from exc
-    return InstanceResponse.model_validate(instance).model_copy(update={"tags": instance.tags_json or []})
+    return InstanceResponse.model_validate(instance).model_copy(
+        update={
+            "tags": instance.tags_json or [],
+            "billing_mode": instance.billing_mode,
+        }
+    )
 
 
 @router.get("/instances", response_model=InstanceListResponse)
 def list_instances_route(
-    tag: str | None = Query(default=None, description="Filter by one instance tag."),
+    search: str | None = Query(default=None, description="Keyword matched against name, URL, or username."),
+    tag: str | None = Query(default=None, description="Backward-compatible single tag filter."),
+    tags: str | None = Query(default=None, description="Comma-separated tag filter."),
+    billing_mode: str | None = Query(default=None, description="Billing mode filter."),
+    enabled: bool | None = Query(default=None, description="Enabled status filter."),
+    health_status: str | None = Query(default=None, description="Health status filter."),
     db: Session = Depends(get_db),
 ) -> InstanceListResponse:
     """List configured instances with current sync and session metadata."""
-    return list_instances(db, tag=tag)
+    return list_instances(
+        db,
+        search=search,
+        tags=tags or tag,
+        billing_mode=billing_mode,
+        enabled=enabled,
+        health_status=health_status,
+    )
 
 
 @router.post("/instances/batch-create", response_model=BatchInstanceResponse, status_code=status.HTTP_201_CREATED)

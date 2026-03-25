@@ -1,4 +1,4 @@
-import type { AuthStatusResponse } from '../types/api';
+import type { AuthStatusResponse, ChangePasswordPayload } from '../types/api';
 import { apiClient } from './client';
 
 export async function fetchAuthStatus(): Promise<AuthStatusResponse> {
@@ -13,5 +13,10 @@ export async function login(password: string): Promise<AuthStatusResponse> {
 
 export async function logout(): Promise<AuthStatusResponse> {
   const { data } = await apiClient.post<AuthStatusResponse>('/auth/logout');
+  return data;
+}
+
+export async function changePassword(payload: ChangePasswordPayload): Promise<AuthStatusResponse> {
+  const { data } = await apiClient.post<AuthStatusResponse>('/auth/change-password', payload);
   return data;
 }

@@ -43,6 +43,13 @@ class InstanceResponse(BaseModel):
     billing_mode: Literal["prepaid", "postpaid"]
     tags: list[str] = Field(default_factory=list)
     quota_per_unit: float | None = None
+    latest_group_name: str | None = None
+    latest_quota: int | None = None
+    latest_used_quota: int | None = None
+    latest_display_quota: float | None = None
+    latest_display_used_quota: float | None = None
+    latest_request_count: int | None = None
+    today_request_count: int = 0
     last_sync_at: datetime | None = None
     last_health_status: str
     last_health_error: str | None = None

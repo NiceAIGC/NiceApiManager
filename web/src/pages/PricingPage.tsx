@@ -16,7 +16,7 @@ export function PricingPage() {
 
   const { data: instanceData } = useQuery({
     queryKey: ['instances', tag],
-    queryFn: () => fetchInstances(tag),
+    queryFn: () => fetchInstances(tag ? { tags: [tag] } : undefined),
   });
 
   const { data, isLoading } = useQuery({

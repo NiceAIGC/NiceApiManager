@@ -3,6 +3,7 @@ import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useEffect } from 'react';
 
 import type { BatchInstanceUpdatePayload, Instance, InstanceCreatePayload } from '../types/api';
+import { normalizeBaseUrl, normalizeInstancePayload } from '../utils/instance';
 
 interface BatchFormValues {
   items: Array<InstanceCreatePayload | BatchInstanceUpdatePayload>;
@@ -13,6 +14,7 @@ interface InstanceBatchModalProps {
   loading: boolean;
   mode: 'create' | 'edit';
   initialItems?: Instance[];
+  tagOptions?: Array<{ label: string; value: string }>;
   onCancel: () => void;
   onSubmit: (items: Array<InstanceCreatePayload | BatchInstanceUpdatePayload>) => void;
 }
@@ -34,6 +36,7 @@ export function InstanceBatchModal({
   loading,
   mode,
   initialItems,
+  tagOptions,
   onCancel,
   onSubmit,
 }: InstanceBatchModalProps) {
@@ -79,7 +82,7 @@ export function InstanceBatchModal({
       <Form
         form={form}
         layout="vertical"
-        onFinish={(values) => onSubmit(values.items)}
+        onFinish={(values) => onSubmit(values.items.map((item) => normalizeInstancePayload(item)))}
       >
         <Form.List name="items">
           {(fields, { add, remove }) => (
@@ -125,7 +128,15 @@ export function InstanceBatchModal({
                         { type: 'url', message: '请输入合法的 URL' },
                       ]}
                     >
-                      <Input placeholder="https://example.com" />
+                      <Input
+                        placeholder="https://example.com"
+                        onBlur={(event) => {
+                          form.setFieldValue(
+                            ['items', field.name, 'base_url'],
+                            normalizeBaseUrl(event.target.value),
+                          );
+                        }}
+                      />
                     </Form.Item>
                     <Form.Item
                       name={[field.name, 'username']}
@@ -156,8 +167,9 @@ export function InstanceBatchModal({
                     <Form.Item name={[field.name, 'tags']} label="标签">
                       <Select
                         mode="tags"
+                        options={tagOptions}
                         tokenSeparators={[',']}
-                        placeholder="输入标签后回车"
+                        placeholder="可直接选择已有标签，也可输入新标签"
                       />
                     </Form.Item>
                     <Form.Item name={[field.name, 'enabled']} label="启用状态" valuePropName="checked">

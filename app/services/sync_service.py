@@ -15,15 +15,11 @@ from app.core.time import utcnow
 from app.models import GroupRatio, Instance, InstanceSession, PricingModel, SyncRun, UserSnapshot
 from app.schemas.instance import InstanceTestResponse
 from app.schemas.sync_run import BulkSyncInstanceResult, BulkSyncResponse
+from app.services.snapshot_metrics import quota_to_display_amount, uses_postpaid_billing
 
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-
-
-def _uses_postpaid_billing(instance: Instance) -> bool:
-    """Return whether the instance is configured for postpaid billing."""
-    return instance.billing_mode == "postpaid"
 
 
 def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestResponse:
@@ -65,10 +61,10 @@ def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestR
         used_quota=int(user_data.get("used_quota", 0)),
         display_quota=(
             None
-            if _uses_postpaid_billing(instance)
-            else _display_amount(user_data.get("quota"), instance.quota_per_unit)
+            if uses_postpaid_billing(instance)
+            else quota_to_display_amount(int(user_data.get("quota", 0)), instance.quota_per_unit)
         ),
-        display_used_quota=_display_amount(user_data.get("used_quota"), instance.quota_per_unit),
+        display_used_quota=quota_to_display_amount(int(user_data.get("used_quota", 0)), instance.quota_per_unit),
         quota_per_unit=instance.quota_per_unit,
         request_count=int(user_data.get("request_count", 0)),
         group_count=len(group_data),
@@ -347,14 +343,3 @@ def _extract_quota_per_unit(status_data: dict[str, object]) -> float | None:
         return None
 
     return parsed if parsed > 0 else None
-
-
-def _display_amount(quota: object, quota_per_unit: float | None) -> float | None:
-    """Convert internal quota units into the displayed money amount."""
-    if quota_per_unit is None or quota_per_unit <= 0:
-        return None
-
-    try:
-        return int(quota or 0) / quota_per_unit
-    except (TypeError, ValueError):
-        return None

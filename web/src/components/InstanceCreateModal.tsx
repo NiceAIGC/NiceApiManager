@@ -2,12 +2,14 @@ import { Modal, Form, Input, Select, Switch } from 'antd';
 import { useEffect } from 'react';
 
 import type { Instance, InstanceCreatePayload, InstanceUpdatePayload } from '../types/api';
+import { normalizeBaseUrl, normalizeInstancePayload } from '../utils/instance';
 
 interface InstanceCreateModalProps {
   open: boolean;
   loading: boolean;
   mode: 'create' | 'edit';
   initialValues?: Instance | null;
+  tagOptions?: Array<{ label: string; value: string }>;
   onCancel: () => void;
   onSubmit: (values: InstanceCreatePayload | InstanceUpdatePayload) => void;
 }
@@ -17,6 +19,7 @@ export function InstanceCreateModal({
   loading,
   mode,
   initialValues,
+  tagOptions,
   onCancel,
   onSubmit,
 }: InstanceCreateModalProps) {
@@ -52,7 +55,7 @@ export function InstanceCreateModal({
       <Form
         form={form}
         layout="vertical"
-        onFinish={(values) => onSubmit(values)}
+        onFinish={(values) => onSubmit(normalizeInstancePayload(values))}
       >
         <Form.Item
           name="name"
@@ -69,7 +72,12 @@ export function InstanceCreateModal({
             { type: 'url', message: '请输入合法的 URL' },
           ]}
         >
-          <Input placeholder="https://example.com" />
+          <Input
+            placeholder="https://example.com"
+            onBlur={(event) => {
+              form.setFieldValue('base_url', normalizeBaseUrl(event.target.value));
+            }}
+          />
         </Form.Item>
         <Form.Item
           name="username"
@@ -104,8 +112,9 @@ export function InstanceCreateModal({
         >
           <Select
             mode="tags"
+            options={tagOptions}
             tokenSeparators={[',']}
-            placeholder="输入标签后回车，例如：production"
+            placeholder="可直接选择已有标签，也可输入新标签"
           />
         </Form.Item>
         <Form.Item name="enabled" label="启用状态" valuePropName="checked">

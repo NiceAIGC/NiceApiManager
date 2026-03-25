@@ -5,12 +5,16 @@ import {
   LogoutOutlined,
   PartitionOutlined,
   ReloadOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { App, Button, Layout, Menu, Space, Typography } from 'antd';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
-import { logout } from '../api/auth';
+import { changePassword, logout } from '../api/auth';
+import { getErrorMessage } from '../api/client';
+import { ChangePasswordModal } from '../components/ChangePasswordModal';
 
 const { Header, Content, Sider } = Layout;
 const { Text } = Typography;
@@ -48,6 +52,7 @@ export function AppLayout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { message } = App.useApp();
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
 
   const logoutMutation = useMutation({
     mutationFn: logout,
@@ -57,6 +62,17 @@ export function AppLayout() {
     },
     onError: () => {
       message.error('退出登录失败，请稍后重试。');
+    },
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: changePassword,
+    onSuccess: () => {
+      setPasswordModalOpen(false);
+      message.success('登录密码修改成功');
+    },
+    onError: (error) => {
+      message.error(getErrorMessage(error));
     },
   });
 
@@ -84,18 +100,29 @@ export function AppLayout() {
             </Typography.Title>
             <Text type="secondary">前后端一体部署的 NewAPI 管理台</Text>
           </Space>
-          <Button
-            icon={<LogoutOutlined />}
-            loading={logoutMutation.isPending}
-            onClick={() => logoutMutation.mutate()}
-          >
-            退出登录
-          </Button>
+          <Space>
+            <Button icon={<SettingOutlined />} onClick={() => setPasswordModalOpen(true)}>
+              修改密码
+            </Button>
+            <Button
+              icon={<LogoutOutlined />}
+              loading={logoutMutation.isPending}
+              onClick={() => logoutMutation.mutate()}
+            >
+              退出登录
+            </Button>
+          </Space>
         </Header>
         <Content className="page-content">
           <Outlet />
         </Content>
       </Layout>
+      <ChangePasswordModal
+        open={passwordModalOpen}
+        loading={changePasswordMutation.isPending}
+        onCancel={() => setPasswordModalOpen(false)}
+        onSubmit={(values) => changePasswordMutation.mutate(values)}
+      />
     </Layout>
   );
 }
