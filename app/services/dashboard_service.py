@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.time import utcnow
 from app.models import DailyUsageStat, Instance, UserSnapshot
 from app.schemas.dashboard import (
@@ -15,7 +16,6 @@ from app.schemas.dashboard import (
     DashboardTrendPoint,
     DashboardTrendResponse,
 )
-from app.services.app_setting_service import get_runtime_app_settings
 from app.services.instance_filters import apply_instance_filters
 from app.services.snapshot_metrics import (
     current_day_start_utc,
@@ -24,6 +24,8 @@ from app.services.snapshot_metrics import (
     today_request_count,
     uses_postpaid_billing,
 )
+
+settings = get_settings()
 
 
 def _filtered_instances(
@@ -58,7 +60,6 @@ def build_dashboard_overview(
     health_status: str | None = None,
 ) -> DashboardOverviewResponse:
     """Aggregate latest snapshot values for the filtered instance set."""
-    runtime_settings = get_runtime_app_settings(db)
     instances = _filtered_instances(
         db,
         search=search,
@@ -67,7 +68,7 @@ def build_dashboard_overview(
         enabled=enabled,
         health_status=health_status,
     )
-    day_start_utc = current_day_start_utc(runtime_settings.scheduler_timezone)
+    day_start_utc = current_day_start_utc(settings.scheduler_timezone)
 
     items: list[DashboardInstanceSummary] = []
     total_quota = 0
@@ -116,7 +117,7 @@ def build_dashboard_overview(
             instance.id,
             latest_snapshot,
             day_start_utc,
-            runtime_settings.scheduler_timezone,
+            settings.scheduler_timezone,
         )
         today_request_count_total += instance_today_request_count
 
@@ -185,7 +186,6 @@ def build_dashboard_trends(
     health_status: str | None = None,
 ) -> DashboardTrendResponse:
     """Aggregate daily consumption and request-count deltas for charts."""
-    runtime_settings = get_runtime_app_settings(db)
     instances = _filtered_instances(
         db,
         search=search,
@@ -195,7 +195,7 @@ def build_dashboard_trends(
         health_status=health_status,
     )
 
-    tzinfo = resolve_timezone(runtime_settings.scheduler_timezone)
+    tzinfo = resolve_timezone(settings.scheduler_timezone)
 
     today_local = utcnow().replace(tzinfo=timezone.utc).astimezone(tzinfo).date()
     if start_date and end_date:
