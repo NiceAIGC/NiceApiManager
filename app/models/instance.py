@@ -12,6 +12,7 @@ from app.core.time import utcnow
 from app.models.base import Base
 
 if TYPE_CHECKING:
+    from app.models.daily_usage_stat import DailyUsageStat
     from app.models.group_ratio import GroupRatio
     from app.models.instance_session import InstanceSession
     from app.models.pricing_model import PricingModel
@@ -50,6 +51,10 @@ class Instance(Base):
         uselist=False,
     )
     user_snapshots: Mapped[list[UserSnapshot]] = relationship(
+        back_populates="instance",
+        cascade="all, delete-orphan",
+    )
+    daily_usage_stats: Mapped[list[DailyUsageStat]] = relationship(
         back_populates="instance",
         cascade="all, delete-orphan",
     )

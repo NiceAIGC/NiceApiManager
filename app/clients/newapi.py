@@ -73,6 +73,29 @@ class NewAPIClient:
             response = client.get("/api/pricing")
             return self._decode_response(response)
 
+    def get_user_logs(
+        self,
+        remote_user_id: int,
+        cookie_value: str,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+        log_type: int | None = None,
+        start_timestamp: int | None = None,
+        end_timestamp: int | None = None,
+    ) -> dict[str, Any]:
+        """Fetch paginated user logs for one remote account."""
+        params = {
+            "p": page,
+            "page_size": page_size,
+            "type": log_type,
+            "start_timestamp": start_timestamp,
+            "end_timestamp": end_timestamp,
+        }
+        with self._build_client(remote_user_id=remote_user_id, cookie_value=cookie_value) as client:
+            response = client.get("/api/log/self", params={key: value for key, value in params.items() if value is not None})
+            return self._decode_response(response).get("data") or {}
+
     def get_status(self) -> dict[str, Any]:
         """Fetch public system status metadata such as `quota_per_unit`."""
         with self._build_client() as client:

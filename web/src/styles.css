@@ -162,15 +162,56 @@ a {
   color: #0f172a;
 }
 
-.trend-chart {
+.classic-chart-layout {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(28px, 1fr));
-  align-items: end;
+  grid-template-columns: 72px 1fr;
   gap: 12px;
-  min-height: 240px;
+  min-height: 280px;
 }
 
-.trend-chart-bar {
+.classic-chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px 0 28px;
+}
+
+.classic-chart-axis-label {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.classic-chart-plot {
+  position: relative;
+  min-height: 280px;
+  padding: 8px 0 28px;
+}
+
+.classic-chart-grid {
+  position: absolute;
+  inset: 8px 0 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.classic-chart-grid-line {
+  border-top: 1px solid #e2e8f0;
+}
+
+.classic-chart-bars {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(26px, 1fr));
+  align-items: end;
+  gap: 10px;
+  height: 100%;
+}
+
+.classic-chart-bar-group {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -178,35 +219,35 @@ a {
   min-width: 0;
 }
 
-.trend-chart-value {
-  min-height: 34px;
+.classic-chart-bar-value {
+  min-height: 32px;
   text-align: center;
   color: #475569;
   font-size: 12px;
   line-height: 1.35;
 }
 
-.trend-chart-track {
-  position: relative;
-  width: 100%;
-  height: 160px;
+.classic-chart-bar-track {
   display: flex;
   align-items: end;
-  justify-content: center;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(226, 232, 240, 0.36) 0%, rgba(226, 232, 240, 0.9) 100%);
-}
-
-.trend-chart-fill {
   width: 100%;
-  border-radius: 999px;
-  min-height: 0;
-  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
+  height: 180px;
 }
 
-.trend-chart-label {
+.classic-chart-bar-fill {
+  width: 100%;
+  min-height: 0;
+  border-radius: 8px 8px 0 0;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+}
+
+.classic-chart-bar-label {
+  width: 100%;
+  min-height: 18px;
+  text-align: center;
   color: #64748b;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .distribution-list {
@@ -271,8 +312,8 @@ a {
 }
 
 .quota-badge-low {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: #ffedd5;
+  color: #c2410c;
 }
 
 .quota-badge-negative {
@@ -335,6 +376,37 @@ a {
   white-space: nowrap;
 }
 
+.instance-link {
+  color: #1677ff;
+  word-break: break-all;
+}
+
+.instance-link:hover {
+  color: #4096ff;
+}
+
+.sync-progress-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sync-progress-current {
+  margin-top: 8px;
+}
+
+.sync-progress-list {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.sync-progress-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
 .instance-batch-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -356,7 +428,11 @@ a {
     grid-template-columns: 1fr;
   }
 
-  .trend-chart {
+  .classic-chart-layout {
+    grid-template-columns: 56px 1fr;
+  }
+
+  .classic-chart-bars {
     gap: 8px;
   }
 }

@@ -35,11 +35,11 @@ import {
   updateInstance,
   updateInstancesBatch,
 } from '../api/instances';
-import { syncAllInstances } from '../api/sync';
 import { InstanceBatchModal } from '../components/InstanceBatchModal';
 import { InstanceCreateModal } from '../components/InstanceCreateModal';
 import { StatCard } from '../components/StatCard';
 import { StatusTag } from '../components/StatusTag';
+import { SyncProgressModal, type SyncProgressItem } from '../components/SyncProgressModal';
 import type {
   BatchInstanceUpdatePayload,
   Instance,
@@ -52,6 +52,41 @@ import { getErrorMessage } from '../api/client';
 import { formatBillingMode, formatDateTime, formatMoney, formatNumber } from '../utils/format';
 
 const { Text } = Typography;
+
+interface SyncProgressState {
+  open: boolean;
+  running: boolean;
+  total: number;
+  completed: number;
+  successCount: number;
+  failedCount: number;
+  currentName?: string | null;
+  items: SyncProgressItem[];
+}
+
+const INITIAL_SYNC_PROGRESS: SyncProgressState = {
+  open: false,
+  running: false,
+  total: 0,
+  completed: 0,
+  successCount: 0,
+  failedCount: 0,
+  currentName: null,
+  items: [],
+};
+
+function getBalanceBadgeClass(value?: number | null) {
+  if (value == null) {
+    return 'quota-badge-empty';
+  }
+  if (value < 20) {
+    return 'quota-badge-negative';
+  }
+  if (value < 100) {
+    return 'quota-badge-medium';
+  }
+  return 'quota-badge-high';
+}
 
 export function InstancesPage() {
   const { message, modal } = App.useApp();
@@ -67,6 +102,7 @@ export function InstancesPage() {
   const [healthStatus, setHealthStatus] = useState<string | undefined>(undefined);
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [testResult, setTestResult] = useState<InstanceTestResponse | null>(null);
+  const [syncProgress, setSyncProgress] = useState<SyncProgressState>(INITIAL_SYNC_PROGRESS);
 
   const filters = useMemo<InstanceQuery>(
     () => ({
@@ -214,17 +250,6 @@ export function InstancesPage() {
     },
   });
 
-  const syncAllMutation = useMutation({
-    mutationFn: syncAllInstances,
-    onSuccess: async (result) => {
-      await refreshAllData();
-      message.success(`批量同步完成：成功 ${result.success_count}，失败 ${result.failed_count}`);
-    },
-    onError: (error) => {
-      message.error(getErrorMessage(error));
-    },
-  });
-
   const tagOptions = useMemo(() => {
     const tags = new Set<string>();
     for (const item of allInstancesData?.items ?? []) {
@@ -242,6 +267,14 @@ export function InstancesPage() {
     const selectedIds = new Set(selectedRowKeys.map((item) => Number(item)));
     return (allInstancesData?.items ?? []).filter((item) => selectedIds.has(item.id));
   }, [allInstancesData, selectedRowKeys]);
+
+  const syncTargets = useMemo(
+    () =>
+      (data?.items ?? [])
+        .filter((item) => item.enabled)
+        .map((item) => ({ id: item.id, name: item.name })),
+    [data?.items],
+  );
 
   const summary = useMemo(
     () =>
@@ -292,6 +325,81 @@ export function InstancesPage() {
     });
   };
 
+  const runSyncAll = async () => {
+    if (!syncTargets.length) {
+      message.info('当前筛选下没有可同步的启用实例');
+      return;
+    }
+
+    setSyncProgress({
+      open: true,
+      running: true,
+      total: syncTargets.length,
+      completed: 0,
+      successCount: 0,
+      failedCount: 0,
+      currentName: syncTargets[0]?.name ?? null,
+      items: syncTargets.map((item) => ({
+        key: item.id,
+        name: item.name,
+        status: 'pending',
+      })),
+    });
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (let index = 0; index < syncTargets.length; index += 1) {
+      const target = syncTargets[index];
+      setSyncProgress((current) => ({
+        ...current,
+        currentName: target.name,
+        items: current.items.map((item) =>
+          item.key === target.id ? { ...item, status: 'running', errorMessage: null } : item,
+        ),
+      }));
+
+      try {
+        await syncInstance(target.id);
+        successCount += 1;
+        setSyncProgress((current) => ({
+          ...current,
+          completed: index + 1,
+          successCount,
+          failedCount,
+          items: current.items.map((item) => (item.key === target.id ? { ...item, status: 'success' } : item)),
+        }));
+      } catch (error) {
+        failedCount += 1;
+        const errorMessage = getErrorMessage(error);
+        setSyncProgress((current) => ({
+          ...current,
+          completed: index + 1,
+          successCount,
+          failedCount,
+          items: current.items.map((item) =>
+            item.key === target.id ? { ...item, status: 'failed', errorMessage } : item,
+          ),
+        }));
+      }
+    }
+
+    setSyncProgress((current) => ({
+      ...current,
+      running: false,
+      currentName: null,
+      successCount,
+      failedCount,
+    }));
+    await refreshAllData();
+
+    if (failedCount) {
+      message.warning(`同步完成：成功 ${successCount}，失败 ${failedCount}`);
+      return;
+    }
+    message.success(`已完成 ${successCount} 个实例同步`);
+  };
+
   const columns = useMemo(
     () => [
       {
@@ -303,7 +411,14 @@ export function InstancesPage() {
         render: (value: string, record: Instance) => (
           <Space direction="vertical" size={0}>
             <Text strong>{value}</Text>
-            <Text type="secondary">{record.base_url}</Text>
+            <a
+              href={record.base_url}
+              target="_blank"
+              rel="noreferrer"
+              className="instance-link"
+            >
+              {record.base_url}
+            </a>
             <Text type="secondary">用户：{record.username}</Text>
           </Space>
         ),
@@ -357,7 +472,11 @@ export function InstancesPage() {
         key: 'latest_display_quota',
         width: 120,
         render: (value: number | null | undefined, record: Instance) =>
-          record.billing_mode === 'postpaid' ? '-' : formatMoney(value),
+          record.billing_mode === 'postpaid' ? (
+            '-'
+          ) : (
+            <span className={`quota-badge ${getBalanceBadgeClass(value)}`}>{formatMoney(value)}</span>
+          ),
       },
       {
         title: '周期已用额度',
@@ -536,8 +655,8 @@ export function InstancesPage() {
             <Button icon={<ReloadOutlined />} onClick={() => refreshAllData()}>
               刷新
             </Button>
-            <Button icon={<SyncOutlined />} loading={syncAllMutation.isPending} onClick={() => syncAllMutation.mutate()}>
-              同步全部
+            <Button icon={<SyncOutlined />} loading={syncProgress.running} onClick={runSyncAll}>
+              同步全部（{syncTargets.length}）
             </Button>
             <Button onClick={clearFilters}>清空筛选</Button>
             <Button icon={<PlusOutlined />} onClick={() => setBatchCreateOpen(true)}>
@@ -649,6 +768,19 @@ export function InstancesPage() {
           </Descriptions>
         ) : null}
       </Modal>
+
+      <SyncProgressModal
+        open={syncProgress.open}
+        title="实例批量同步进度"
+        running={syncProgress.running}
+        total={syncProgress.total}
+        completed={syncProgress.completed}
+        successCount={syncProgress.successCount}
+        failedCount={syncProgress.failedCount}
+        currentName={syncProgress.currentName}
+        items={syncProgress.items}
+        onClose={() => setSyncProgress(INITIAL_SYNC_PROGRESS)}
+      />
     </div>
   );
 }

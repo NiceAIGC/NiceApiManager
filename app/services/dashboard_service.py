@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.time import utcnow
-from app.models import Instance, UserSnapshot
+from app.models import DailyUsageStat, Instance, UserSnapshot
 from app.schemas.dashboard import (
     DashboardInstanceSummary,
     DashboardOverviewResponse,
@@ -21,6 +20,7 @@ from app.services.instance_filters import apply_instance_filters
 from app.services.snapshot_metrics import (
     current_day_start_utc,
     quota_to_display_amount,
+    resolve_timezone,
     today_request_count,
     uses_postpaid_billing,
 )
@@ -113,7 +113,13 @@ def build_dashboard_overview(
                     quota_to_display_amount(latest_snapshot.quota, instance.quota_per_unit) or 0.0
                 )
 
-        instance_today_request_count = today_request_count(db, instance.id, latest_snapshot, day_start_utc)
+        instance_today_request_count = today_request_count(
+            db,
+            instance.id,
+            latest_snapshot,
+            day_start_utc,
+            settings.scheduler_timezone,
+        )
         today_request_count_total += instance_today_request_count
 
         items.append(
@@ -189,19 +195,17 @@ def build_dashboard_trends(
         health_status=health_status,
     )
 
-    try:
-        tzinfo = ZoneInfo(settings.scheduler_timezone)
-    except Exception:
-        tzinfo = timezone.utc
+    tzinfo = resolve_timezone(settings.scheduler_timezone)
 
     today_local = utcnow().replace(tzinfo=timezone.utc).astimezone(tzinfo).date()
-    day_windows: list[tuple[str, str, datetime, datetime]] = []
+    day_windows: list[tuple[date, str, str, datetime, datetime]] = []
     for offset in range(normalized_days):
         current_date = today_local - timedelta(days=normalized_days - offset - 1)
         day_start_local = datetime.combine(current_date, time.min, tzinfo=tzinfo)
         day_end_local = day_start_local + timedelta(days=1)
         day_windows.append(
             (
+                current_date,
                 current_date.isoformat(),
                 current_date.strftime("%m-%d"),
                 day_start_local.astimezone(timezone.utc).replace(tzinfo=None),
@@ -212,12 +216,33 @@ def build_dashboard_trends(
     if not day_windows:
         return DashboardTrendResponse(days=normalized_days, points=[])
 
-    first_start_utc = day_windows[0][2]
-    last_end_utc = day_windows[-1][3]
+    first_date = day_windows[0][0]
+    last_date = day_windows[-1][0]
+    first_start_utc = day_windows[0][3]
+    last_end_utc = day_windows[-1][4]
     used_amounts = [0.0 for _ in day_windows]
     request_counts = [0 for _ in day_windows]
 
     for instance in instances:
+        daily_stats = db.scalars(
+            select(DailyUsageStat)
+            .where(
+                DailyUsageStat.instance_id == instance.id,
+                DailyUsageStat.usage_date >= first_date,
+                DailyUsageStat.usage_date <= last_date,
+            )
+            .order_by(DailyUsageStat.usage_date.asc())
+        ).all()
+        if daily_stats:
+            stats_by_date = {row.usage_date: row for row in daily_stats}
+            for index, (current_date, _, _, _, _) in enumerate(day_windows):
+                daily_stat = stats_by_date.get(current_date)
+                if daily_stat is None:
+                    continue
+                used_amounts[index] += daily_stat.used_display_amount
+                request_counts[index] += daily_stat.request_count
+            continue
+
         baseline_snapshot = db.scalars(
             select(UserSnapshot)
             .where(
@@ -241,7 +266,7 @@ def build_dashboard_trends(
         previous_snapshot = baseline_snapshot
         current_snapshot = baseline_snapshot
 
-        for index, (_, _, _, day_end_utc) in enumerate(day_windows):
+        for index, (_, _, _, _, day_end_utc) in enumerate(day_windows):
             while pointer < len(snapshots) and snapshots[pointer].snapshot_at < day_end_utc:
                 current_snapshot = snapshots[pointer]
                 pointer += 1
@@ -271,6 +296,6 @@ def build_dashboard_trends(
                 used_display_amount=used_amounts[index],
                 request_count=request_counts[index],
             )
-            for index, (date_text, label, _, _) in enumerate(day_windows)
+            for index, (_, date_text, label, _, _) in enumerate(day_windows)
         ],
     )

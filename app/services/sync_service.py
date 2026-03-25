@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, select
@@ -12,14 +13,16 @@ from sqlalchemy.orm import Session
 from app.clients.newapi import NewAPIClient, NewAPIClientError, NewAPISessionData
 from app.core.config import get_settings
 from app.core.time import utcnow
-from app.models import GroupRatio, Instance, InstanceSession, PricingModel, SyncRun, UserSnapshot
+from app.models import DailyUsageStat, GroupRatio, Instance, InstanceSession, PricingModel, SyncRun, UserSnapshot
 from app.schemas.instance import InstanceTestResponse
 from app.schemas.sync_run import BulkSyncInstanceResult, BulkSyncResponse
-from app.services.snapshot_metrics import quota_to_display_amount, uses_postpaid_billing
+from app.services.snapshot_metrics import quota_to_display_amount, resolve_timezone, uses_postpaid_billing
 
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+HISTORY_LOOKBACK_DAYS = 30
+LOG_PAGE_SIZE = 100
 
 
 def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestResponse:
@@ -100,9 +103,17 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
         pricing_payload = client.get_pricing(session_data.remote_user_id, session_data.cookie_value)
 
         snapshot_at = utcnow()
+        instance.quota_per_unit = _extract_quota_per_unit(status_data)
         _persist_user_snapshot(db, instance_id, user_data, snapshot_at)
         _replace_group_ratios(db, instance_id, group_data, snapshot_at)
         _replace_pricing_models(db, instance_id, pricing_payload, snapshot_at)
+        history_warning = _sync_recent_daily_usage(
+            db,
+            instance=instance,
+            client=client,
+            session_data=session_data,
+            synced_at=snapshot_at,
+        )
 
         finished_at = utcnow()
         duration_ms = int((finished_at - sync_run.started_at).total_seconds() * 1000)
@@ -112,11 +123,13 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
             "quota": int(user_data.get("quota", 0)),
             "used_quota": int(user_data.get("used_quota", 0)),
             "request_count": int(user_data.get("request_count", 0)),
+            "history_days": HISTORY_LOOKBACK_DAYS,
         }
+        if history_warning:
+            summary["history_warning"] = history_warning
 
         sync_run = db.get(SyncRun, sync_run.id)
         instance = db.get(Instance, instance_id)
-        instance.quota_per_unit = _extract_quota_per_unit(status_data)
         sync_run.status = "success"
         sync_run.finished_at = finished_at
         sync_run.duration_ms = duration_ms
@@ -343,3 +356,138 @@ def _extract_quota_per_unit(status_data: dict[str, object]) -> float | None:
         return None
 
     return parsed if parsed > 0 else None
+
+
+def _sync_recent_daily_usage(
+    db: Session,
+    *,
+    instance: Instance,
+    client: NewAPIClient,
+    session_data: NewAPISessionData,
+    synced_at: datetime,
+) -> str | None:
+    """Refresh recent daily usage totals from remote consumption logs."""
+    try:
+        tzinfo = resolve_timezone(settings.scheduler_timezone)
+        today_local = synced_at.replace(tzinfo=timezone.utc).astimezone(tzinfo).date()
+        start_date = today_local - timedelta(days=HISTORY_LOOKBACK_DAYS - 1)
+        start_at_utc = datetime.combine(start_date, time.min, tzinfo=tzinfo).astimezone(timezone.utc)
+        end_at_utc = datetime.combine(today_local + timedelta(days=1), time.min, tzinfo=tzinfo).astimezone(timezone.utc)
+        log_items = _fetch_consumption_logs(
+            client,
+            session_data=session_data,
+            start_timestamp=int(start_at_utc.timestamp()),
+            end_timestamp=int(end_at_utc.timestamp()),
+        )
+    except NewAPIClientError as exc:
+        logger.warning("Daily usage sync skipped for instance %s: %s", instance.id, exc)
+        return str(exc)
+
+    aggregated = {
+        current_date: {"request_count": 0, "used_quota": 0}
+        for current_date in _iter_usage_dates(start_date, today_local)
+    }
+
+    for row in log_items:
+        created_at = row.get("created_at")
+        if created_at in (None, ""):
+            continue
+
+        try:
+            timestamp = int(created_at)
+        except (TypeError, ValueError):
+            continue
+
+        usage_date = datetime.fromtimestamp(timestamp, tz=timezone.utc).astimezone(tzinfo).date()
+        if usage_date not in aggregated:
+            continue
+
+        try:
+            quota = int(row.get("quota", 0) or 0)
+        except (TypeError, ValueError):
+            quota = 0
+
+        aggregated[usage_date]["request_count"] += 1
+        aggregated[usage_date]["used_quota"] += max(quota, 0)
+
+    existing_rows = db.scalars(
+        select(DailyUsageStat).where(
+            DailyUsageStat.instance_id == instance.id,
+            DailyUsageStat.usage_date >= start_date,
+            DailyUsageStat.usage_date <= today_local,
+        )
+    ).all()
+    existing_by_date = {row.usage_date: row for row in existing_rows}
+
+    for usage_date, item in aggregated.items():
+        used_quota = int(item["used_quota"])
+        request_count = int(item["request_count"])
+        used_display_amount = quota_to_display_amount(used_quota, instance.quota_per_unit) or 0.0
+        existing_row = existing_by_date.get(usage_date)
+        if existing_row is None:
+            db.add(
+                DailyUsageStat(
+                    instance_id=instance.id,
+                    usage_date=usage_date,
+                    request_count=request_count,
+                    used_quota=used_quota,
+                    used_display_amount=used_display_amount,
+                    synced_at=synced_at,
+                )
+            )
+            continue
+
+        existing_row.request_count = request_count
+        existing_row.used_quota = used_quota
+        existing_row.used_display_amount = used_display_amount
+        existing_row.synced_at = synced_at
+
+    return None
+
+
+def _fetch_consumption_logs(
+    client: NewAPIClient,
+    *,
+    session_data: NewAPISessionData,
+    start_timestamp: int,
+    end_timestamp: int,
+) -> list[dict[str, object]]:
+    """Fetch all consumption logs in the requested time window."""
+    items: list[dict[str, object]] = []
+    total = None
+    page = 1
+
+    while True:
+        payload = client.get_user_logs(
+            session_data.remote_user_id,
+            session_data.cookie_value,
+            page=page,
+            page_size=LOG_PAGE_SIZE,
+            log_type=2,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+        )
+        raw_items = payload.get("items") or []
+        batch = [row for row in raw_items if isinstance(row, dict)]
+        items.extend(batch)
+
+        if total is None:
+            try:
+                total = int(payload.get("total", len(batch)) or 0)
+            except (TypeError, ValueError):
+                total = len(batch)
+
+        if not batch or len(items) >= total or len(batch) < LOG_PAGE_SIZE:
+            break
+
+        page += 1
+
+    return items
+
+
+def _iter_usage_dates(start_date: date, end_date: date):
+    """Yield dates inclusively for the requested usage window."""
+    current = start_date
+    while current <= end_date:
+        yield current
+        current += timedelta(days=1)

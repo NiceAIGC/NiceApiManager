@@ -256,6 +256,7 @@ def _instance_to_response(
                 instance.id,
                 latest_snapshot,
                 day_start_utc,
+                settings.scheduler_timezone,
             ),
             "remote_user_id": instance.session.remote_user_id if instance.session else None,
             "session_expires_at": instance.session.expires_at if instance.session else None,

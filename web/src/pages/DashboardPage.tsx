@@ -1,23 +1,51 @@
-import { Button, Card, Col, Input, Row, Segmented, Select, Space, Typography } from 'antd';
-import { useQuery } from '@tanstack/react-query';
+import { App, Button, Card, Col, Input, Row, Segmented, Select, Typography } from 'antd';
+import { SyncOutlined } from '@ant-design/icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
+import { getErrorMessage } from '../api/client';
 import { fetchDashboardOverview, fetchDashboardTrends } from '../api/dashboard';
-import { fetchInstances } from '../api/instances';
+import { fetchInstances, syncInstance } from '../api/instances';
 import { MetricTrendChart } from '../components/MetricTrendChart';
 import { StatCard } from '../components/StatCard';
+import { SyncProgressModal, type SyncProgressItem } from '../components/SyncProgressModal';
 import type { InstanceQuery } from '../types/api';
 import { formatBillingMode, formatMoney, formatNumber } from '../utils/format';
 
 const { Text } = Typography;
 
+interface SyncProgressState {
+  open: boolean;
+  running: boolean;
+  total: number;
+  completed: number;
+  successCount: number;
+  failedCount: number;
+  currentName?: string | null;
+  items: SyncProgressItem[];
+}
+
+const INITIAL_SYNC_PROGRESS: SyncProgressState = {
+  open: false,
+  running: false,
+  total: 0,
+  completed: 0,
+  successCount: 0,
+  failedCount: 0,
+  currentName: null,
+  items: [],
+};
+
 export function DashboardPage() {
+  const { message } = App.useApp();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [billingMode, setBillingMode] = useState<'prepaid' | 'postpaid' | undefined>(undefined);
   const [enabled, setEnabled] = useState<boolean | undefined>(undefined);
   const [healthStatus, setHealthStatus] = useState<string | undefined>(undefined);
   const [trendDays, setTrendDays] = useState<7 | 30>(7);
+  const [syncProgress, setSyncProgress] = useState<SyncProgressState>(INITIAL_SYNC_PROGRESS);
 
   const filters = useMemo<InstanceQuery>(
     () => ({
@@ -93,7 +121,101 @@ export function DashboardPage() {
     [data],
   );
 
+  const syncTargets = useMemo(
+    () =>
+      (data?.items ?? [])
+        .filter((item) => item.enabled)
+        .map((item) => ({ id: item.instance_id, name: item.instance_name })),
+    [data?.items],
+  );
+
   const totalInstances = Math.max(data?.instance_count ?? 0, 1);
+
+  const refreshDashboardData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['instances'] }),
+      queryClient.invalidateQueries({ queryKey: ['dashboard-overview'] }),
+      queryClient.invalidateQueries({ queryKey: ['dashboard-trends'] }),
+      queryClient.invalidateQueries({ queryKey: ['sync-runs'] }),
+      queryClient.invalidateQueries({ queryKey: ['groups'] }),
+      queryClient.invalidateQueries({ queryKey: ['pricing-models'] }),
+    ]);
+  };
+
+  const runSyncAll = async () => {
+    if (!syncTargets.length) {
+      message.info('当前筛选下没有可同步的启用实例');
+      return;
+    }
+
+    setSyncProgress({
+      open: true,
+      running: true,
+      total: syncTargets.length,
+      completed: 0,
+      successCount: 0,
+      failedCount: 0,
+      currentName: syncTargets[0]?.name ?? null,
+      items: syncTargets.map((item) => ({
+        key: item.id,
+        name: item.name,
+        status: 'pending',
+      })),
+    });
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (let index = 0; index < syncTargets.length; index += 1) {
+      const target = syncTargets[index];
+      setSyncProgress((current) => ({
+        ...current,
+        currentName: target.name,
+        items: current.items.map((item) =>
+          item.key === target.id ? { ...item, status: 'running', errorMessage: null } : item,
+        ),
+      }));
+
+      try {
+        await syncInstance(target.id);
+        successCount += 1;
+        setSyncProgress((current) => ({
+          ...current,
+          completed: index + 1,
+          successCount,
+          failedCount,
+          items: current.items.map((item) => (item.key === target.id ? { ...item, status: 'success' } : item)),
+        }));
+      } catch (error) {
+        failedCount += 1;
+        const errorMessage = getErrorMessage(error);
+        setSyncProgress((current) => ({
+          ...current,
+          completed: index + 1,
+          successCount,
+          failedCount,
+          items: current.items.map((item) =>
+            item.key === target.id ? { ...item, status: 'failed', errorMessage } : item,
+          ),
+        }));
+      }
+    }
+
+    setSyncProgress((current) => ({
+      ...current,
+      running: false,
+      currentName: null,
+      successCount,
+      failedCount,
+    }));
+    await refreshDashboardData();
+
+    if (failedCount) {
+      message.warning(`同步完成：成功 ${successCount}，失败 ${failedCount}`);
+      return;
+    }
+    message.success(`已完成 ${successCount} 个实例同步`);
+  };
 
   return (
     <div className="page-stack">
@@ -161,6 +283,9 @@ export function DashboardPage() {
               value={trendDays}
               onChange={(value) => setTrendDays(value as 7 | 30)}
             />
+            <Button icon={<SyncOutlined />} loading={syncProgress.running} onClick={runSyncAll}>
+              同步全部（{syncTargets.length}）
+            </Button>
             <Button
               onClick={() => {
                 setSearch('');
@@ -189,29 +314,26 @@ export function DashboardPage() {
         <Col xs={24} md={12} xl={6}>
           <StatCard title="后付费实例" value={formatNumber(data?.postpaid_instance_count ?? 0)} />
         </Col>
-        <Col xs={24} md={12} xl={6}>
+        <Col xs={24} md={12} xl={8}>
           <StatCard
             title="预付费总余额"
             value={formatMoney(data?.total_display_quota ?? 0)}
             caption="仅统计预付费站点"
           />
         </Col>
-        <Col xs={24} md={12} xl={6}>
+        <Col xs={24} md={12} xl={8}>
           <StatCard
             title="周期已用额度"
             value={formatMoney(data?.total_display_used_quota ?? 0)}
-            caption="预付费 / 后付费合并统计"
+            caption="已按近 30 天日志和当前周期同步"
           />
         </Col>
-        <Col xs={24} md={12} xl={6}>
+        <Col xs={24} md={12} xl={8}>
           <StatCard
             title="今日请求数"
             value={formatNumber(data?.today_request_count ?? 0)}
             caption={`累计 ${formatNumber(data?.total_request_count ?? 0)}`}
           />
-        </Col>
-        <Col xs={24} md={12} xl={6}>
-          <StatCard title="内部已用额度" value={formatNumber(data?.total_used_quota ?? 0)} />
         </Col>
       </Row>
 
@@ -219,7 +341,7 @@ export function DashboardPage() {
         <Col xs={24} xl={14}>
           <MetricTrendChart
             title={`近 ${trendDays} 天每日消耗额度`}
-            subtitle="按每天最新快照差值聚合，适合看消耗趋势"
+            subtitle="经典柱状图，优先使用近 30 天远端日志统计"
             points={(trendData?.points ?? []).map((item) => ({
               label: item.label,
               value: item.used_display_amount,
@@ -231,7 +353,7 @@ export function DashboardPage() {
         <Col xs={24} xl={10}>
           <MetricTrendChart
             title={`近 ${trendDays} 天每日请求数`}
-            subtitle="按每天最新快照差值聚合"
+            subtitle="优先使用近 30 天远端日志统计"
             points={(trendData?.points ?? []).map((item) => ({
               label: item.label,
               value: item.request_count,
@@ -284,6 +406,19 @@ export function DashboardPage() {
           </Card>
         </Col>
       </Row>
+
+      <SyncProgressModal
+        open={syncProgress.open}
+        title="批量同步进度"
+        running={syncProgress.running}
+        total={syncProgress.total}
+        completed={syncProgress.completed}
+        successCount={syncProgress.successCount}
+        failedCount={syncProgress.failedCount}
+        currentName={syncProgress.currentName}
+        items={syncProgress.items}
+        onClose={() => setSyncProgress(INITIAL_SYNC_PROGRESS)}
+      />
     </div>
   );
 }
