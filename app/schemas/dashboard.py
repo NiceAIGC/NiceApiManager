@@ -60,4 +60,6 @@ class DashboardTrendResponse(BaseModel):
     """Daily trend series for dashboard charts."""
 
     days: int
+    start_date: str
+    end_date: str
     points: list[DashboardTrendPoint]

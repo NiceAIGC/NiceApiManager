@@ -1,6 +1,9 @@
 """Dashboard routes."""
 
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, Query
+from fastapi.exceptions import HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -34,7 +37,9 @@ def get_dashboard_overview(
 
 @router.get("/dashboard/trends", response_model=DashboardTrendResponse)
 def get_dashboard_trends(
-    days: int = Query(default=7, ge=7, le=30, description="Trend window in days."),
+    days: int | None = Query(default=7, ge=1, le=90, description="Trend window in days."),
+    start_date: date | None = Query(default=None, description="Custom trend start date."),
+    end_date: date | None = Query(default=None, description="Custom trend end date."),
     search: str | None = Query(default=None, description="Keyword matched against name, URL, or username."),
     tag: str | None = Query(default=None, description="Backward-compatible single tag filter."),
     tags: str | None = Query(default=None, description="Comma-separated tag filter."),
@@ -44,9 +49,20 @@ def get_dashboard_trends(
     db: Session = Depends(get_db),
 ) -> DashboardTrendResponse:
     """Return recent daily usage trends for the filtered instance set."""
+    if (start_date is None) != (end_date is None):
+        raise HTTPException(status_code=422, detail="start_date and end_date must be provided together.")
+
+    if start_date and end_date:
+        if start_date > end_date:
+            raise HTTPException(status_code=422, detail="start_date must be on or before end_date.")
+        if (end_date - start_date) >= timedelta(days=90):
+            raise HTTPException(status_code=422, detail="custom date range cannot exceed 90 days.")
+
     return build_dashboard_trends(
         db,
         days=days,
+        start_date=start_date,
+        end_date=end_date,
         search=search,
         tags=tags or tag,
         billing_mode=billing_mode,

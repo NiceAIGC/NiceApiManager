@@ -1,4 +1,9 @@
-import type { DashboardOverviewResponse, DashboardTrendResponse, InstanceQuery } from '../types/api';
+import type {
+  DashboardOverviewResponse,
+  DashboardTrendQuery,
+  DashboardTrendResponse,
+  InstanceQuery,
+} from '../types/api';
 import { apiClient } from './client';
 
 function buildInstanceQueryParams(filters?: InstanceQuery) {
@@ -20,13 +25,11 @@ export async function fetchDashboardOverview(filters?: InstanceQuery): Promise<D
 }
 
 export async function fetchDashboardTrends(
-  days: 7 | 30,
-  filters?: InstanceQuery,
+  query: DashboardTrendQuery,
 ): Promise<DashboardTrendResponse> {
   const { data } = await apiClient.get<DashboardTrendResponse>('/dashboard/trends', {
     params: {
-      days,
-      ...buildInstanceQueryParams(filters),
+      ...buildInstanceQueryParams(query),
     },
   });
   return data;

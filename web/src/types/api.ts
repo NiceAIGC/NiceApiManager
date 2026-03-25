@@ -42,7 +42,15 @@ export interface DashboardTrendPoint {
 
 export interface DashboardTrendResponse {
   days: number;
+  start_date: string;
+  end_date: string;
   points: DashboardTrendPoint[];
+}
+
+export interface DashboardTrendQuery extends InstanceQuery {
+  days?: number;
+  start_date?: string;
+  end_date?: string;
 }
 
 export interface Instance {
@@ -203,8 +211,13 @@ export interface BulkSyncItem {
   error_message?: string | null;
 }
 
+export interface BulkSyncPayload {
+  instance_ids?: number[];
+}
+
 export interface BulkSyncResponse {
   total: number;
+  max_workers: number;
   success_count: number;
   failed_count: number;
   items: BulkSyncItem[];
@@ -236,4 +249,14 @@ export interface InstanceQuery {
   billing_mode?: 'prepaid' | 'postpaid';
   enabled?: boolean;
   health_status?: string;
+}
+
+export interface AppSettings {
+  sync_max_workers: number;
+  request_timeout: number;
+  sync_verify_ssl: boolean;
+  scheduler_timezone: string;
+  sync_history_lookback_days: number;
+  created_at?: string | null;
+  updated_at?: string | null;
 }

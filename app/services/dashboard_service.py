@@ -7,7 +7,6 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.time import utcnow
 from app.models import DailyUsageStat, Instance, UserSnapshot
 from app.schemas.dashboard import (
@@ -16,6 +15,7 @@ from app.schemas.dashboard import (
     DashboardTrendPoint,
     DashboardTrendResponse,
 )
+from app.services.app_setting_service import get_runtime_app_settings
 from app.services.instance_filters import apply_instance_filters
 from app.services.snapshot_metrics import (
     current_day_start_utc,
@@ -24,9 +24,6 @@ from app.services.snapshot_metrics import (
     today_request_count,
     uses_postpaid_billing,
 )
-
-
-settings = get_settings()
 
 
 def _filtered_instances(
@@ -61,6 +58,7 @@ def build_dashboard_overview(
     health_status: str | None = None,
 ) -> DashboardOverviewResponse:
     """Aggregate latest snapshot values for the filtered instance set."""
+    runtime_settings = get_runtime_app_settings(db)
     instances = _filtered_instances(
         db,
         search=search,
@@ -69,7 +67,7 @@ def build_dashboard_overview(
         enabled=enabled,
         health_status=health_status,
     )
-    day_start_utc = current_day_start_utc(settings.scheduler_timezone)
+    day_start_utc = current_day_start_utc(runtime_settings.scheduler_timezone)
 
     items: list[DashboardInstanceSummary] = []
     total_quota = 0
@@ -118,7 +116,7 @@ def build_dashboard_overview(
             instance.id,
             latest_snapshot,
             day_start_utc,
-            settings.scheduler_timezone,
+            runtime_settings.scheduler_timezone,
         )
         today_request_count_total += instance_today_request_count
 
@@ -177,7 +175,9 @@ def build_dashboard_overview(
 def build_dashboard_trends(
     db: Session,
     *,
-    days: int = 7,
+    days: int | None = 7,
+    start_date: date | None = None,
+    end_date: date | None = None,
     search: str | None = None,
     tags: str | list[str] | None = None,
     billing_mode: str | None = None,
@@ -185,7 +185,7 @@ def build_dashboard_trends(
     health_status: str | None = None,
 ) -> DashboardTrendResponse:
     """Aggregate daily consumption and request-count deltas for charts."""
-    normalized_days = 30 if days >= 30 else 7
+    runtime_settings = get_runtime_app_settings(db)
     instances = _filtered_instances(
         db,
         search=search,
@@ -195,12 +195,21 @@ def build_dashboard_trends(
         health_status=health_status,
     )
 
-    tzinfo = resolve_timezone(settings.scheduler_timezone)
+    tzinfo = resolve_timezone(runtime_settings.scheduler_timezone)
 
     today_local = utcnow().replace(tzinfo=timezone.utc).astimezone(tzinfo).date()
+    if start_date and end_date:
+        resolved_start_date = start_date
+        resolved_end_date = end_date
+    else:
+        normalized_days = min(max(days or 7, 1), 90)
+        resolved_end_date = today_local
+        resolved_start_date = today_local - timedelta(days=normalized_days - 1)
+
+    total_days = (resolved_end_date - resolved_start_date).days + 1
     day_windows: list[tuple[date, str, str, datetime, datetime]] = []
-    for offset in range(normalized_days):
-        current_date = today_local - timedelta(days=normalized_days - offset - 1)
+    for offset in range(total_days):
+        current_date = resolved_start_date + timedelta(days=offset)
         day_start_local = datetime.combine(current_date, time.min, tzinfo=tzinfo)
         day_end_local = day_start_local + timedelta(days=1)
         day_windows.append(
@@ -214,7 +223,12 @@ def build_dashboard_trends(
         )
 
     if not day_windows:
-        return DashboardTrendResponse(days=normalized_days, points=[])
+        return DashboardTrendResponse(
+            days=0,
+            start_date=resolved_start_date.isoformat(),
+            end_date=resolved_end_date.isoformat(),
+            points=[],
+        )
 
     first_date = day_windows[0][0]
     last_date = day_windows[-1][0]
@@ -288,7 +302,9 @@ def build_dashboard_trends(
             previous_snapshot = current_snapshot
 
     return DashboardTrendResponse(
-        days=normalized_days,
+        days=total_days,
+        start_date=resolved_start_date.isoformat(),
+        end_date=resolved_end_date.isoformat(),
         points=[
             DashboardTrendPoint(
                 date=date_text,
