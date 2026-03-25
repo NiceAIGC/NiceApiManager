@@ -29,6 +29,10 @@ export function formatBillingMode(value?: string | null): string {
   return value === 'postpaid' ? '后付费' : '预付费';
 }
 
+export function getBillingModeTagColor(value?: string | null): string {
+  return value === 'postpaid' ? 'blue' : 'orange';
+}
+
 export function formatProgramType(value?: string | null): string {
   switch (value) {
     case 'rixapi':

@@ -49,7 +49,14 @@ import type {
   InstanceUpdatePayload,
 } from '../types/api';
 import { getErrorMessage } from '../api/client';
-import { formatBillingMode, formatDateTime, formatMoney, formatNumber, formatProgramType } from '../utils/format';
+import {
+  formatBillingMode,
+  formatDateTime,
+  formatMoney,
+  formatNumber,
+  formatProgramType,
+  getBillingModeTagColor,
+} from '../utils/format';
 
 const { Text } = Typography;
 
@@ -444,7 +451,7 @@ export function InstancesPage() {
         key: 'billing_mode',
         width: 120,
         render: (value: Instance['billing_mode']) => (
-          <Tag color={value === 'postpaid' ? 'processing' : 'gold'}>
+          <Tag color={getBillingModeTagColor(value)}>
             {formatBillingMode(value)}
           </Tag>
         ),
