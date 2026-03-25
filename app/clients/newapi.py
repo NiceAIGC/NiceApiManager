@@ -181,6 +181,32 @@ class NewAPIClient:
             response = client.get("/api/log/self", params={key: value for key, value in params.items() if value is not None})
             return self._normalize_logs_payload(self._decode_response(response).get("data"))
 
+    def get_user_quota_data(
+        self,
+        remote_user_id: int,
+        cookie_value: str,
+        access_token: str | None = None,
+        *,
+        start_timestamp: int,
+        end_timestamp: int,
+    ) -> list[dict[str, Any]]:
+        """Fetch aggregated per-hour quota rows from the faster user data endpoint."""
+        params = {
+            "start_timestamp": start_timestamp,
+            "end_timestamp": end_timestamp,
+            "default_time": "day",
+        }
+        with self._build_client(
+            remote_user_id=remote_user_id,
+            cookie_value=cookie_value,
+            access_token=access_token,
+        ) as client:
+            response = client.get("/api/data/self", params=params)
+            data = self._decode_response(response).get("data")
+            if not isinstance(data, list):
+                return []
+            return [row for row in data if isinstance(row, dict)]
+
     def get_status(self) -> dict[str, Any]:
         """Fetch public system status metadata such as `quota_per_unit`."""
         with self._build_client() as client:

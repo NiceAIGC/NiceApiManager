@@ -120,7 +120,7 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
         _persist_user_snapshot(db, instance_id, user_data, snapshot_at)
         _replace_group_ratios(db, instance_id, group_data, snapshot_at)
         _replace_pricing_models(db, instance_id, pricing_payload, snapshot_at)
-        history_warning = _sync_recent_daily_usage(
+        history_source, history_warning = _sync_recent_daily_usage(
             db,
             instance=instance,
             client=client,
@@ -137,6 +137,7 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
             "used_quota": int(user_data.get("used_quota", 0)),
             "request_count": int(user_data.get("request_count", 0)),
             "history_days": HISTORY_LOOKBACK_DAYS,
+            "history_source": history_source,
         }
         if history_warning:
             summary["history_warning"] = history_warning
@@ -438,50 +439,76 @@ def _sync_recent_daily_usage(
     client: NewAPIClient,
     session_data: NewAPISessionData,
     synced_at: datetime,
-) -> str | None:
+) -> tuple[str, str | None]:
     """Refresh recent daily usage totals from remote consumption logs."""
-    try:
-        tzinfo = resolve_timezone(settings.scheduler_timezone)
-        today_local = synced_at.replace(tzinfo=timezone.utc).astimezone(tzinfo).date()
-        start_date = today_local - timedelta(days=HISTORY_LOOKBACK_DAYS - 1)
-        start_at_utc = datetime.combine(start_date, time.min, tzinfo=tzinfo).astimezone(timezone.utc)
-        end_at_utc = datetime.combine(today_local + timedelta(days=1), time.min, tzinfo=tzinfo).astimezone(timezone.utc)
-        log_items = _fetch_consumption_logs(
-            client,
-            session_data=session_data,
-            start_timestamp=int(start_at_utc.timestamp()),
-            end_timestamp=int(end_at_utc.timestamp()),
-        )
-    except NewAPIClientError as exc:
-        logger.warning("Daily usage sync skipped for instance %s: %s", instance.id, exc)
-        return str(exc)
-
+    tzinfo = resolve_timezone(settings.scheduler_timezone)
+    today_local = synced_at.replace(tzinfo=timezone.utc).astimezone(tzinfo).date()
+    start_date = today_local - timedelta(days=HISTORY_LOOKBACK_DAYS - 1)
+    start_at_utc = datetime.combine(start_date, time.min, tzinfo=tzinfo).astimezone(timezone.utc)
+    end_at_utc = datetime.combine(today_local + timedelta(days=1), time.min, tzinfo=tzinfo).astimezone(timezone.utc)
     aggregated = {
         current_date: {"request_count": 0, "used_quota": 0}
         for current_date in _iter_usage_dates(start_date, today_local)
     }
 
-    for row in log_items:
-        created_at = row.get("created_at")
-        if created_at in (None, ""):
-            continue
+    history_source = "log_api"
+    history_warning: str | None = None
+
+    try:
+        if client.program_type == "newapi":
+            quota_rows = client.get_user_quota_data(
+                session_data.remote_user_id,
+                session_data.cookie_value,
+                session_data.access_token,
+                start_timestamp=int(start_at_utc.timestamp()),
+                end_timestamp=int(end_at_utc.timestamp()),
+            )
+            _accumulate_daily_usage_from_quota_rows(
+                aggregated,
+                quota_rows=quota_rows,
+                tzinfo=tzinfo,
+            )
+            history_source = "data_api"
+        else:
+            log_items = _fetch_consumption_logs(
+                client,
+                session_data=session_data,
+                start_timestamp=int(start_at_utc.timestamp()),
+                end_timestamp=int(end_at_utc.timestamp()),
+            )
+            _accumulate_daily_usage_from_logs(
+                aggregated,
+                log_items=log_items,
+                tzinfo=tzinfo,
+            )
+    except NewAPIClientError as exc:
+        if client.program_type != "newapi":
+            logger.warning("Daily usage sync skipped for instance %s: %s", instance.id, exc)
+            return history_source, str(exc)
+
+        logger.warning(
+            "Daily usage sync via /api/data/self failed for instance %s, falling back to /api/log/self: %s",
+            instance.id,
+            exc,
+        )
+        history_source = "log_api_fallback"
+        history_warning = f"/api/data/self 不可用，已回退到 /api/log/self：{exc}"
 
         try:
-            timestamp = int(created_at)
-        except (TypeError, ValueError):
-            continue
-
-        usage_date = datetime.fromtimestamp(timestamp, tz=timezone.utc).astimezone(tzinfo).date()
-        if usage_date not in aggregated:
-            continue
-
-        try:
-            quota = int(row.get("quota", 0) or 0)
-        except (TypeError, ValueError):
-            quota = 0
-
-        aggregated[usage_date]["request_count"] += 1
-        aggregated[usage_date]["used_quota"] += max(quota, 0)
+            log_items = _fetch_consumption_logs(
+                client,
+                session_data=session_data,
+                start_timestamp=int(start_at_utc.timestamp()),
+                end_timestamp=int(end_at_utc.timestamp()),
+            )
+            _accumulate_daily_usage_from_logs(
+                aggregated,
+                log_items=log_items,
+                tzinfo=tzinfo,
+            )
+        except NewAPIClientError as fallback_exc:
+            logger.warning("Daily usage sync skipped for instance %s: %s", instance.id, fallback_exc)
+            return history_source, str(fallback_exc)
 
     existing_rows = db.scalars(
         select(DailyUsageStat).where(
@@ -515,7 +542,58 @@ def _sync_recent_daily_usage(
         existing_row.used_display_amount = used_display_amount
         existing_row.synced_at = synced_at
 
-    return None
+    return history_source, history_warning
+
+
+def _accumulate_daily_usage_from_quota_rows(
+    aggregated: dict[date, dict[str, int]],
+    *,
+    quota_rows: list[dict[str, object]],
+    tzinfo,
+) -> None:
+    """Fold `/api/data/self` rows into per-day request and quota totals."""
+    for row in quota_rows:
+        created_at = row.get("created_at")
+        if created_at in (None, ""):
+            continue
+
+        try:
+            timestamp = int(created_at)
+        except (TypeError, ValueError):
+            continue
+
+        usage_date = datetime.fromtimestamp(timestamp, tz=timezone.utc).astimezone(tzinfo).date()
+        if usage_date not in aggregated:
+            continue
+
+        aggregated[usage_date]["request_count"] += max(_coerce_int(row.get("count", 0)), 0)
+        aggregated[usage_date]["used_quota"] += max(_coerce_int(row.get("quota", 0)), 0)
+
+
+def _accumulate_daily_usage_from_logs(
+    aggregated: dict[date, dict[str, int]],
+    *,
+    log_items: list[dict[str, object]],
+    tzinfo,
+) -> None:
+    """Fold `/api/log/self` rows into per-day request and quota totals."""
+    for row in log_items:
+        created_at = row.get("created_at")
+        if created_at in (None, ""):
+            continue
+
+        try:
+            timestamp = int(created_at)
+        except (TypeError, ValueError):
+            continue
+
+        usage_date = datetime.fromtimestamp(timestamp, tz=timezone.utc).astimezone(tzinfo).date()
+        if usage_date not in aggregated:
+            continue
+
+        quota = _coerce_int(row.get("quota", 0))
+        aggregated[usage_date]["request_count"] += 1
+        aggregated[usage_date]["used_quota"] += max(quota, 0)
 
 
 def _fetch_consumption_logs(
