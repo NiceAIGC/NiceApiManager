@@ -27,7 +27,10 @@ import { getErrorMessage } from '../api/client';
 import { fetchDashboardOverview, fetchDashboardTrends } from '../api/dashboard';
 import { fetchInstances } from '../api/instances';
 import { syncAllInstances } from '../api/sync';
-import { InstanceOverviewChart } from '../components/InstanceOverviewChart';
+import {
+  InstanceOverviewChart,
+  type InstanceOverviewMode,
+} from '../components/InstanceOverviewChart';
 import { StackedUsageChart } from '../components/StackedUsageChart';
 import {
   SyncProgressModal,
@@ -41,8 +44,7 @@ const { RangePicker } = DatePicker;
 const { Text } = Typography;
 
 type TrendMode = '7d' | '15d' | '30d' | 'custom-days' | 'range';
-type InstanceViewMode = 'quota' | 'status';
-type InstanceSortMode = 'used' | 'balance' | 'sync';
+type InstanceSortMode = 'used' | 'remaining' | 'sync';
 
 interface SyncProgressState {
   open: boolean;
@@ -117,9 +119,9 @@ export function DashboardPage() {
   const [customTrendDays, setCustomTrendDays] = useState(14);
   const [customRange, setCustomRange] = useState<[Dayjs, Dayjs]>(DEFAULT_RANGE);
   const [trendBreakdownLimit, setTrendBreakdownLimit] = useState(8);
-  const [instanceViewMode, setInstanceViewMode] = useState<InstanceViewMode>('quota');
+  const [instanceViewMode, setInstanceViewMode] = useState<InstanceOverviewMode>('used');
   const [instanceSortMode, setInstanceSortMode] = useState<InstanceSortMode>('used');
-  const [instanceLimit, setInstanceLimit] = useState(8);
+  const [instanceLimit, setInstanceLimit] = useState(10);
   const [selectedInstanceIds, setSelectedInstanceIds] = useState<number[]>([]);
   const [syncProgress, setSyncProgress] = useState<SyncProgressState>(INITIAL_SYNC_PROGRESS);
 
@@ -206,16 +208,6 @@ export function DashboardPage() {
   );
 
   const totalInstances = data?.instance_count ?? 0;
-  const healthyPercent = totalInstances
-    ? Math.round(((data?.healthy_instance_count ?? 0) / totalInstances) * 100)
-    : 0;
-  const enabledPercent = totalInstances
-    ? Math.round(((data?.enabled_instance_count ?? 0) / totalInstances) * 100)
-    : 0;
-  const prepaidPercent = totalInstances
-    ? Math.round(((data?.prepaid_instance_count ?? 0) / totalInstances) * 100)
-    : 0;
-
   const activeFilterCount = useMemo(
     () =>
       [
@@ -249,7 +241,7 @@ export function DashboardPage() {
     () =>
       [...(trendData?.points ?? [])]
         .sort((left, right) => right.used_display_amount - left.used_display_amount)
-        .slice(0, 5),
+        .slice(0, 6),
     [trendData],
   );
 
@@ -260,10 +252,10 @@ export function DashboardPage() {
       : items;
 
     filteredItems.sort((left, right) => {
-      if (instanceSortMode === 'balance') {
-        const leftBalance = Math.max((left.latest_display_quota ?? 0) - (left.latest_display_used_quota ?? 0), 0);
-        const rightBalance = Math.max((right.latest_display_quota ?? 0) - (right.latest_display_used_quota ?? 0), 0);
-        return rightBalance - leftBalance;
+      if (instanceSortMode === 'remaining') {
+        const leftRemaining = Math.max((left.latest_display_quota ?? 0) - (left.latest_display_used_quota ?? 0), 0);
+        const rightRemaining = Math.max((right.latest_display_quota ?? 0) - (right.latest_display_used_quota ?? 0), 0);
+        return rightRemaining - leftRemaining;
       }
       if (instanceSortMode === 'sync') {
         return new Date(right.last_sync_at ?? 0).getTime() - new Date(left.last_sync_at ?? 0).getTime();
@@ -370,7 +362,7 @@ export function DashboardPage() {
     <div className="page-stack">
       <Card
         className="section-card"
-        title="筛选与区间"
+        title="筛选与分析维度"
         extra={
           <Space wrap>
             <Button onClick={resetFilters}>清空筛选</Button>
@@ -482,57 +474,64 @@ export function DashboardPage() {
           <Alert
             showIcon
             type="info"
-            message={`${getTrendModeLabel(trendMode, customTrendDays)}，主图按实例堆叠展示每日消耗额度`}
+            message={`${getTrendModeLabel(trendMode, customTrendDays)}每日消耗额度，按实例堆叠展示`}
             description={
               trendData
-                ? `${trendData.start_date} 至 ${trendData.end_date}，共 ${trendData.days} 天；超出前 ${trendBreakdownLimit} 个实例会自动合并到“其他实例”。`
+                ? `${trendData.start_date} 至 ${trendData.end_date}，共 ${trendData.days} 天；鼠标悬浮可查看每一天的实例构成和占比。`
                 : '区间、筛选和堆叠实例数都会影响主图。'
             }
           />
         </div>
       </Card>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} md={12} xl={4}>
-          <Card className="section-card" loading={isLoading}>
-            <Statistic title="实例总数" value={formatNumber(data?.instance_count ?? 0)} />
-          </Card>
-        </Col>
-        <Col xs={24} md={12} xl={4}>
-          <Card className="section-card" loading={isLoading}>
-            <Statistic title="启用实例" value={formatNumber(data?.enabled_instance_count ?? 0)} />
-          </Card>
-        </Col>
-        <Col xs={24} md={12} xl={4}>
-          <Card className="section-card" loading={isLoading}>
-            <Statistic title="健康实例" value={formatNumber(data?.healthy_instance_count ?? 0)} />
-          </Card>
-        </Col>
-        <Col xs={24} md={12} xl={4}>
-          <Card className="section-card" loading={isLoading}>
-            <Statistic title="预付费总余额" value={formatMoney(data?.total_display_quota ?? 0)} />
-          </Card>
-        </Col>
-        <Col xs={24} md={12} xl={4}>
-          <Card className="section-card" loading={trendsLoading}>
-            <Statistic title="区间已用额度" value={formatMoney(trendSummary.totalUsed)} />
-          </Card>
-        </Col>
-        <Col xs={24} md={12} xl={4}>
-          <Card className="section-card" loading={trendsLoading}>
-            <Statistic title="日均消耗额度" value={formatMoney(trendSummary.averageUsed)} />
-          </Card>
-        </Col>
-      </Row>
+      <div className="dashboard-kpi-grid">
+        <Card className="section-card" loading={isLoading}>
+          <Statistic title="实例总数" value={formatNumber(data?.instance_count ?? 0)} />
+        </Card>
+        <Card className="section-card" loading={isLoading}>
+          <Statistic title="启用实例" value={formatNumber(data?.enabled_instance_count ?? 0)} />
+        </Card>
+        <Card className="section-card" loading={isLoading}>
+          <Statistic title="健康实例" value={formatNumber(data?.healthy_instance_count ?? 0)} />
+        </Card>
+        <Card className="section-card" loading={isLoading}>
+          <Statistic title="预付费总余额" value={formatMoney(data?.total_display_quota ?? 0)} />
+        </Card>
+        <Card className="section-card" loading={trendsLoading}>
+          <Statistic title="区间已用额度" value={formatMoney(trendSummary.totalUsed)} />
+        </Card>
+        <Card className="section-card" loading={trendsLoading}>
+          <Statistic title="日均消耗额度" value={formatMoney(trendSummary.averageUsed)} />
+        </Card>
+      </div>
 
       <Card
-        className="section-card"
+        className="section-card dashboard-main-chart-card"
         loading={trendsLoading}
         title={`${getTrendModeLabel(trendMode, customTrendDays)}每日消耗额度`}
       >
+        <div className="dashboard-main-chart-meta">
+          <div className="dashboard-main-chart-meta-item">
+            <Text type="secondary">活跃消耗天数</Text>
+            <Text strong>{formatNumber(trendSummary.activeDays)}</Text>
+          </div>
+          <div className="dashboard-main-chart-meta-item">
+            <Text type="secondary">峰值消耗日</Text>
+            <Text strong>
+              {trendSummary.peakUsagePoint
+                ? `${trendSummary.peakUsagePoint.date} / ${formatMoney(trendSummary.peakUsagePoint.used_display_amount)}`
+                : '-'}
+            </Text>
+          </div>
+          <div className="dashboard-main-chart-meta-item">
+            <Text type="secondary">当前筛选</Text>
+            <Text strong>{activeFilterCount ? `${activeFilterCount} 项` : '未筛选'}</Text>
+          </div>
+        </div>
+
         <StackedUsageChart
-          title="按实例堆叠"
-          subtitle="主图只展示消耗额度，不再混入请求数。"
+          title="实例构成"
+          subtitle="整段宽度全部用于主图。数据按实例堆叠，悬浮可看每日占比。"
           points={trendData?.points ?? []}
           series={trendData?.series ?? []}
         />
@@ -540,7 +539,7 @@ export function DashboardPage() {
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={8}>
-          <Card className="section-card" title="区间分析" loading={isLoading || trendsLoading}>
+          <Card className="section-card" title="区间洞察" loading={isLoading || trendsLoading}>
             <Descriptions column={1} size="small" colon={false}>
               <Descriptions.Item label="当前区间">
                 {trendData ? `${trendData.start_date} 至 ${trendData.end_date}` : '-'}
@@ -548,117 +547,87 @@ export function DashboardPage() {
               <Descriptions.Item label="已应用筛选">
                 {activeFilterCount ? `${activeFilterCount} 项` : '未筛选'}
               </Descriptions.Item>
+              <Descriptions.Item label="命中实例">{formatNumber(totalInstances)}</Descriptions.Item>
               <Descriptions.Item label="健康状态">{formatHealthStatusLabel(healthStatus)}</Descriptions.Item>
               <Descriptions.Item label="计费方式">{billingMode ? formatBillingMode(billingMode) : '全部'}</Descriptions.Item>
-              <Descriptions.Item label="命中实例">{formatNumber(totalInstances)}</Descriptions.Item>
-              <Descriptions.Item label="活跃消耗天数">{formatNumber(trendSummary.activeDays)}</Descriptions.Item>
-              <Descriptions.Item label="启用率">{enabledPercent}%</Descriptions.Item>
-              <Descriptions.Item label="健康率">{healthyPercent}%</Descriptions.Item>
-              <Descriptions.Item label="预付费占比">{prepaidPercent}%</Descriptions.Item>
             </Descriptions>
 
-            <div className="dashboard-analysis-summary">
-              <Alert
-                showIcon
-                type="success"
-                message="峰值消耗日"
-                description={
-                  trendSummary.peakUsagePoint
-                    ? `${trendSummary.peakUsagePoint.date}，消耗 ${formatMoney(trendSummary.peakUsagePoint.used_display_amount)}`
-                    : '暂无数据'
-                }
-              />
+            <div className="dashboard-top-days">
+              <div className="dashboard-section-caption">高消耗日期</div>
+              {topTrendDays.length ? (
+                topTrendDays.map((item) => (
+                  <div key={item.date} className="dashboard-top-day-row">
+                    <div>
+                      <div className="dashboard-top-day-date">{item.date}</div>
+                      <div className="dashboard-top-day-tags">
+                        {item.breakdown.slice(0, 3).map((part) => (
+                          <Tag key={`${item.date}-${part.key}`}>{part.instance_name}</Tag>
+                        ))}
+                      </div>
+                    </div>
+                    <Text strong>{formatMoney(item.used_display_amount)}</Text>
+                  </div>
+                ))
+              ) : (
+                <Empty description="暂无区间数据" />
+              )}
             </div>
           </Card>
         </Col>
 
         <Col xs={24} xl={16}>
-          <Card className="section-card" title="高消耗日期" loading={trendsLoading}>
-            <Table
-              rowKey="date"
-              size="small"
-              pagination={false}
-              dataSource={topTrendDays}
-              locale={{ emptyText: <Empty description="暂无区间数据" /> }}
-              columns={[
-                {
-                  title: '日期',
-                  dataIndex: 'date',
-                  key: 'date',
-                  width: 160,
-                },
-                {
-                  title: '消耗额度',
-                  dataIndex: 'used_display_amount',
-                  key: 'used_display_amount',
-                  render: (value: number) => formatMoney(value),
-                },
-                {
-                  title: '主要来源实例',
-                  dataIndex: 'breakdown',
-                  key: 'breakdown',
-                  render: (value: Array<{ instance_name: string; used_display_amount: number }>) => (
-                    <Space size={[8, 8]} wrap>
-                      {value.slice(0, 4).map((item) => (
-                        <Tag key={`${item.instance_name}-${item.used_display_amount}`}>
-                          {item.instance_name} {formatMoney(item.used_display_amount)}
-                        </Tag>
-                      ))}
-                    </Space>
-                  ),
-                },
-              ]}
-            />
+          <Card
+            className="section-card"
+            title="实例对比视图"
+            loading={isLoading}
+            extra={
+              <Space size={[12, 12]} wrap>
+                <Segmented<InstanceOverviewMode>
+                  options={[
+                    { label: '已用额度', value: 'used' },
+                    { label: '剩余额度', value: 'remaining' },
+                    { label: '健康状态', value: 'health' },
+                  ]}
+                  value={instanceViewMode}
+                  onChange={(value) => setInstanceViewMode(value)}
+                />
+                <Segmented<InstanceSortMode>
+                  options={[
+                    { label: '按已用', value: 'used' },
+                    { label: '按剩余', value: 'remaining' },
+                    { label: '按最近同步', value: 'sync' },
+                  ]}
+                  value={instanceSortMode}
+                  onChange={(value) => setInstanceSortMode(value)}
+                />
+              </Space>
+            }
+          >
+            <div className="dashboard-instance-toolbar">
+              <InputNumber
+                min={1}
+                max={20}
+                addonAfter="个"
+                value={instanceLimit}
+                onChange={(value) => setInstanceLimit(value ?? 10)}
+                disabled={selectedInstanceIds.length > 0}
+              />
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="指定实例"
+                style={{ minWidth: 280 }}
+                maxTagCount="responsive"
+                value={selectedInstanceIds}
+                options={instanceOptions}
+                onChange={(value) => setSelectedInstanceIds(value)}
+              />
+            </div>
+
+            <InstanceOverviewChart items={visibleInstanceItems} mode={instanceViewMode} />
           </Card>
         </Col>
       </Row>
-
-      <Card
-        className="section-card"
-        title="实例可视化概览"
-        loading={isLoading}
-        extra={
-          <Space size={[12, 12]} wrap>
-            <Segmented<InstanceViewMode>
-              options={[
-                { label: '额度结构', value: 'quota' },
-                { label: '运行状态', value: 'status' },
-              ]}
-              value={instanceViewMode}
-              onChange={(value) => setInstanceViewMode(value)}
-            />
-            <Segmented<InstanceSortMode>
-              options={[
-                { label: '按已用', value: 'used' },
-                { label: '按余额', value: 'balance' },
-                { label: '按最近同步', value: 'sync' },
-              ]}
-              value={instanceSortMode}
-              onChange={(value) => setInstanceSortMode(value)}
-            />
-            <InputNumber
-              min={1}
-              max={20}
-              addonAfter="个"
-              value={instanceLimit}
-              onChange={(value) => setInstanceLimit(value ?? 8)}
-              disabled={selectedInstanceIds.length > 0}
-            />
-            <Select
-              mode="multiple"
-              allowClear
-              placeholder="指定实例"
-              style={{ minWidth: 260 }}
-              maxTagCount="responsive"
-              value={selectedInstanceIds}
-              options={instanceOptions}
-              onChange={(value) => setSelectedInstanceIds(value)}
-            />
-          </Space>
-        }
-      >
-        <InstanceOverviewChart items={visibleInstanceItems} mode={instanceViewMode} />
-      </Card>
 
       <SyncProgressModal
         open={syncProgress.open}

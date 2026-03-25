@@ -1,4 +1,4 @@
-import { Empty, Space, Tag, Typography } from 'antd';
+import { Empty, Space, Tag, Tooltip, Typography } from 'antd';
 import { useMemo } from 'react';
 
 import type { DashboardTrendPoint, DashboardTrendSeriesItem } from '../types/api';
@@ -50,7 +50,7 @@ export function StackedUsageChart({ title, subtitle, points, series }: StackedUs
     return [1, 0.75, 0.5, 0.25, 0].map((ratio) => maxValue * ratio);
   }, [maxValue]);
 
-  const chartWidth = Math.max(points.length * 68, 720);
+  const minChartWidth = Math.max(points.length * 72, 0);
 
   if (!points.length) {
     return (
@@ -101,34 +101,68 @@ export function StackedUsageChart({ title, subtitle, points, series }: StackedUs
         </div>
 
         <div className="stacked-usage-chart-scroll">
-          <div className="stacked-usage-chart-grid" style={{ width: chartWidth }}>
+          <div className="stacked-usage-chart-grid" style={{ minWidth: `${minChartWidth}px` }}>
             {tickValues.map((_, index) => (
               <div key={index} className="stacked-usage-chart-grid-line" />
             ))}
           </div>
 
-          <div className="stacked-usage-chart-bars" style={{ width: chartWidth }}>
-            {points.map((point) => (
-              <div key={point.date} className="stacked-usage-chart-bar-group">
-                <div className="stacked-usage-chart-bar-total">{formatMoney(point.used_display_amount)}</div>
-                <div className="stacked-usage-chart-bar-shell">
-                  <div className="stacked-usage-chart-bar-stack">
-                    {point.breakdown.map((item) => (
-                      <div
-                        key={`${point.date}-${item.key}`}
-                        className="stacked-usage-chart-segment"
-                        style={{
-                          height: `${maxValue > 0 ? (item.used_display_amount / maxValue) * 100 : 0}%`,
-                          backgroundColor: colorMap.get(item.key) ?? CHART_COLORS[0],
-                        }}
-                        title={`${point.date} ${item.instance_name}: ${formatMoney(item.used_display_amount)}`}
-                      />
-                    ))}
+          <div
+            className="stacked-usage-chart-bars"
+            style={{
+              minWidth: `${minChartWidth}px`,
+              gridTemplateColumns: `repeat(${points.length}, minmax(54px, 1fr))`,
+            }}
+          >
+            {points.map((point) => {
+              const tooltipTitle = (
+                <div className="stacked-usage-chart-tooltip">
+                  <div className="stacked-usage-chart-tooltip-title">{point.date}</div>
+                  <div className="stacked-usage-chart-tooltip-total">
+                    总消耗：{formatMoney(point.used_display_amount)}
                   </div>
+                  {point.breakdown.map((item) => {
+                    const percent = point.used_display_amount > 0
+                      ? ((item.used_display_amount / point.used_display_amount) * 100).toFixed(1)
+                      : '0.0';
+                    return (
+                      <div key={`${point.date}-${item.key}`} className="stacked-usage-chart-tooltip-row">
+                        <span
+                          className="stacked-usage-chart-tooltip-dot"
+                          style={{ backgroundColor: colorMap.get(item.key) ?? CHART_COLORS[0] }}
+                        />
+                        <span>{item.instance_name}</span>
+                        <span>{formatMoney(item.used_display_amount)}</span>
+                        <span>{percent}%</span>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="stacked-usage-chart-bar-label">{point.label}</div>
-              </div>
-            ))}
+              );
+
+              return (
+                <Tooltip key={point.date} placement="top" title={tooltipTitle}>
+                  <div className="stacked-usage-chart-bar-group">
+                    <div className="stacked-usage-chart-bar-total">{formatMoney(point.used_display_amount)}</div>
+                    <div className="stacked-usage-chart-bar-shell">
+                      <div className="stacked-usage-chart-bar-stack">
+                        {point.breakdown.map((item) => (
+                          <div
+                            key={`${point.date}-${item.key}`}
+                            className="stacked-usage-chart-segment"
+                            style={{
+                              height: `${maxValue > 0 ? (item.used_display_amount / maxValue) * 100 : 0}%`,
+                              backgroundColor: colorMap.get(item.key) ?? CHART_COLORS[0],
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="stacked-usage-chart-bar-label">{point.label}</div>
+                  </div>
+                </Tooltip>
+              );
+            })}
           </div>
         </div>
       </div>
