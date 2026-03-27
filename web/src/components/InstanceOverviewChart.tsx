@@ -1,8 +1,8 @@
-import { Empty, Tooltip, Typography } from 'antd';
+import { Empty, Progress, Space, Table, Tag, Typography } from 'antd';
 import { useMemo } from 'react';
 
 import type { DashboardInstanceSummary } from '../types/api';
-import { formatDateTime, formatMoney } from '../utils/format';
+import { formatDateTime, formatMoney, formatNumber } from '../utils/format';
 
 const { Text } = Typography;
 
@@ -21,147 +21,150 @@ function getHealthScore(item: DashboardInstanceSummary) {
     return 100;
   }
   if (item.health_status === 'degraded') {
-    return 60;
+    return 65;
   }
-  return 20;
+  if (item.health_status === 'unknown') {
+    return 40;
+  }
+  return 15;
 }
 
-function getHealthLabel(item: DashboardInstanceSummary) {
+function getHealthMeta(item: DashboardInstanceSummary) {
   if (!item.enabled) {
-    return '已停用';
+    return { label: '已停用', color: 'default' as const };
   }
   if (item.health_status === 'healthy') {
-    return '健康';
+    return { label: '健康', color: 'success' as const };
   }
   if (item.health_status === 'degraded') {
-    return '降级';
+    return { label: '降级', color: 'warning' as const };
   }
-  return '异常';
-}
-
-function getHealthColor(item: DashboardInstanceSummary) {
-  if (!item.enabled) {
-    return '#bfbfbf';
+  if (item.health_status === 'unknown') {
+    return { label: '未知', color: 'default' as const };
   }
-  if (item.health_status === 'healthy') {
-    return '#52c41a';
-  }
-  if (item.health_status === 'degraded') {
-    return '#faad14';
-  }
-  return '#ff4d4f';
+  return { label: '异常', color: 'error' as const };
 }
 
 export function InstanceOverviewChart({ items, mode }: InstanceOverviewChartProps) {
-  const chartData = useMemo(() => {
-    return items.map((item) => {
-      const usedAmount = item.latest_display_used_quota ?? 0;
-      const totalAmount =
-        item.billing_mode === 'prepaid'
-          ? Math.max(item.latest_display_quota ?? 0, usedAmount)
-          : usedAmount;
-      const remainingAmount = item.billing_mode === 'prepaid' ? Math.max(totalAmount - usedAmount, 0) : 0;
-      const value =
-        mode === 'remaining'
-          ? remainingAmount
-          : mode === 'health'
-            ? getHealthScore(item)
-            : usedAmount;
+  const rows = useMemo(
+    () =>
+      items.map((item) => {
+        const usedAmount = item.latest_display_used_quota ?? 0;
+        const remainingAmount =
+          item.billing_mode === 'prepaid'
+            ? Math.max((item.latest_display_quota ?? 0) - usedAmount, 0)
+            : 0;
+        const healthMeta = getHealthMeta(item);
+        const metricValue = mode === 'remaining' ? remainingAmount : mode === 'health' ? getHealthScore(item) : usedAmount;
 
-      return {
-        item,
-        usedAmount,
-        totalAmount,
-        remainingAmount,
-        value,
-        healthLabel: getHealthLabel(item),
-        healthColor: getHealthColor(item),
-      };
-    });
-  }, [items, mode]);
-
-  const maxValue = useMemo(
-    () => chartData.reduce((currentMax, item) => Math.max(currentMax, item.value), 0),
-    [chartData],
+        return {
+          ...item,
+          usedAmount,
+          remainingAmount,
+          healthMeta,
+          metricValue,
+        };
+      }),
+    [items, mode],
   );
 
-  if (!chartData.length) {
+  const maxMetricValue = useMemo(
+    () => rows.reduce((maxValue, item) => Math.max(maxValue, item.metricValue), 0),
+    [rows],
+  );
+
+  if (!rows.length) {
     return <Empty description="当前筛选下暂无实例" />;
   }
 
   return (
-    <div className="instance-chart">
-      {chartData.map(({ item, usedAmount, totalAmount, remainingAmount, value, healthLabel, healthColor }) => {
-        const widthPercent = maxValue > 0 ? Math.max((value / maxValue) * 100, value > 0 ? 8 : 0) : 0;
-        const usedPercent = totalAmount > 0 ? Math.min((usedAmount / totalAmount) * 100, 100) : 0;
-        const remainingPercent = totalAmount > 0 ? Math.max(100 - usedPercent, 0) : 0;
+    <Table
+      size="small"
+      rowKey="instance_id"
+      dataSource={rows}
+      pagination={false}
+      scroll={{ x: 900 }}
+      columns={[
+        {
+          title: '实例',
+          dataIndex: 'instance_name',
+          key: 'instance_name',
+          width: 180,
+          render: (value: string, record) => (
+            <Space direction="vertical" size={0}>
+              <Text strong>{value}</Text>
+              <Space size={8} wrap>
+                <Tag>{record.billing_mode === 'postpaid' ? '后付费' : '预付费'}</Tag>
+                {record.latest_group_name ? <Tag color="blue">{record.latest_group_name}</Tag> : null}
+              </Space>
+            </Space>
+          ),
+        },
+        {
+          title: '健康状态',
+          dataIndex: 'health_status',
+          key: 'health_status',
+          width: 110,
+          render: (_: string, record) => <Tag color={record.healthMeta.color}>{record.healthMeta.label}</Tag>,
+        },
+        {
+          title: mode === 'used' ? '已用强度' : mode === 'remaining' ? '剩余强度' : '健康得分',
+          key: 'metric',
+          width: 280,
+          render: (_: unknown, record) => {
+            const percent =
+              mode === 'health'
+                ? record.metricValue
+                : maxMetricValue > 0
+                  ? Math.max((record.metricValue / maxMetricValue) * 100, record.metricValue > 0 ? 6 : 0)
+                  : 0;
+            const label =
+              mode === 'used'
+                ? formatMoney(record.usedAmount)
+                : mode === 'remaining'
+                  ? formatMoney(record.remainingAmount)
+                  : `${record.metricValue} / 100`;
+            const strokeColor =
+              mode === 'used' ? '#1677ff' : mode === 'remaining' ? '#52c41a' : record.healthMeta.color === 'success' ? '#52c41a' : record.healthMeta.color === 'warning' ? '#faad14' : record.healthMeta.color === 'error' ? '#ff4d4f' : '#8c8c8c';
 
-        const tooltipTitle = (
-          <div className="instance-chart-tooltip">
-            <div>{item.instance_name}</div>
-            <div>计费方式：{item.billing_mode === 'postpaid' ? '后付费' : '预付费'}</div>
-            <div>状态：{healthLabel}</div>
-            <div>已用额度：{formatMoney(usedAmount)}</div>
-            {item.billing_mode === 'prepaid' ? <div>剩余额度：{formatMoney(remainingAmount)}</div> : null}
-            <div>最近同步：{formatDateTime(item.last_sync_at)}</div>
-            {item.health_error ? <div>异常信息：{item.health_error}</div> : null}
-          </div>
-        );
-
-        return (
-          <Tooltip key={item.instance_id} placement="topLeft" title={tooltipTitle}>
-            <div className="instance-chart-row">
-              <div className="instance-chart-label">
-                <div className="instance-chart-name">{item.instance_name}</div>
-                <div className="instance-chart-subtitle">
-                  {mode === 'used'
-                    ? `已用 ${formatMoney(usedAmount)}`
-                    : mode === 'remaining'
-                      ? `剩余 ${formatMoney(remainingAmount)}`
-                      : healthLabel}
-                </div>
-              </div>
-
-              <div className="instance-chart-track">
-                {mode === 'health' ? (
-                  <div className="instance-chart-health-shell">
-                    <div
-                      className="instance-chart-health-fill"
-                      style={{
-                        width: `${widthPercent}%`,
-                        backgroundColor: healthColor,
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <div className="instance-chart-quota-shell" style={{ width: `${widthPercent}%` }}>
-                    {mode === 'used' ? (
-                      <>
-                        <div className="instance-chart-quota-used" style={{ width: `${usedPercent}%` }} />
-                        {item.billing_mode === 'prepaid' ? (
-                          <div className="instance-chart-quota-remaining" style={{ width: `${remainingPercent}%` }} />
-                        ) : null}
-                      </>
-                    ) : (
-                      <div className="instance-chart-quota-remaining" style={{ width: '100%' }} />
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="instance-chart-value">
-                <Text strong>
-                  {mode === 'used'
-                    ? formatMoney(usedAmount)
-                    : mode === 'remaining'
-                      ? formatMoney(remainingAmount)
-                      : healthLabel}
-                </Text>
-              </div>
-            </div>
-          </Tooltip>
-        );
-      })}
-    </div>
+            return (
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Text strong>{label}</Text>
+                <Progress percent={Math.round(percent)} showInfo={false} strokeColor={strokeColor} />
+              </Space>
+            );
+          },
+        },
+        {
+          title: '当前余额',
+          dataIndex: 'latest_display_quota',
+          key: 'latest_display_quota',
+          width: 120,
+          render: (value: number | null | undefined, record) =>
+            record.billing_mode === 'postpaid' ? '-' : formatMoney(value),
+        },
+        {
+          title: '今日请求',
+          dataIndex: 'today_request_count',
+          key: 'today_request_count',
+          width: 110,
+          render: (value: number) => formatNumber(value),
+        },
+        {
+          title: '累计请求',
+          dataIndex: 'latest_request_count',
+          key: 'latest_request_count',
+          width: 110,
+          render: (value?: number | null) => formatNumber(value),
+        },
+        {
+          title: '最近同步',
+          dataIndex: 'last_sync_at',
+          key: 'last_sync_at',
+          width: 180,
+          render: (value?: string | null) => formatDateTime(value),
+        },
+      ]}
+    />
   );
 }

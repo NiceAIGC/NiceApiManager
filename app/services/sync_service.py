@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 import logging
 from datetime import date, datetime, time, timedelta, timezone
 
@@ -12,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.clients.newapi import NewAPIClient, NewAPIClientError, NewAPISessionData, detect_program_type
-from app.core.database import SessionLocal, is_sqlite_locked_error
+from app.core.database import SessionLocal, is_sqlite_locked_error, sqlite_write_lock
 from app.core.time import utcnow
 from app.models import DailyUsageStat, GroupRatio, Instance, InstanceSession, PricingModel, SyncRun, UserSnapshot
 from app.schemas.instance import InstanceTestResponse
@@ -22,6 +23,11 @@ from app.services.snapshot_metrics import quota_to_display_amount, resolve_timez
 
 
 logger = logging.getLogger(__name__)
+
+
+def _sqlite_write_context():
+    """Serialize SQLite mutations so concurrent network syncs do not deadlock on writes."""
+    return sqlite_write_lock() if sqlite_write_lock is not None else nullcontext()
 
 
 def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestResponse:
@@ -48,7 +54,8 @@ def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestR
     except NewAPIClientError as exc:
         instance.last_health_status = "unhealthy"
         instance.last_health_error = str(exc)
-        db.commit()
+        with _sqlite_write_context():
+            db.commit()
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
@@ -57,7 +64,8 @@ def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestR
     instance.last_health_status = "healthy"
     instance.last_health_error = None
     instance.quota_per_unit = _extract_quota_per_unit(status_data)
-    db.commit()
+    with _sqlite_write_context():
+        db.commit()
 
     return InstanceTestResponse(
         success=True,
@@ -93,7 +101,8 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
         started_at=utcnow(),
     )
     db.add(sync_run)
-    db.commit()
+    with _sqlite_write_context():
+        db.commit()
     db.refresh(sync_run)
 
     try:
@@ -117,44 +126,45 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
         )
 
         snapshot_at = utcnow()
-        instance.quota_per_unit = _extract_quota_per_unit(status_data)
-        _persist_user_snapshot(db, instance_id, user_data, snapshot_at)
-        _replace_group_ratios(db, instance_id, group_data, snapshot_at)
-        _replace_pricing_models(db, instance_id, pricing_payload, snapshot_at)
-        history_source, history_warning = _sync_recent_daily_usage(
-            db,
-            instance=instance,
-            client=client,
-            session_data=session_data,
-            synced_at=snapshot_at,
-            runtime_settings=runtime_settings,
-        )
+        with _sqlite_write_context():
+            instance.quota_per_unit = _extract_quota_per_unit(status_data)
+            _persist_user_snapshot(db, instance_id, user_data, snapshot_at)
+            _replace_group_ratios(db, instance_id, group_data, snapshot_at)
+            _replace_pricing_models(db, instance_id, pricing_payload, snapshot_at)
+            history_source, history_warning = _sync_recent_daily_usage(
+                db,
+                instance=instance,
+                client=client,
+                session_data=session_data,
+                synced_at=snapshot_at,
+                runtime_settings=runtime_settings,
+            )
 
-        finished_at = utcnow()
-        duration_ms = int((finished_at - sync_run.started_at).total_seconds() * 1000)
-        summary = {
-            "group_count": len(group_data),
-            "pricing_model_count": len(pricing_payload.get("data") or []),
-            "quota": int(user_data.get("quota", 0)),
-            "used_quota": int(user_data.get("used_quota", 0)),
-            "request_count": int(user_data.get("request_count", 0)),
-            "history_days": runtime_settings.sync_history_lookback_days,
-            "history_source": history_source,
-        }
-        if history_warning:
-            summary["history_warning"] = history_warning
+            finished_at = utcnow()
+            duration_ms = int((finished_at - sync_run.started_at).total_seconds() * 1000)
+            summary = {
+                "group_count": len(group_data),
+                "pricing_model_count": len(pricing_payload.get("data") or []),
+                "quota": int(user_data.get("quota", 0)),
+                "used_quota": int(user_data.get("used_quota", 0)),
+                "request_count": int(user_data.get("request_count", 0)),
+                "history_days": runtime_settings.sync_history_lookback_days,
+                "history_source": history_source,
+            }
+            if history_warning:
+                summary["history_warning"] = history_warning
 
-        sync_run = db.get(SyncRun, sync_run.id)
-        instance = db.get(Instance, instance_id)
-        sync_run.status = "success"
-        sync_run.finished_at = finished_at
-        sync_run.duration_ms = duration_ms
-        sync_run.error_message = None
-        sync_run.summary_json = summary
-        instance.last_sync_at = finished_at
-        instance.last_health_status = "healthy"
-        instance.last_health_error = None
-        db.commit()
+            sync_run = db.get(SyncRun, sync_run.id)
+            instance = db.get(Instance, instance_id)
+            sync_run.status = "success"
+            sync_run.finished_at = finished_at
+            sync_run.duration_ms = duration_ms
+            sync_run.error_message = None
+            sync_run.summary_json = summary
+            instance.last_sync_at = finished_at
+            instance.last_health_status = "healthy"
+            instance.last_health_error = None
+            db.commit()
         db.refresh(sync_run)
         return sync_run
 
@@ -163,16 +173,19 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
         db.rollback()
 
         finished_at = utcnow()
-        sync_run = db.get(SyncRun, sync_run.id)
-        instance = db.get(Instance, instance_id)
-        sync_run.status = "failed"
-        sync_run.finished_at = finished_at
-        sync_run.duration_ms = int((finished_at - sync_run.started_at).total_seconds() * 1000)
-        sync_run.error_message = str(exc)
-        sync_run.summary_json = None
-        instance.last_health_status = "unhealthy"
-        instance.last_health_error = str(exc)
-        db.commit()
+        with _sqlite_write_context():
+            sync_run = db.get(SyncRun, sync_run.id)
+            instance = db.get(Instance, instance_id)
+            if sync_run is not None:
+                sync_run.status = "failed"
+                sync_run.finished_at = finished_at
+                sync_run.duration_ms = int((finished_at - sync_run.started_at).total_seconds() * 1000)
+                sync_run.error_message = str(exc)
+                sync_run.summary_json = None
+            if instance is not None:
+                instance.last_health_status = "unhealthy"
+                instance.last_health_error = str(exc)
+            db.commit()
 
         if isinstance(exc, NewAPIClientError):
             raise HTTPException(
@@ -240,7 +253,12 @@ def sync_all_instances(db: Session, instance_ids: list[int] | None = None) -> Bu
     )
 
 
-def _sync_instance_in_worker(instance_id: int, instance_name: str) -> BulkSyncInstanceResult:
+def _sync_instance_in_worker(
+    instance_id: int,
+    instance_name: str,
+    *,
+    trigger_type: str = "manual",
+) -> BulkSyncInstanceResult:
     """Run one sync inside its own DB session so bulk sync can parallelize safely."""
     with SessionLocal() as db:
         instance = db.scalar(select(Instance).where(Instance.id == instance_id))
@@ -253,7 +271,7 @@ def _sync_instance_in_worker(instance_id: int, instance_name: str) -> BulkSyncIn
             )
 
         try:
-            sync_run = sync_single_instance(db, instance=instance, trigger_type="manual")
+            sync_run = sync_single_instance(db, instance=instance, trigger_type=trigger_type)
             return BulkSyncInstanceResult(
                 instance_id=instance_id,
                 instance_name=instance_name,
@@ -321,7 +339,8 @@ def _ensure_session(
     cached_session.expires_at = session_data.expires_at
 
     try:
-        db.commit()
+        with _sqlite_write_context():
+            db.commit()
     except IntegrityError:
         # Another request may have created the row first. Reload and reuse the stored session.
         db.rollback()
@@ -383,6 +402,7 @@ def _prepare_instance_client(
         program_type=instance.program_type,
         timeout=runtime_settings.request_timeout,
         verify=runtime_settings.sync_verify_ssl,
+        proxy=instance.socks5_proxy_url,
     )
     status_data = client.get_status()
     detected_program_type = detect_program_type(status_data, instance.program_type)
@@ -603,6 +623,43 @@ def _iter_usage_dates(start_date: date, end_date: date):
     while current <= end_date:
         yield current
         current += timedelta(days=1)
+
+
+def run_scheduled_sync_pass() -> None:
+    """Sync enabled instances whose per-instance interval has elapsed."""
+    with SessionLocal() as db:
+        runtime_settings = get_runtime_app_settings(db)
+        now = utcnow()
+        running_instance_ids = set(
+            db.scalars(select(SyncRun.instance_id).where(SyncRun.status == "running")).all()
+        )
+        instances = db.execute(
+            select(
+                Instance.id,
+                Instance.name,
+                Instance.last_sync_at,
+                Instance.sync_interval_minutes,
+            )
+            .where(Instance.enabled.is_(True))
+            .order_by(Instance.id.asc())
+        ).all()
+
+    for instance_id, instance_name, last_sync_at, sync_interval_minutes in instances:
+        if instance_id in running_instance_ids:
+            continue
+
+        interval_minutes = max(sync_interval_minutes or runtime_settings.default_sync_interval_minutes, 5)
+        if last_sync_at is not None and now < last_sync_at + timedelta(minutes=interval_minutes):
+            continue
+
+        result = _sync_instance_in_worker(instance_id, instance_name, trigger_type="scheduled")
+        if result.status == "failed":
+            logger.warning(
+                "Scheduled sync failed for instance %s (%s): %s",
+                instance_id,
+                instance_name,
+                result.error_message,
+            )
 
 
 def _coerce_float(value: object, default: float = 0.0) -> float:

@@ -1,6 +1,7 @@
 """Database engine and session management."""
 
 from pathlib import Path
+from threading import RLock
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
@@ -12,6 +13,7 @@ from app.core.config import get_settings
 settings = get_settings()
 database_url = make_url(settings.database_url)
 SQLITE_BUSY_TIMEOUT_MS = 30_000
+SQLITE_WRITE_LOCK = RLock()
 
 
 def prepare_database_directory() -> None:
@@ -58,3 +60,8 @@ if database_url.get_backend_name() == "sqlite":
 def is_sqlite_locked_error(exc: Exception) -> bool:
     """Return whether an exception came from SQLite write-lock contention."""
     return database_url.get_backend_name() == "sqlite" and "database is locked" in str(exc).lower()
+
+
+def sqlite_write_lock():
+    """Return the process-local write lock used to serialize SQLite mutations."""
+    return SQLITE_WRITE_LOCK

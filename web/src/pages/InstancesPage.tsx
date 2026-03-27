@@ -35,12 +35,12 @@ import {
   updateInstance,
   updateInstancesBatch,
 } from '../api/instances';
-import { syncAllInstances } from '../api/sync';
+import { fetchAppSettings } from '../api/settings';
 import { InstanceBatchModal } from '../components/InstanceBatchModal';
 import { InstanceCreateModal } from '../components/InstanceCreateModal';
 import { StatCard } from '../components/StatCard';
 import { StatusTag } from '../components/StatusTag';
-import { SyncProgressModal, type SyncProgressItem, type SyncProgressStatus } from '../components/SyncProgressModal';
+import { SyncProgressModal, type SyncProgressItem } from '../components/SyncProgressModal';
 import type {
   BatchInstanceUpdatePayload,
   Instance,
@@ -58,6 +58,7 @@ import {
   formatProgramType,
   getBillingModeTagColor,
 } from '../utils/format';
+import { runBatchSyncWithConcurrency } from '../utils/batchSync';
 
 const { Text } = Typography;
 
@@ -68,7 +69,7 @@ interface SyncProgressState {
   completed: number;
   successCount: number;
   failedCount: number;
-  currentName?: string | null;
+  activeNames: string[];
   items: SyncProgressItem[];
 }
 
@@ -79,13 +80,9 @@ const INITIAL_SYNC_PROGRESS: SyncProgressState = {
   completed: 0,
   successCount: 0,
   failedCount: 0,
-  currentName: null,
+  activeNames: [],
   items: [],
 };
-
-function normalizeSyncStatus(status?: string): SyncProgressStatus {
-  return status === 'success' || status === 'failed' || status === 'running' ? status : 'pending';
-}
 
 function getBalanceBadgeClass(value?: number | null) {
   if (value == null) {
@@ -135,6 +132,11 @@ export function InstancesPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['instances', filters],
     queryFn: () => fetchInstances(filters),
+  });
+
+  const { data: appSettingsData } = useQuery({
+    queryKey: ['app-settings'],
+    queryFn: fetchAppSettings,
   });
 
   const refreshAllData = async () => {
@@ -350,7 +352,7 @@ export function InstancesPage() {
       completed: 0,
       successCount: 0,
       failedCount: 0,
-      currentName: syncTargets[0]?.name ?? null,
+      activeNames: [],
       items: syncTargets.map((item) => ({
         key: item.id,
         name: item.name,
@@ -359,40 +361,38 @@ export function InstancesPage() {
     });
 
     try {
-      const result = await syncAllInstances(syncTargets.map((item) => item.id));
-      const resultMap = new Map(result.items.map((item) => [item.instance_id, item]));
-
-      setSyncProgress({
-        open: true,
-        running: false,
-        total: result.total,
-        completed: result.total,
-        successCount: result.success_count,
-        failedCount: result.failed_count,
-        currentName: null,
-        items: syncTargets.map((item) => {
-          const current = resultMap.get(item.id);
-          return {
-            key: item.id,
-            name: item.name,
-            status: normalizeSyncStatus(current?.status),
-            errorMessage: current?.error_message ?? null,
-          };
-        }),
+      const result = await runBatchSyncWithConcurrency({
+        targets: syncTargets,
+        maxWorkers: appSettingsData?.sync_max_workers ?? 5,
+        syncOne: syncInstance,
+        onStateChange: ({ running, completed, successCount, failedCount, activeNames, items }) => {
+          setSyncProgress({
+            open: true,
+            running,
+            total: syncTargets.length,
+            completed,
+            successCount,
+            failedCount,
+            activeNames,
+            items,
+          });
+        },
       });
 
       await refreshAllData();
 
-      if (result.failed_count) {
-        message.warning(`同步完成：成功 ${result.success_count}，失败 ${result.failed_count}，并发 ${result.max_workers}`);
+      if (result.failedCount) {
+        message.warning(
+          `同步完成：成功 ${result.successCount}，失败 ${result.failedCount}，并发 ${appSettingsData?.sync_max_workers ?? 5}`,
+        );
         return;
       }
-      message.success(`已完成 ${result.success_count} 个实例同步，并发 ${result.max_workers}`);
+      message.success(`已完成 ${result.successCount} 个实例同步，并发 ${appSettingsData?.sync_max_workers ?? 5}`);
     } catch (error) {
       setSyncProgress((current) => ({
         ...current,
         running: false,
-        currentName: null,
+        activeNames: [],
       }));
       message.error(getErrorMessage(error));
     }
@@ -406,6 +406,7 @@ export function InstancesPage() {
         key: 'name',
         fixed: 'left' as const,
         width: 260,
+        sorter: (left: Instance, right: Instance) => left.name.localeCompare(right.name),
         render: (value: string, record: Instance) => (
           <Space direction="vertical" size={0}>
             <Text strong>{value}</Text>
@@ -430,6 +431,7 @@ export function InstancesPage() {
         dataIndex: 'program_type',
         key: 'program_type',
         width: 110,
+        sorter: (left: Instance, right: Instance) => left.program_type.localeCompare(right.program_type),
         render: (value: Instance['program_type']) => (
           <Tag color={value === 'shellapi' ? 'purple' : value === 'rixapi' ? 'blue' : 'default'}>
             {formatProgramType(value)}
@@ -441,6 +443,7 @@ export function InstancesPage() {
         dataIndex: 'billing_mode',
         key: 'billing_mode',
         width: 120,
+        sorter: (left: Instance, right: Instance) => left.billing_mode.localeCompare(right.billing_mode),
         render: (value: Instance['billing_mode']) => (
           <Tag color={getBillingModeTagColor(value)}>
             {formatBillingMode(value)}
@@ -463,6 +466,7 @@ export function InstancesPage() {
         dataIndex: 'last_health_status',
         key: 'last_health_status',
         width: 110,
+        sorter: (left: Instance, right: Instance) => left.last_health_status.localeCompare(right.last_health_status),
         render: (value: string) => <StatusTag value={value} />,
       },
       {
@@ -470,7 +474,26 @@ export function InstancesPage() {
         dataIndex: 'enabled',
         key: 'enabled',
         width: 90,
+        sorter: (left: Instance, right: Instance) => Number(left.enabled) - Number(right.enabled),
         render: (value: boolean) => (value ? '启用' : '停用'),
+      },
+      {
+        title: '连接方式',
+        dataIndex: 'socks5_proxy_url',
+        key: 'socks5_proxy_url',
+        width: 120,
+        sorter: (left: Instance, right: Instance) =>
+          Number(Boolean(left.socks5_proxy_url)) - Number(Boolean(right.socks5_proxy_url)),
+        render: (value?: string | null) =>
+          value ? <Tag color="blue">SOCKS5</Tag> : <Tag>直连</Tag>,
+      },
+      {
+        title: '同步周期',
+        dataIndex: 'sync_interval_minutes',
+        key: 'sync_interval_minutes',
+        width: 120,
+        sorter: (left: Instance, right: Instance) => left.sync_interval_minutes - right.sync_interval_minutes,
+        render: (value: number) => `${formatNumber(value)} 分钟`,
       },
       {
         title: '当前分组',
@@ -484,6 +507,9 @@ export function InstancesPage() {
         dataIndex: 'latest_display_quota',
         key: 'latest_display_quota',
         width: 120,
+        sorter: (left: Instance, right: Instance) =>
+          (left.latest_display_quota ?? Number.NEGATIVE_INFINITY) -
+          (right.latest_display_quota ?? Number.NEGATIVE_INFINITY),
         render: (value: number | null | undefined, record: Instance) =>
           record.billing_mode === 'postpaid' ? (
             '-'
@@ -496,6 +522,9 @@ export function InstancesPage() {
         dataIndex: 'latest_display_used_quota',
         key: 'latest_display_used_quota',
         width: 130,
+        sorter: (left: Instance, right: Instance) =>
+          (left.latest_display_used_quota ?? Number.NEGATIVE_INFINITY) -
+          (right.latest_display_used_quota ?? Number.NEGATIVE_INFINITY),
         render: (value?: number | null) => formatMoney(value),
       },
       {
@@ -503,6 +532,7 @@ export function InstancesPage() {
         dataIndex: 'today_request_count',
         key: 'today_request_count',
         width: 120,
+        sorter: (left: Instance, right: Instance) => (left.today_request_count ?? 0) - (right.today_request_count ?? 0),
         render: (value?: number | null) => formatNumber(value),
       },
       {
@@ -510,6 +540,7 @@ export function InstancesPage() {
         dataIndex: 'latest_request_count',
         key: 'latest_request_count',
         width: 120,
+        sorter: (left: Instance, right: Instance) => (left.latest_request_count ?? 0) - (right.latest_request_count ?? 0),
         render: (value?: number | null) => formatNumber(value),
       },
       {
@@ -517,6 +548,7 @@ export function InstancesPage() {
         dataIndex: 'quota_per_unit',
         key: 'quota_per_unit',
         width: 110,
+        sorter: (left: Instance, right: Instance) => (left.quota_per_unit ?? 0) - (right.quota_per_unit ?? 0),
         render: (value?: number | null) => formatNumber(value),
       },
       {
@@ -524,6 +556,7 @@ export function InstancesPage() {
         dataIndex: 'remote_user_id',
         key: 'remote_user_id',
         width: 120,
+        sorter: (left: Instance, right: Instance) => (left.remote_user_id ?? 0) - (right.remote_user_id ?? 0),
         render: (value?: number | null) => value ?? '-',
       },
       {
@@ -539,6 +572,8 @@ export function InstancesPage() {
         dataIndex: 'last_sync_at',
         key: 'last_sync_at',
         width: 180,
+        sorter: (left: Instance, right: Instance) =>
+          new Date(left.last_sync_at ?? 0).getTime() - new Date(right.last_sync_at ?? 0).getTime(),
         render: (value?: string | null) => formatDateTime(value),
       },
       {
@@ -704,6 +739,7 @@ export function InstancesPage() {
           }}
           columns={columns}
           scroll={{ x: 2350 }}
+          showSorterTooltip={{ target: 'sorter-icon' }}
           locale={{ emptyText: <Empty description="暂无实例配置" /> }}
           pagination={false}
         />
@@ -713,6 +749,7 @@ export function InstancesPage() {
         open={createOpen}
         loading={createMutation.isPending}
         mode="create"
+        defaultSyncIntervalMinutes={appSettingsData?.default_sync_interval_minutes ?? 120}
         tagOptions={tagOptions}
         onCancel={() => setCreateOpen(false)}
         onSubmit={(values) => createMutation.mutate(values as InstanceCreatePayload)}
@@ -722,6 +759,7 @@ export function InstancesPage() {
         open={batchCreateOpen}
         loading={batchCreateMutation.isPending}
         mode="create"
+        defaultSyncIntervalMinutes={appSettingsData?.default_sync_interval_minutes ?? 120}
         tagOptions={tagOptions}
         onCancel={() => setBatchCreateOpen(false)}
         onSubmit={(items) => batchCreateMutation.mutate(items as InstanceCreatePayload[])}
@@ -732,6 +770,7 @@ export function InstancesPage() {
         loading={updateMutation.isPending}
         mode="edit"
         initialValues={editingInstance}
+        defaultSyncIntervalMinutes={appSettingsData?.default_sync_interval_minutes ?? 120}
         tagOptions={tagOptions}
         onCancel={() => setEditingInstance(null)}
         onSubmit={(values) =>
@@ -749,6 +788,7 @@ export function InstancesPage() {
         loading={batchUpdateMutation.isPending}
         mode="edit"
         initialItems={selectedInstances}
+        defaultSyncIntervalMinutes={appSettingsData?.default_sync_interval_minutes ?? 120}
         tagOptions={tagOptions}
         onCancel={() => setBatchEditOpen(false)}
         onSubmit={(items) => batchUpdateMutation.mutate(items as BatchInstanceUpdatePayload[])}
@@ -792,7 +832,7 @@ export function InstancesPage() {
         completed={syncProgress.completed}
         successCount={syncProgress.successCount}
         failedCount={syncProgress.failedCount}
-        currentName={syncProgress.currentName}
+        activeNames={syncProgress.activeNames}
         items={syncProgress.items}
         onClose={() => setSyncProgress(INITIAL_SYNC_PROGRESS)}
       />

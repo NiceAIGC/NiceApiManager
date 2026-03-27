@@ -23,6 +23,7 @@ class AppSetting(Base):
     sync_verify_ssl: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     scheduler_timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     sync_history_lookback_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    default_sync_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

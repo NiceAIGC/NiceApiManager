@@ -16,6 +16,7 @@ class AppSettingsResponse(BaseModel):
     sync_verify_ssl: bool
     scheduler_timezone: str
     sync_history_lookback_days: int = Field(ge=1, le=365)
+    default_sync_interval_minutes: int = Field(ge=5, le=10080)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -38,6 +39,7 @@ class AppSettingsUpdateRequest(BaseModel):
     sync_verify_ssl: bool
     scheduler_timezone: str
     sync_history_lookback_days: int = Field(ge=1, le=365)
+    default_sync_interval_minutes: int = Field(ge=5, le=10080)
 
     @field_validator("scheduler_timezone")
     @classmethod

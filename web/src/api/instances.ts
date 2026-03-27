@@ -7,6 +7,7 @@ import type {
   InstanceQuery,
   InstanceListResponse,
   InstanceTestResponse,
+  SingleSyncResponse,
   InstanceUpdatePayload,
 } from '../types/api';
 import { apiClient } from './client';
@@ -65,7 +66,7 @@ export async function deleteInstancesBatch(ids: number[]): Promise<BatchInstance
   return data;
 }
 
-export async function syncInstance(instanceId: number) {
-  const { data } = await apiClient.post(`/instances/${instanceId}/sync`);
+export async function syncInstance(instanceId: number): Promise<SingleSyncResponse> {
+  const { data } = await apiClient.post<SingleSyncResponse>(`/instances/${instanceId}/sync`);
   return data;
 }

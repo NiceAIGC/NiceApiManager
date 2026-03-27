@@ -1,4 +1,5 @@
-import { List, Modal, Progress, Space, Tag, Typography } from 'antd';
+import { Alert, Descriptions, Modal, Progress, Space, Table, Tag, Typography } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 
 const { Text } = Typography;
 
@@ -9,6 +10,8 @@ export interface SyncProgressItem {
   name: string;
   status: SyncProgressStatus;
   errorMessage?: string | null;
+  detail?: string | null;
+  durationMs?: number | null;
 }
 
 interface SyncProgressModalProps {
@@ -19,7 +22,7 @@ interface SyncProgressModalProps {
   completed: number;
   successCount: number;
   failedCount: number;
-  currentName?: string | null;
+  activeNames?: string[];
   items: SyncProgressItem[];
   onClose: () => void;
 }
@@ -37,6 +40,16 @@ function formatStatus(status: SyncProgressStatus) {
   return { color: 'default', label: '等待中' };
 }
 
+function formatDuration(durationMs?: number | null) {
+  if (durationMs == null) {
+    return '-';
+  }
+  if (durationMs < 1000) {
+    return `${durationMs} ms`;
+  }
+  return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)} s`;
+}
+
 export function SyncProgressModal({
   open,
   title,
@@ -45,12 +58,44 @@ export function SyncProgressModal({
   completed,
   successCount,
   failedCount,
-  currentName,
+  activeNames = [],
   items,
   onClose,
 }: SyncProgressModalProps) {
   const percent = total ? Math.round((completed / total) * 100) : 0;
-  const recentItems = items.slice(-10).reverse();
+  const columns: ColumnsType<SyncProgressItem> = [
+    {
+      title: '实例',
+      dataIndex: 'name',
+      key: 'name',
+      width: 180,
+      render: (value: string) => <Text strong>{value}</Text>,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 90,
+      render: (value: SyncProgressStatus) => {
+        const statusMeta = formatStatus(value);
+        return <Tag color={statusMeta.color}>{statusMeta.label}</Tag>;
+      },
+    },
+    {
+      title: '耗时',
+      dataIndex: 'durationMs',
+      key: 'durationMs',
+      width: 90,
+      render: (value?: number | null) => formatDuration(value),
+    },
+    {
+      title: '说明',
+      dataIndex: 'detail',
+      key: 'detail',
+      render: (_: string | null | undefined, item) =>
+        item.errorMessage ? <Text type="danger">{item.errorMessage}</Text> : <Text type="secondary">{item.detail || '-'}</Text>,
+    },
+  ];
 
   return (
     <Modal
@@ -62,43 +107,53 @@ export function SyncProgressModal({
       cancelButtonProps={{ style: { display: 'none' } }}
       onOk={onClose}
       destroyOnHidden
+      width={920}
     >
       <div className="sync-progress-stack">
         <div>
           <Progress percent={percent} status={running ? 'active' : failedCount ? 'exception' : 'success'} />
-          <Space size={12} wrap>
-            <Text type="secondary">总数 {total}</Text>
-            <Text type="secondary">已完成 {completed}</Text>
-            <Text type="secondary">成功 {successCount}</Text>
-            <Text type="secondary">失败 {failedCount}</Text>
-          </Space>
-          {currentName ? (
-            <div className="sync-progress-current">
-              <Text type="secondary">当前实例：</Text>
-              <Text strong>{currentName}</Text>
-            </div>
-          ) : null}
+          <Descriptions
+            size="small"
+            column={4}
+            items={[
+              { key: 'total', label: '总数', children: total },
+              { key: 'completed', label: '已完成', children: completed },
+              { key: 'success', label: '成功', children: successCount },
+              { key: 'failed', label: '失败', children: failedCount },
+            ]}
+          />
+          <Alert
+            type={running ? 'info' : failedCount ? 'warning' : 'success'}
+            showIcon
+            message={
+              running
+                ? `正在同步 ${activeNames.length} 个实例`
+                : failedCount
+                  ? `同步结束，失败 ${failedCount} 个`
+                  : '全部实例同步完成'
+            }
+            description={
+              activeNames.length ? (
+                <Space size={[8, 8]} wrap>
+                  {activeNames.map((name) => (
+                    <Tag key={name} color="processing">
+                      {name}
+                    </Tag>
+                  ))}
+                </Space>
+              ) : '详情见下方逐项结果表。'
+            }
+          />
         </div>
 
-        <List
-          className="sync-progress-list"
+        <Table
           size="small"
+          rowKey="key"
+          pagination={false}
+          columns={columns}
+          dataSource={items}
           locale={{ emptyText: '暂无同步记录' }}
-          dataSource={recentItems}
-          renderItem={(item) => {
-            const statusMeta = formatStatus(item.status);
-            return (
-              <List.Item>
-                <div className="sync-progress-item">
-                  <Space size={8} wrap>
-                    <Tag color={statusMeta.color}>{statusMeta.label}</Tag>
-                    <Text strong>{item.name}</Text>
-                  </Space>
-                  {item.errorMessage ? <Text type="danger">{item.errorMessage}</Text> : null}
-                </div>
-              </List.Item>
-            );
-          }}
+          scroll={{ y: 360 }}
         />
       </div>
     </Modal>

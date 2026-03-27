@@ -14,6 +14,7 @@ interface InstanceBatchModalProps {
   loading: boolean;
   mode: 'create' | 'edit';
   initialItems?: Instance[];
+  defaultSyncIntervalMinutes?: number;
   tagOptions?: Array<{ label: string; value: string }>;
   onCancel: () => void;
   onSubmit: (items: Array<InstanceCreatePayload | BatchInstanceUpdatePayload>) => void;
@@ -28,8 +29,10 @@ function buildEmptyItem(): InstanceCreatePayload {
     password: '',
     remote_user_id: undefined,
     access_token: '',
+    socks5_proxy_url: '',
     enabled: true,
     billing_mode: 'prepaid',
+    sync_interval_minutes: 120,
     tags: [],
   };
 }
@@ -39,6 +42,7 @@ export function InstanceBatchModal({
   loading,
   mode,
   initialItems,
+  defaultSyncIntervalMinutes = 120,
   tagOptions,
   onCancel,
   onSubmit,
@@ -62,16 +66,25 @@ export function InstanceBatchModal({
           password: '',
           remote_user_id: item.remote_user_id ?? undefined,
           access_token: '',
+          socks5_proxy_url: item.socks5_proxy_url ?? '',
           enabled: item.enabled,
           billing_mode: item.billing_mode,
+          sync_interval_minutes: item.sync_interval_minutes,
           tags: item.tags,
         })),
       });
       return;
     }
 
-    form.setFieldsValue({ items: [buildEmptyItem()] });
-  }, [form, initialItems, mode, open]);
+    form.setFieldsValue({
+      items: [
+        {
+          ...buildEmptyItem(),
+          sync_interval_minutes: defaultSyncIntervalMinutes,
+        },
+      ],
+    });
+  }, [defaultSyncIntervalMinutes, form, initialItems, mode, open]);
 
   return (
     <Modal
@@ -197,6 +210,20 @@ export function InstanceBatchModal({
                     >
                       <Input.Password placeholder={mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥'} />
                     </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'socks5_proxy_url']}
+                      label="SOCKS5 代理"
+                      extra="留空则本地直连。"
+                    >
+                      <Input placeholder="例如：socks5://127.0.0.1:1080" />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'sync_interval_minutes']}
+                      label="同步周期（分钟）"
+                      rules={[{ required: true, message: '请输入同步周期' }]}
+                    >
+                      <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} addonAfter="分钟" />
+                    </Form.Item>
                     <Form.Item name={[field.name, 'tags']} label="标签">
                       <Select
                         mode="tags"
@@ -216,7 +243,12 @@ export function InstanceBatchModal({
                 <Space>
                   <Button
                     icon={<PlusOutlined />}
-                    onClick={() => add(buildEmptyItem())}
+                    onClick={() =>
+                      add({
+                        ...buildEmptyItem(),
+                        sync_interval_minutes: defaultSyncIntervalMinutes,
+                      })
+                    }
                   >
                     再添加一行
                   </Button>

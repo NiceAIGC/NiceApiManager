@@ -42,9 +42,12 @@ async def lifespan(app: FastAPI):
             )
         )
         db.commit()
-    # Scheduler is prepared for future use, but intentionally not started yet.
     app.state.scheduler = build_scheduler(settings)
-    yield
+    app.state.scheduler.start()
+    try:
+        yield
+    finally:
+        app.state.scheduler.shutdown(wait=False)
 
 
 app = FastAPI(

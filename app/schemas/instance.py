@@ -19,8 +19,10 @@ class InstanceCreate(BaseModel):
     password: str | None = None
     remote_user_id: int | None = None
     access_token: str | None = None
+    socks5_proxy_url: str | None = None
     enabled: bool = True
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
+    sync_interval_minutes: int | None = Field(default=None, ge=5, le=10080)
     tags: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -47,8 +49,10 @@ class InstanceUpdate(BaseModel):
     password: str | None = None
     remote_user_id: int | None = None
     access_token: str | None = None
+    socks5_proxy_url: str | None = None
     enabled: bool = True
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
+    sync_interval_minutes: int = Field(ge=5, le=10080)
     tags: list[str] = Field(default_factory=list)
 
 
@@ -80,6 +84,8 @@ class InstanceResponse(BaseModel):
     updated_at: datetime
     remote_user_id: int | None = None
     has_access_token: bool = False
+    socks5_proxy_url: str | None = None
+    sync_interval_minutes: int
     session_expires_at: datetime | None = None
 
 

@@ -64,11 +64,13 @@ class NewAPIClient:
         program_type: str = "newapi",
         timeout: float = 20.0,
         verify: bool = True,
+        proxy: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.program_type = program_type
         self.timeout = timeout
         self.verify = verify
+        self.proxy = proxy
 
     def with_program_type(self, program_type: str) -> "NewAPIClient":
         """Clone the client with a different detected upstream program type."""
@@ -77,6 +79,7 @@ class NewAPIClient:
             program_type=program_type,
             timeout=self.timeout,
             verify=self.verify,
+            proxy=self.proxy,
         )
 
     def login(self, username: str, password: str) -> NewAPISessionData:
@@ -235,6 +238,7 @@ class NewAPIClient:
             base_url=self.base_url,
             timeout=self.timeout,
             verify=self.verify,
+            proxy=self.proxy,
             headers=headers,
             cookies=cookies,
             follow_redirects=True,

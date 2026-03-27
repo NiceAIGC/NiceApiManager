@@ -65,6 +65,7 @@ export function SettingsPage() {
             sync_verify_ssl: true,
             scheduler_timezone: 'Asia/Shanghai',
             sync_history_lookback_days: 30,
+            default_sync_interval_minutes: 120,
           }}
           onFinish={(values) => updateMutation.mutate(values)}
         >
@@ -97,6 +98,16 @@ export function SettingsPage() {
                 rules={[{ required: true, message: '请输入请求超时' }]}
               >
                 <InputNumber style={{ width: '100%' }} min={0.1} max={300} step={1} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item
+                name="default_sync_interval_minutes"
+                label="默认实例同步周期（分钟）"
+                extra="新增实例时默认带上的自动同步周期。"
+                rules={[{ required: true, message: '请输入默认同步周期' }]}
+              >
+                <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} addonAfter="分钟" />
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>

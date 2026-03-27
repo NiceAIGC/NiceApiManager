@@ -9,6 +9,7 @@ interface InstanceCreateModalProps {
   loading: boolean;
   mode: 'create' | 'edit';
   initialValues?: Instance | null;
+  defaultSyncIntervalMinutes?: number;
   tagOptions?: Array<{ label: string; value: string }>;
   onCancel: () => void;
   onSubmit: (values: InstanceCreatePayload | InstanceUpdatePayload) => void;
@@ -19,6 +20,7 @@ export function InstanceCreateModal({
   loading,
   mode,
   initialValues,
+  defaultSyncIntervalMinutes = 120,
   tagOptions,
   onCancel,
   onSubmit,
@@ -36,7 +38,9 @@ export function InstanceCreateModal({
         password: '',
         remote_user_id: initialValues?.remote_user_id ?? undefined,
         access_token: '',
+        socks5_proxy_url: initialValues?.socks5_proxy_url ?? '',
         billing_mode: initialValues?.billing_mode ?? 'prepaid',
+        sync_interval_minutes: initialValues?.sync_interval_minutes ?? defaultSyncIntervalMinutes,
         tags: initialValues?.tags ?? [],
       });
     } else {
@@ -130,6 +134,13 @@ export function InstanceCreateModal({
           <Input.Password placeholder={mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥'} />
         </Form.Item>
         <Form.Item
+          name="socks5_proxy_url"
+          label="SOCKS5 代理"
+          extra="留空则本地直连；填写后该实例的同步与连通性检测会走 SOCKS5。"
+        >
+          <Input placeholder="例如：socks5://127.0.0.1:1080" />
+        </Form.Item>
+        <Form.Item
           name="billing_mode"
           label="计费方式"
           rules={[{ required: true, message: '请选择计费方式' }]}
@@ -141,6 +152,14 @@ export function InstanceCreateModal({
               { label: '后付费', value: 'postpaid' },
             ]}
           />
+        </Form.Item>
+        <Form.Item
+          name="sync_interval_minutes"
+          label="同步周期（分钟）"
+          extra="后台自动同步按这里的周期执行。"
+          rules={[{ required: true, message: '请输入同步周期' }]}
+        >
+          <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} addonAfter="分钟" />
         </Form.Item>
         <Form.Item
           name="tags"

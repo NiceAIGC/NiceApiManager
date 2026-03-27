@@ -1,4 +1,4 @@
-import { Empty, Space, Tag, Tooltip, Typography } from 'antd';
+import { Empty, List, Space, Tag, Tooltip, Typography } from 'antd';
 import { useMemo } from 'react';
 
 import type { DashboardTrendPoint, DashboardTrendSeriesItem } from '../types/api';
@@ -27,15 +27,20 @@ interface StackedUsageChartProps {
 }
 
 export function StackedUsageChart({ title, subtitle, points, series }: StackedUsageChartProps) {
+  const rankedSeries = useMemo(
+    () => [...series].sort((left, right) => right.total_used_display_amount - left.total_used_display_amount),
+    [series],
+  );
+
   const colorMap = useMemo(
     () =>
       new Map(
-        series.map((item, index) => [
+        rankedSeries.map((item, index) => [
           item.key,
           CHART_COLORS[index % CHART_COLORS.length],
         ]),
       ),
-    [series],
+    [rankedSeries],
   );
 
   const maxValue = useMemo(
@@ -76,7 +81,7 @@ export function StackedUsageChart({ title, subtitle, points, series }: StackedUs
       </div>
 
       <Space size={[8, 8]} wrap className="stacked-usage-chart-legend">
-        {series.map((item) => (
+        {rankedSeries.map((item) => (
           <Tag
             key={item.key}
             bordered={false}
@@ -115,28 +120,44 @@ export function StackedUsageChart({ title, subtitle, points, series }: StackedUs
             }}
           >
             {points.map((point) => {
+              const sortedBreakdown = [...point.breakdown].sort(
+                (left, right) => right.used_display_amount - left.used_display_amount,
+              );
+              const topContributor = sortedBreakdown[0];
               const tooltipTitle = (
                 <div className="stacked-usage-chart-tooltip">
                   <div className="stacked-usage-chart-tooltip-title">{point.date}</div>
                   <div className="stacked-usage-chart-tooltip-total">
                     总消耗：{formatMoney(point.used_display_amount)}
                   </div>
-                  {point.breakdown.map((item) => {
-                    const percent = point.used_display_amount > 0
-                      ? ((item.used_display_amount / point.used_display_amount) * 100).toFixed(1)
-                      : '0.0';
-                    return (
-                      <div key={`${point.date}-${item.key}`} className="stacked-usage-chart-tooltip-row">
-                        <span
-                          className="stacked-usage-chart-tooltip-dot"
-                          style={{ backgroundColor: colorMap.get(item.key) ?? CHART_COLORS[0] }}
-                        />
-                        <span>{item.instance_name}</span>
-                        <span>{formatMoney(item.used_display_amount)}</span>
-                        <span>{percent}%</span>
-                      </div>
-                    );
-                  })}
+                  {topContributor ? (
+                    <Tag color="blue" bordered={false}>
+                      当日最高：{topContributor.instance_name} {formatMoney(topContributor.used_display_amount)}
+                    </Tag>
+                  ) : null}
+                  <List
+                    size="small"
+                    dataSource={sortedBreakdown}
+                    renderItem={(item) => {
+                      const percent =
+                        point.used_display_amount > 0
+                          ? ((item.used_display_amount / point.used_display_amount) * 100).toFixed(1)
+                          : '0.0';
+                      return (
+                        <List.Item key={`${point.date}-${item.key}`}>
+                          <div className="stacked-usage-chart-tooltip-row">
+                            <span
+                              className="stacked-usage-chart-tooltip-dot"
+                              style={{ backgroundColor: colorMap.get(item.key) ?? CHART_COLORS[0] }}
+                            />
+                            <span>{item.instance_name}</span>
+                            <span>{formatMoney(item.used_display_amount)}</span>
+                            <span>{percent}%</span>
+                          </div>
+                        </List.Item>
+                      );
+                    }}
+                  />
                 </div>
               );
 
@@ -146,7 +167,7 @@ export function StackedUsageChart({ title, subtitle, points, series }: StackedUs
                     <div className="stacked-usage-chart-bar-total">{formatMoney(point.used_display_amount)}</div>
                     <div className="stacked-usage-chart-bar-shell">
                       <div className="stacked-usage-chart-bar-stack">
-                        {point.breakdown.map((item) => (
+                        {sortedBreakdown.map((item) => (
                           <div
                             key={`${point.date}-${item.key}`}
                             className="stacked-usage-chart-segment"

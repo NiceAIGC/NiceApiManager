@@ -1,7 +1,6 @@
 import { SyncOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Alert,
   App,
   Button,
   Card,
@@ -16,7 +15,6 @@ import {
   Select,
   Space,
   Statistic,
-  Table,
   Tag,
   Typography,
 } from 'antd';
@@ -25,8 +23,8 @@ import { useMemo, useState } from 'react';
 
 import { getErrorMessage } from '../api/client';
 import { fetchDashboardOverview, fetchDashboardTrends } from '../api/dashboard';
-import { fetchInstances } from '../api/instances';
-import { syncAllInstances } from '../api/sync';
+import { fetchInstances, syncInstance } from '../api/instances';
+import { fetchAppSettings } from '../api/settings';
 import {
   InstanceOverviewChart,
   type InstanceOverviewMode,
@@ -35,10 +33,10 @@ import { StackedUsageChart } from '../components/StackedUsageChart';
 import {
   SyncProgressModal,
   type SyncProgressItem,
-  type SyncProgressStatus,
 } from '../components/SyncProgressModal';
 import type { DashboardTrendQuery, InstanceQuery } from '../types/api';
 import { formatBillingMode, formatMoney, formatNumber } from '../utils/format';
+import { runBatchSyncWithConcurrency } from '../utils/batchSync';
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
@@ -53,7 +51,7 @@ interface SyncProgressState {
   completed: number;
   successCount: number;
   failedCount: number;
-  currentName?: string | null;
+  activeNames: string[];
   items: SyncProgressItem[];
 }
 
@@ -64,16 +62,12 @@ const INITIAL_SYNC_PROGRESS: SyncProgressState = {
   completed: 0,
   successCount: 0,
   failedCount: 0,
-  currentName: null,
+  activeNames: [],
   items: [],
 };
 
 const DEFAULT_RANGE: [Dayjs, Dayjs] = [dayjs().subtract(6, 'day'), dayjs()];
 const MAX_TREND_DAYS = 90;
-
-function normalizeSyncStatus(status?: string): SyncProgressStatus {
-  return status === 'success' || status === 'failed' || status === 'running' ? status : 'pending';
-}
 
 function getTrendModeLabel(mode: TrendMode, customDays: number) {
   if (mode === '15d') {
@@ -166,6 +160,11 @@ export function DashboardPage() {
   const { data: instanceData } = useQuery({
     queryKey: ['instances'],
     queryFn: () => fetchInstances(),
+  });
+
+  const { data: appSettingsData } = useQuery({
+    queryKey: ['app-settings'],
+    queryFn: fetchAppSettings,
   });
 
   const { data, isLoading } = useQuery({
@@ -294,7 +293,7 @@ export function DashboardPage() {
       completed: 0,
       successCount: 0,
       failedCount: 0,
-      currentName: syncTargets[0]?.name ?? null,
+      activeNames: [],
       items: syncTargets.map((item) => ({
         key: item.id,
         name: item.name,
@@ -303,40 +302,38 @@ export function DashboardPage() {
     });
 
     try {
-      const result = await syncAllInstances(syncTargets.map((item) => item.id));
-      const resultMap = new Map(result.items.map((item) => [item.instance_id, item]));
-
-      setSyncProgress({
-        open: true,
-        running: false,
-        total: result.total,
-        completed: result.total,
-        successCount: result.success_count,
-        failedCount: result.failed_count,
-        currentName: null,
-        items: syncTargets.map((item) => {
-          const current = resultMap.get(item.id);
-          return {
-            key: item.id,
-            name: item.name,
-            status: normalizeSyncStatus(current?.status),
-            errorMessage: current?.error_message ?? null,
-          };
-        }),
+      const result = await runBatchSyncWithConcurrency({
+        targets: syncTargets,
+        maxWorkers: appSettingsData?.sync_max_workers ?? 5,
+        syncOne: syncInstance,
+        onStateChange: ({ running, completed, successCount, failedCount, activeNames, items }) => {
+          setSyncProgress({
+            open: true,
+            running,
+            total: syncTargets.length,
+            completed,
+            successCount,
+            failedCount,
+            activeNames,
+            items,
+          });
+        },
       });
 
       await refreshDashboardData();
 
-      if (result.failed_count) {
-        message.warning(`同步完成：成功 ${result.success_count}，失败 ${result.failed_count}，并发 ${result.max_workers}`);
+      if (result.failedCount) {
+        message.warning(
+          `同步完成：成功 ${result.successCount}，失败 ${result.failedCount}，并发 ${appSettingsData?.sync_max_workers ?? 5}`,
+        );
         return;
       }
-      message.success(`已完成 ${result.success_count} 个实例同步，并发 ${result.max_workers}`);
+      message.success(`已完成 ${result.successCount} 个实例同步，并发 ${appSettingsData?.sync_max_workers ?? 5}`);
     } catch (error) {
       setSyncProgress((current) => ({
         ...current,
         running: false,
-        currentName: null,
+        activeNames: [],
       }));
       message.error(getErrorMessage(error));
     }
@@ -470,17 +467,6 @@ export function DashboardPage() {
               onChange={(value) => setTrendBreakdownLimit(value ?? 8)}
             />
           </Space>
-
-          <Alert
-            showIcon
-            type="info"
-            message={`${getTrendModeLabel(trendMode, customTrendDays)}每日消耗额度，按实例堆叠展示`}
-            description={
-              trendData
-                ? `${trendData.start_date} 至 ${trendData.end_date}，共 ${trendData.days} 天；鼠标悬浮可查看每一天的实例构成和占比。`
-                : '区间、筛选和堆叠实例数都会影响主图。'
-            }
-          />
         </div>
       </Card>
 
@@ -531,7 +517,11 @@ export function DashboardPage() {
 
         <StackedUsageChart
           title="实例构成"
-          subtitle="整段宽度全部用于主图。数据按实例堆叠，悬浮可看每日占比。"
+          subtitle={
+            trendData
+              ? `${trendData.start_date} 至 ${trendData.end_date}，共 ${trendData.days} 天。悬浮单日柱体时，实例会按当日消耗从高到低排序。`
+              : '数据按实例堆叠，悬浮单日柱体可查看详细构成。'
+          }
           points={trendData?.points ?? []}
           series={trendData?.series ?? []}
         />
@@ -637,7 +627,7 @@ export function DashboardPage() {
         completed={syncProgress.completed}
         successCount={syncProgress.successCount}
         failedCount={syncProgress.failedCount}
-        currentName={syncProgress.currentName}
+        activeNames={syncProgress.activeNames}
         items={syncProgress.items}
         onClose={() => setSyncProgress(INITIAL_SYNC_PROGRESS)}
       />

@@ -15,6 +15,7 @@ from app.schemas.app_setting import AppSettingsResponse, AppSettingsUpdateReques
 env_settings = get_settings()
 DEFAULT_SYNC_MAX_WORKERS = 5
 DEFAULT_SYNC_HISTORY_LOOKBACK_DAYS = 30
+DEFAULT_SYNC_INTERVAL_MINUTES = 120
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class RuntimeAppSettings:
     sync_verify_ssl: bool
     scheduler_timezone: str
     sync_history_lookback_days: int
+    default_sync_interval_minutes: int
 
 
 def get_app_setting_record(db: Session) -> AppSetting | None:
@@ -61,6 +63,12 @@ def get_runtime_app_settings(db: Session) -> RuntimeAppSettings:
             minimum=1,
             maximum=365,
         ),
+        default_sync_interval_minutes=_coerce_int(
+            row.default_sync_interval_minutes if row else None,
+            default=DEFAULT_SYNC_INTERVAL_MINUTES,
+            minimum=5,
+            maximum=10080,
+        ),
     )
 
 
@@ -74,6 +82,7 @@ def build_app_settings_response(db: Session) -> AppSettingsResponse:
         sync_verify_ssl=runtime.sync_verify_ssl,
         scheduler_timezone=runtime.scheduler_timezone,
         sync_history_lookback_days=runtime.sync_history_lookback_days,
+        default_sync_interval_minutes=runtime.default_sync_interval_minutes,
         created_at=row.created_at if row else None,
         updated_at=row.updated_at if row else None,
     )
@@ -91,6 +100,7 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
     row.sync_verify_ssl = payload.sync_verify_ssl
     row.scheduler_timezone = payload.scheduler_timezone.strip()
     row.sync_history_lookback_days = payload.sync_history_lookback_days
+    row.default_sync_interval_minutes = payload.default_sync_interval_minutes
     db.commit()
     db.refresh(row)
 
@@ -100,6 +110,7 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
         sync_verify_ssl=row.sync_verify_ssl,
         scheduler_timezone=row.scheduler_timezone,
         sync_history_lookback_days=row.sync_history_lookback_days,
+        default_sync_interval_minutes=row.default_sync_interval_minutes,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
