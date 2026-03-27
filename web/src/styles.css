@@ -359,7 +359,7 @@ a {
 }
 
 .stacked-usage-chart-tooltip-total {
-  color: #d9d9d9;
+  color: #595959;
 }
 
 .stacked-usage-chart-tooltip-row {
@@ -708,6 +708,10 @@ a {
   flex-direction: column;
   gap: 4px;
   width: 100%;
+}
+
+.stacked-usage-chart-tooltip .ant-list-item {
+  padding-block: 4px;
 }
 
 .instance-batch-grid {

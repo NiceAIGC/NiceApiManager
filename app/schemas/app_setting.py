@@ -17,6 +17,7 @@ class AppSettingsResponse(BaseModel):
     scheduler_timezone: str
     sync_history_lookback_days: int = Field(ge=1, le=365)
     default_sync_interval_minutes: int = Field(ge=5, le=10080)
+    shared_socks5_proxy_url: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -40,6 +41,7 @@ class AppSettingsUpdateRequest(BaseModel):
     scheduler_timezone: str
     sync_history_lookback_days: int = Field(ge=1, le=365)
     default_sync_interval_minutes: int = Field(ge=5, le=10080)
+    shared_socks5_proxy_url: str | None = None
 
     @field_validator("scheduler_timezone")
     @classmethod

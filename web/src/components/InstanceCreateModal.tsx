@@ -1,4 +1,4 @@
-import { Modal, Form, Input, InputNumber, Select, Switch } from 'antd';
+import { Modal, Form, Input, InputNumber, Rate, Select, Switch } from 'antd';
 import { useEffect } from 'react';
 
 import type { Instance, InstanceCreatePayload, InstanceUpdatePayload } from '../types/api';
@@ -26,6 +26,7 @@ export function InstanceCreateModal({
   onSubmit,
 }: InstanceCreateModalProps) {
   const [form] = Form.useForm<InstanceCreatePayload | InstanceUpdatePayload>();
+  const proxyMode = Form.useWatch('proxy_mode', form) ?? initialValues?.proxy_mode ?? 'direct';
 
   useEffect(() => {
     if (open) {
@@ -38,8 +39,10 @@ export function InstanceCreateModal({
         password: '',
         remote_user_id: initialValues?.remote_user_id ?? undefined,
         access_token: '',
+        proxy_mode: initialValues?.proxy_mode ?? 'direct',
         socks5_proxy_url: initialValues?.socks5_proxy_url ?? '',
         billing_mode: initialValues?.billing_mode ?? 'prepaid',
+        priority: initialValues?.priority ?? 3,
         sync_interval_minutes: initialValues?.sync_interval_minutes ?? defaultSyncIntervalMinutes,
         tags: initialValues?.tags ?? [],
       });
@@ -134,12 +137,37 @@ export function InstanceCreateModal({
           <Input.Password placeholder={mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥'} />
         </Form.Item>
         <Form.Item
-          name="socks5_proxy_url"
-          label="SOCKS5 代理"
-          extra="留空则本地直连；填写后该实例的同步与连通性检测会走 SOCKS5。"
+          name="priority"
+          label="常用优先级"
+          extra="最低 1 星，最高 5 星，默认 3 星。"
+          rules={[{ required: true, message: '请选择优先级' }]}
         >
-          <Input placeholder="例如：socks5://127.0.0.1:1080" />
+          <Rate count={5} />
         </Form.Item>
+        <Form.Item
+          name="proxy_mode"
+          label="代理方式"
+          rules={[{ required: true, message: '请选择代理方式' }]}
+          extra="默认直连；也可以走系统设置里的公用 SOCKS5，或为该实例单独指定自定义代理。"
+        >
+          <Select
+            options={[
+              { label: '本地直连', value: 'direct' },
+              { label: '公用 SOCKS5', value: 'global' },
+              { label: '自定义 SOCKS5', value: 'custom' },
+            ]}
+          />
+        </Form.Item>
+        {proxyMode === 'custom' ? (
+          <Form.Item
+            name="socks5_proxy_url"
+            label="自定义 SOCKS5 代理"
+            extra="支持 `用户名:密码@主机:端口`，会自动补 `socks5://`。"
+            rules={[{ required: true, message: '请输入自定义 SOCKS5 代理' }]}
+          >
+            <Input placeholder="例如：xxxmit3t:Sxxxxx@6xxx37.233:2xxx" />
+          </Form.Item>
+        ) : null}
         <Form.Item
           name="billing_mode"
           label="计费方式"

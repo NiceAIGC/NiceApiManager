@@ -162,7 +162,13 @@ export function StackedUsageChart({ title, subtitle, points, series }: StackedUs
               );
 
               return (
-                <Tooltip key={point.date} placement="top" title={tooltipTitle}>
+                <Tooltip
+                  key={point.date}
+                  placement="top"
+                  title={tooltipTitle}
+                  color="#ffffff"
+                  styles={{ body: { color: 'rgba(0, 0, 0, 0.88)' } }}
+                >
                   <div className="stacked-usage-chart-bar-group">
                     <div className="stacked-usage-chart-bar-total">{formatMoney(point.used_display_amount)}</div>
                     <div className="stacked-usage-chart-bar-shell">

@@ -76,9 +76,11 @@ export interface Instance {
   base_url: string;
   program_type: 'newapi' | 'rixapi' | 'shellapi';
   username: string;
+  proxy_mode: 'direct' | 'global' | 'custom';
   socks5_proxy_url?: string | null;
   enabled: boolean;
   billing_mode: 'prepaid' | 'postpaid';
+  priority: number;
   sync_interval_minutes: number;
   tags: string[];
   quota_per_unit?: number | null;
@@ -112,9 +114,11 @@ export interface InstanceCreatePayload {
   password?: string;
   remote_user_id?: number | null;
   access_token?: string;
+  proxy_mode: 'direct' | 'global' | 'custom';
   socks5_proxy_url?: string;
   enabled: boolean;
   billing_mode: 'prepaid' | 'postpaid';
+  priority: number;
   sync_interval_minutes?: number;
   tags: string[];
 }
@@ -127,9 +131,11 @@ export interface InstanceUpdatePayload {
   password?: string;
   remote_user_id?: number | null;
   access_token?: string;
+  proxy_mode: 'direct' | 'global' | 'custom';
   socks5_proxy_url?: string;
   enabled: boolean;
   billing_mode: 'prepaid' | 'postpaid';
+  priority: number;
   sync_interval_minutes: number;
   tags: string[];
 }
@@ -281,6 +287,7 @@ export interface AppSettings {
   scheduler_timezone: string;
   sync_history_lookback_days: number;
   default_sync_interval_minutes: number;
+  shared_socks5_proxy_url?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }

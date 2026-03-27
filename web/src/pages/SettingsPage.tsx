@@ -66,6 +66,7 @@ export function SettingsPage() {
             scheduler_timezone: 'Asia/Shanghai',
             sync_history_lookback_days: 30,
             default_sync_interval_minutes: 120,
+            shared_socks5_proxy_url: '',
           }}
           onFinish={(values) => updateMutation.mutate(values)}
         >
@@ -108,6 +109,15 @@ export function SettingsPage() {
                 rules={[{ required: true, message: '请输入默认同步周期' }]}
               >
                 <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} addonAfter="分钟" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item
+                name="shared_socks5_proxy_url"
+                label="公用 SOCKS5 代理"
+                extra="实例选择“公用 SOCKS5”时统一走这里；留空则仍按直连处理。支持 `用户名:密码@主机:端口`，会自动补 `socks5://`。"
+              >
+                <Input placeholder="例如：user:password@127.0.0.1:1080" />
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>

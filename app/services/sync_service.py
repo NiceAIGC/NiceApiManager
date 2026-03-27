@@ -19,6 +19,7 @@ from app.models import DailyUsageStat, GroupRatio, Instance, InstanceSession, Pr
 from app.schemas.instance import InstanceTestResponse
 from app.schemas.sync_run import BulkSyncInstanceResult, BulkSyncResponse
 from app.services.app_setting_service import RuntimeAppSettings, get_runtime_app_settings
+from app.services.proxy_utils import resolve_socks5_proxy_url
 from app.services.snapshot_metrics import quota_to_display_amount, resolve_timezone, uses_postpaid_billing
 
 
@@ -402,7 +403,11 @@ def _prepare_instance_client(
         program_type=instance.program_type,
         timeout=runtime_settings.request_timeout,
         verify=runtime_settings.sync_verify_ssl,
-        proxy=instance.socks5_proxy_url,
+        proxy=resolve_socks5_proxy_url(
+            proxy_mode=instance.proxy_mode,
+            custom_proxy_url=instance.socks5_proxy_url,
+            shared_proxy_url=runtime_settings.shared_socks5_proxy_url,
+        ),
     )
     status_data = client.get_status()
     detected_program_type = detect_program_type(status_data, instance.program_type)

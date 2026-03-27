@@ -1,5 +1,5 @@
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch } from 'antd';
+import { Button, Card, Form, Input, InputNumber, Modal, Rate, Select, Space, Switch } from 'antd';
 import { useEffect } from 'react';
 
 import type { BatchInstanceUpdatePayload, Instance, InstanceCreatePayload } from '../types/api';
@@ -29,9 +29,11 @@ function buildEmptyItem(): InstanceCreatePayload {
     password: '',
     remote_user_id: undefined,
     access_token: '',
+    proxy_mode: 'direct',
     socks5_proxy_url: '',
     enabled: true,
     billing_mode: 'prepaid',
+    priority: 3,
     sync_interval_minutes: 120,
     tags: [],
   };
@@ -66,9 +68,11 @@ export function InstanceBatchModal({
           password: '',
           remote_user_id: item.remote_user_id ?? undefined,
           access_token: '',
+          proxy_mode: item.proxy_mode,
           socks5_proxy_url: item.socks5_proxy_url ?? '',
           enabled: item.enabled,
           billing_mode: item.billing_mode,
+          priority: item.priority,
           sync_interval_minutes: item.sync_interval_minutes,
           tags: item.tags,
         })),
@@ -211,11 +215,43 @@ export function InstanceBatchModal({
                       <Input.Password placeholder={mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥'} />
                     </Form.Item>
                     <Form.Item
-                      name={[field.name, 'socks5_proxy_url']}
-                      label="SOCKS5 代理"
-                      extra="留空则本地直连。"
+                      name={[field.name, 'priority']}
+                      label="常用优先级"
+                      rules={[{ required: true, message: '请选择优先级' }]}
                     >
-                      <Input placeholder="例如：socks5://127.0.0.1:1080" />
+                      <Rate count={5} />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'proxy_mode']}
+                      label="代理方式"
+                      rules={[{ required: true, message: '请选择代理方式' }]}
+                    >
+                      <Select
+                        options={[
+                          { label: '本地直连', value: 'direct' },
+                          { label: '公用 SOCKS5', value: 'global' },
+                          { label: '自定义 SOCKS5', value: 'custom' },
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prev, next) =>
+                        prev.items?.[field.name]?.proxy_mode !== next.items?.[field.name]?.proxy_mode
+                      }
+                    >
+                      {() =>
+                        form.getFieldValue(['items', field.name, 'proxy_mode']) === 'custom' ? (
+                          <Form.Item
+                            name={[field.name, 'socks5_proxy_url']}
+                            label="自定义 SOCKS5 代理"
+                            extra="支持 `用户名:密码@主机:端口`，会自动补 `socks5://`。"
+                            rules={[{ required: true, message: '请输入自定义 SOCKS5 代理' }]}
+                          >
+                            <Input placeholder="例如：xxxmit3t:Sxxxxx@6xxx37.233:2xxx" />
+                          </Form.Item>
+                        ) : null
+                      }
                     </Form.Item>
                     <Form.Item
                       name={[field.name, 'sync_interval_minutes']}

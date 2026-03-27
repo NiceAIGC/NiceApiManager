@@ -2,18 +2,20 @@ import {
   App,
   Button,
   Card,
+  Col,
   Descriptions,
   Empty,
   Input,
   Modal,
+  Rate,
+  Row,
   Select,
   Space,
   Table,
   Tag,
   Typography,
-  Row,
-  Col,
 } from 'antd';
+import type { TableColumnsType, TablePaginationConfig } from 'antd';
 import {
   DeleteOutlined,
   EditOutlined,
@@ -23,7 +25,7 @@ import {
   SyncOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import {
   createInstance,
@@ -50,6 +52,7 @@ import type {
   InstanceUpdatePayload,
 } from '../types/api';
 import { getErrorMessage } from '../api/client';
+import { runBatchSyncWithConcurrency } from '../utils/batchSync';
 import {
   formatBillingMode,
   formatDateTime,
@@ -58,9 +61,8 @@ import {
   formatProgramType,
   getBillingModeTagColor,
 } from '../utils/format';
-import { runBatchSyncWithConcurrency } from '../utils/batchSync';
 
-const { Text } = Typography;
+const { Text, Link } = Typography;
 
 interface SyncProgressState {
   open: boolean;
@@ -84,6 +86,8 @@ const INITIAL_SYNC_PROGRESS: SyncProgressState = {
   items: [],
 };
 
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 1000];
+
 function getBalanceBadgeClass(value?: number | null) {
   if (value == null) {
     return 'quota-badge-empty';
@@ -95,6 +99,34 @@ function getBalanceBadgeClass(value?: number | null) {
     return 'quota-badge-medium';
   }
   return 'quota-badge-high';
+}
+
+function formatProxyMode(instance: Instance) {
+  if (instance.proxy_mode === 'custom') {
+    return { label: '自定义 SOCKS5', color: 'purple' as const };
+  }
+  if (instance.proxy_mode === 'global') {
+    return { label: '公用 SOCKS5', color: 'blue' as const };
+  }
+  return { label: '直连', color: 'default' as const };
+}
+
+function renderCompactTags(tags: string[]) {
+  if (!tags.length) {
+    return <Text type="secondary">-</Text>;
+  }
+
+  const visibleTags = tags.slice(0, 2);
+  const hiddenCount = tags.length - visibleTags.length;
+
+  return (
+    <Space size={[4, 4]} wrap>
+      {visibleTags.map((tag) => (
+        <Tag key={tag}>{tag}</Tag>
+      ))}
+      {hiddenCount > 0 ? <Tag>{`+${hiddenCount}`}</Tag> : null}
+    </Space>
+  );
 }
 
 export function InstancesPage() {
@@ -112,6 +144,8 @@ export function InstancesPage() {
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [testResult, setTestResult] = useState<InstanceTestResponse | null>(null);
   const [syncProgress, setSyncProgress] = useState<SyncProgressState>(INITIAL_SYNC_PROGRESS);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const filters = useMemo<InstanceQuery>(
     () => ({
@@ -123,6 +157,10 @@ export function InstancesPage() {
     }),
     [billingMode, enabled, healthStatus, search, selectedTags],
   );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters]);
 
   const { data: allInstancesData } = useQuery({
     queryKey: ['instances'],
@@ -147,6 +185,7 @@ export function InstancesPage() {
       queryClient.invalidateQueries({ queryKey: ['groups'] }),
       queryClient.invalidateQueries({ queryKey: ['pricing-models'] }),
       queryClient.invalidateQueries({ queryKey: ['sync-runs'] }),
+      queryClient.invalidateQueries({ queryKey: ['app-settings'] }),
     ]);
   };
 
@@ -157,6 +196,7 @@ export function InstancesPage() {
     setEnabled(undefined);
     setHealthStatus(undefined);
     setSelectedRowKeys([]);
+    setCurrentPage(1);
   };
 
   const autoSyncNewInstances = async (instances: Instance[]) => {
@@ -387,6 +427,7 @@ export function InstancesPage() {
         );
         return;
       }
+
       message.success(`已完成 ${result.successCount} 个实例同步，并发 ${appSettingsData?.sync_max_workers ?? 5}`);
     } catch (error) {
       setSyncProgress((current) => ({
@@ -398,119 +439,49 @@ export function InstancesPage() {
     }
   };
 
-  const columns = useMemo(
+  const columns = useMemo<TableColumnsType<Instance>>(
     () => [
+      {
+        title: '优先级',
+        dataIndex: 'priority',
+        key: 'priority',
+        width: 150,
+        defaultSortOrder: 'descend',
+        sorter: (left, right) => left.priority - right.priority,
+        render: (value: number) => <Rate disabled count={5} value={value} />,
+      },
       {
         title: '实例',
         dataIndex: 'name',
         key: 'name',
-        fixed: 'left' as const,
-        width: 260,
-        sorter: (left: Instance, right: Instance) => left.name.localeCompare(right.name),
-        render: (value: string, record: Instance) => (
-          <Space direction="vertical" size={0}>
+        fixed: 'left',
+        width: 240,
+        sorter: (left, right) => left.name.localeCompare(right.name),
+        render: (value: string, record) => (
+          <Space direction="vertical" size={4}>
             <Text strong>{value}</Text>
-            <a
-              href={record.base_url}
-              target="_blank"
-              rel="noreferrer"
-              className="instance-link"
-            >
-              {record.base_url}
-            </a>
-            <Text type="secondary">
-              类型：{formatProgramType(record.program_type)}
-              {' · '}
-              {record.username ? `用户：${record.username}` : `ID：${record.remote_user_id ?? '-'}`}
-            </Text>
+            <Space size={[4, 4]} wrap>
+              <StatusTag value={record.last_health_status} />
+              <Tag color={getBillingModeTagColor(record.billing_mode)}>{formatBillingMode(record.billing_mode)}</Tag>
+              <Tag>{formatProgramType(record.program_type)}</Tag>
+            </Space>
           </Space>
-        ),
-      },
-      {
-        title: '程序类型',
-        dataIndex: 'program_type',
-        key: 'program_type',
-        width: 110,
-        sorter: (left: Instance, right: Instance) => left.program_type.localeCompare(right.program_type),
-        render: (value: Instance['program_type']) => (
-          <Tag color={value === 'shellapi' ? 'purple' : value === 'rixapi' ? 'blue' : 'default'}>
-            {formatProgramType(value)}
-          </Tag>
-        ),
-      },
-      {
-        title: '计费方式',
-        dataIndex: 'billing_mode',
-        key: 'billing_mode',
-        width: 120,
-        sorter: (left: Instance, right: Instance) => left.billing_mode.localeCompare(right.billing_mode),
-        render: (value: Instance['billing_mode']) => (
-          <Tag color={getBillingModeTagColor(value)}>
-            {formatBillingMode(value)}
-          </Tag>
         ),
       },
       {
         title: '标签',
         dataIndex: 'tags',
         key: 'tags',
-        width: 220,
-        render: (value: string[]) => (
-          <Space wrap>
-            {value.length ? value.map((item) => <Tag key={item}>{item}</Tag>) : '-'}
-          </Space>
-        ),
-      },
-      {
-        title: '状态',
-        dataIndex: 'last_health_status',
-        key: 'last_health_status',
-        width: 110,
-        sorter: (left: Instance, right: Instance) => left.last_health_status.localeCompare(right.last_health_status),
-        render: (value: string) => <StatusTag value={value} />,
-      },
-      {
-        title: '启用',
-        dataIndex: 'enabled',
-        key: 'enabled',
-        width: 90,
-        sorter: (left: Instance, right: Instance) => Number(left.enabled) - Number(right.enabled),
-        render: (value: boolean) => (value ? '启用' : '停用'),
-      },
-      {
-        title: '连接方式',
-        dataIndex: 'socks5_proxy_url',
-        key: 'socks5_proxy_url',
-        width: 120,
-        sorter: (left: Instance, right: Instance) =>
-          Number(Boolean(left.socks5_proxy_url)) - Number(Boolean(right.socks5_proxy_url)),
-        render: (value?: string | null) =>
-          value ? <Tag color="blue">SOCKS5</Tag> : <Tag>直连</Tag>,
-      },
-      {
-        title: '同步周期',
-        dataIndex: 'sync_interval_minutes',
-        key: 'sync_interval_minutes',
-        width: 120,
-        sorter: (left: Instance, right: Instance) => left.sync_interval_minutes - right.sync_interval_minutes,
-        render: (value: number) => `${formatNumber(value)} 分钟`,
-      },
-      {
-        title: '当前分组',
-        dataIndex: 'latest_group_name',
-        key: 'latest_group_name',
-        width: 120,
-        render: (value?: string | null) => value || '-',
+        width: 170,
+        render: (value: string[]) => renderCompactTags(value),
       },
       {
         title: '当前余额',
         dataIndex: 'latest_display_quota',
         key: 'latest_display_quota',
         width: 120,
-        sorter: (left: Instance, right: Instance) =>
-          (left.latest_display_quota ?? Number.NEGATIVE_INFINITY) -
-          (right.latest_display_quota ?? Number.NEGATIVE_INFINITY),
-        render: (value: number | null | undefined, record: Instance) =>
+        sorter: (left, right) => (left.latest_display_quota ?? -1) - (right.latest_display_quota ?? -1),
+        render: (value: number | null | undefined, record) =>
           record.billing_mode === 'postpaid' ? (
             '-'
           ) : (
@@ -518,78 +489,55 @@ export function InstancesPage() {
           ),
       },
       {
-        title: '周期已用额度',
+        title: '周期已用',
         dataIndex: 'latest_display_used_quota',
         key: 'latest_display_used_quota',
-        width: 130,
-        sorter: (left: Instance, right: Instance) =>
-          (left.latest_display_used_quota ?? Number.NEGATIVE_INFINITY) -
-          (right.latest_display_used_quota ?? Number.NEGATIVE_INFINITY),
+        width: 120,
+        sorter: (left, right) => (left.latest_display_used_quota ?? 0) - (right.latest_display_used_quota ?? 0),
         render: (value?: number | null) => formatMoney(value),
       },
       {
-        title: '今日请求数',
+        title: '今日请求',
         dataIndex: 'today_request_count',
         key: 'today_request_count',
-        width: 120,
-        sorter: (left: Instance, right: Instance) => (left.today_request_count ?? 0) - (right.today_request_count ?? 0),
-        render: (value?: number | null) => formatNumber(value),
-      },
-      {
-        title: '累计请求数',
-        dataIndex: 'latest_request_count',
-        key: 'latest_request_count',
-        width: 120,
-        sorter: (left: Instance, right: Instance) => (left.latest_request_count ?? 0) - (right.latest_request_count ?? 0),
-        render: (value?: number | null) => formatNumber(value),
-      },
-      {
-        title: '兑换比',
-        dataIndex: 'quota_per_unit',
-        key: 'quota_per_unit',
         width: 110,
-        sorter: (left: Instance, right: Instance) => (left.quota_per_unit ?? 0) - (right.quota_per_unit ?? 0),
-        render: (value?: number | null) => formatNumber(value),
+        sorter: (left, right) => left.today_request_count - right.today_request_count,
+        render: (value: number) => formatNumber(value),
       },
       {
-        title: '远端用户 ID',
-        dataIndex: 'remote_user_id',
-        key: 'remote_user_id',
+        title: '同步周期',
+        dataIndex: 'sync_interval_minutes',
+        key: 'sync_interval_minutes',
         width: 120,
-        sorter: (left: Instance, right: Instance) => (left.remote_user_id ?? 0) - (right.remote_user_id ?? 0),
-        render: (value?: number | null) => value ?? '-',
+        sorter: (left, right) => left.sync_interval_minutes - right.sync_interval_minutes,
+        render: (value: number) => `${value} 分钟`,
       },
       {
-        title: 'Session 过期',
-        dataIndex: 'session_expires_at',
-        key: 'session_expires_at',
-        width: 180,
-        render: (value?: string | null, record?: Instance) =>
-          record?.has_access_token ? 'Access Token' : formatDateTime(value),
+        title: '代理方式',
+        dataIndex: 'proxy_mode',
+        key: 'proxy_mode',
+        width: 130,
+        sorter: (left, right) => left.proxy_mode.localeCompare(right.proxy_mode),
+        render: (_: string, record) => {
+          const proxyMeta = formatProxyMode(record);
+          return <Tag color={proxyMeta.color}>{proxyMeta.label}</Tag>;
+        },
       },
       {
         title: '最近同步',
         dataIndex: 'last_sync_at',
         key: 'last_sync_at',
         width: 180,
-        sorter: (left: Instance, right: Instance) =>
-          new Date(left.last_sync_at ?? 0).getTime() - new Date(right.last_sync_at ?? 0).getTime(),
+        sorter: (left, right) => new Date(left.last_sync_at ?? 0).getTime() - new Date(right.last_sync_at ?? 0).getTime(),
         render: (value?: string | null) => formatDateTime(value),
-      },
-      {
-        title: '错误信息',
-        dataIndex: 'last_health_error',
-        key: 'last_health_error',
-        width: 220,
-        render: (value?: string | null) => value || '-',
       },
       {
         title: '操作',
         key: 'actions',
-        fixed: 'right' as const,
+        fixed: 'right',
         width: 220,
         render: (_: unknown, record: Instance) => (
-          <Space size={6} className="instance-action-row">
+          <Space size={6}>
             <Button size="small" icon={<EditOutlined />} onClick={() => setEditingInstance(record)}>
               编辑
             </Button>
@@ -616,6 +564,16 @@ export function InstancesPage() {
     ],
     [syncMutation, testMutation],
   );
+
+  const pagination: TablePaginationConfig = {
+    current: currentPage,
+    pageSize,
+    total: data?.total ?? 0,
+    showSizeChanger: true,
+    pageSizeOptions: PAGE_SIZE_OPTIONS.map(String),
+    showQuickJumper: (data?.total ?? 0) > 100,
+    showTotal: (total, range) => `第 ${range[0]}-${range[1]} 项，共 ${total} 项`,
+  };
 
   return (
     <div className="page-stack">
@@ -649,7 +607,7 @@ export function InstancesPage() {
             <Input.Search
               allowClear
               placeholder="搜索实例名、地址、用户名"
-              style={{ width: 260 }}
+              style={{ width: 240 }}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -657,7 +615,7 @@ export function InstancesPage() {
               mode="multiple"
               allowClear
               placeholder="按标签筛选"
-              style={{ width: 260 }}
+              style={{ width: 220 }}
               options={tagOptions}
               value={selectedTags}
               onChange={(value) => setSelectedTags(value)}
@@ -665,7 +623,7 @@ export function InstancesPage() {
             <Select
               allowClear
               placeholder="按计费方式筛选"
-              style={{ width: 180 }}
+              style={{ width: 150 }}
               value={billingMode}
               options={[
                 { label: '预付费', value: 'prepaid' },
@@ -676,7 +634,7 @@ export function InstancesPage() {
             <Select
               allowClear
               placeholder="按启用状态筛选"
-              style={{ width: 180 }}
+              style={{ width: 150 }}
               value={enabled}
               options={[
                 { label: '启用', value: true },
@@ -687,7 +645,7 @@ export function InstancesPage() {
             <Select
               allowClear
               placeholder="按健康状态筛选"
-              style={{ width: 180 }}
+              style={{ width: 150 }}
               value={healthStatus}
               options={[
                 { label: '健康', value: 'healthy' },
@@ -731,17 +689,101 @@ export function InstancesPage() {
 
         <Table
           rowKey="id"
+          size="small"
+          sticky={{ offsetHeader: 80 }}
           loading={isLoading}
           dataSource={data?.items ?? []}
+          columns={columns}
+          locale={{ emptyText: <Empty description="暂无实例配置" /> }}
+          showSorterTooltip={{ target: 'sorter-icon' }}
+          pagination={pagination}
+          onChange={(nextPagination) => {
+            const nextPageSize = nextPagination.pageSize ?? pageSize;
+            setPageSize(nextPageSize);
+            setCurrentPage(nextPageSize !== pageSize ? 1 : (nextPagination.current ?? 1));
+          }}
           rowSelection={{
+            preserveSelectedRowKeys: true,
             selectedRowKeys,
             onChange: (keys) => setSelectedRowKeys(keys.map((item) => Number(item))),
           }}
-          columns={columns}
-          scroll={{ x: 2350 }}
-          showSorterTooltip={{ target: 'sorter-icon' }}
-          locale={{ emptyText: <Empty description="暂无实例配置" /> }}
-          pagination={false}
+          expandable={{
+            expandRowByClick: true,
+            expandedRowRender: (record) => {
+              const proxyMeta = formatProxyMode(record);
+              const proxyDetail =
+                record.proxy_mode === 'custom'
+                  ? record.socks5_proxy_url || '-'
+                  : record.proxy_mode === 'global'
+                    ? appSettingsData?.shared_socks5_proxy_url || '未配置公用 SOCKS5，当前会直连'
+                    : '本地直连';
+
+              return (
+                <Descriptions
+                  size="small"
+                  bordered
+                  column={2}
+                  items={[
+                    {
+                      key: 'base_url',
+                      label: '实例地址',
+                      children: (
+                        <Link href={record.base_url} target="_blank">
+                          {record.base_url}
+                        </Link>
+                      ),
+                    },
+                    {
+                      key: 'program_type',
+                      label: '程序类型',
+                      children: formatProgramType(record.program_type),
+                    },
+                    {
+                      key: 'auth',
+                      label: '认证信息',
+                      children: record.username ? `用户：${record.username}` : `远端用户 ID：${record.remote_user_id ?? '-'}`,
+                    },
+                    {
+                      key: 'proxy_mode',
+                      label: '代理配置',
+                      children: `${proxyMeta.label} / ${proxyDetail}`,
+                    },
+                    {
+                      key: 'session',
+                      label: 'Session / Token',
+                      children: record.has_access_token ? 'Access Token' : formatDateTime(record.session_expires_at),
+                    },
+                    {
+                      key: 'group',
+                      label: '当前分组',
+                      children: record.latest_group_name || '-',
+                    },
+                    {
+                      key: 'quota_per_unit',
+                      label: '兑换比',
+                      children: formatNumber(record.quota_per_unit),
+                    },
+                    {
+                      key: 'request_total',
+                      label: '累计请求数',
+                      children: formatNumber(record.latest_request_count),
+                    },
+                    {
+                      key: 'updated_at',
+                      label: '最后更新',
+                      children: formatDateTime(record.updated_at),
+                    },
+                    {
+                      key: 'error',
+                      label: '最近错误',
+                      children: record.last_health_error || '-',
+                    },
+                  ]}
+                />
+              );
+            },
+          }}
+          scroll={{ x: 1600, y: 560 }}
         />
       </Card>
 

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models import AppSetting
 from app.schemas.app_setting import AppSettingsResponse, AppSettingsUpdateRequest
+from app.services.proxy_utils import normalize_socks5_proxy_url
 
 
 env_settings = get_settings()
@@ -28,6 +29,7 @@ class RuntimeAppSettings:
     scheduler_timezone: str
     sync_history_lookback_days: int
     default_sync_interval_minutes: int
+    shared_socks5_proxy_url: str | None
 
 
 def get_app_setting_record(db: Session) -> AppSetting | None:
@@ -69,6 +71,7 @@ def get_runtime_app_settings(db: Session) -> RuntimeAppSettings:
             minimum=5,
             maximum=10080,
         ),
+        shared_socks5_proxy_url=normalize_socks5_proxy_url(row.shared_socks5_proxy_url if row else None),
     )
 
 
@@ -83,6 +86,7 @@ def build_app_settings_response(db: Session) -> AppSettingsResponse:
         scheduler_timezone=runtime.scheduler_timezone,
         sync_history_lookback_days=runtime.sync_history_lookback_days,
         default_sync_interval_minutes=runtime.default_sync_interval_minutes,
+        shared_socks5_proxy_url=runtime.shared_socks5_proxy_url,
         created_at=row.created_at if row else None,
         updated_at=row.updated_at if row else None,
     )
@@ -101,6 +105,7 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
     row.scheduler_timezone = payload.scheduler_timezone.strip()
     row.sync_history_lookback_days = payload.sync_history_lookback_days
     row.default_sync_interval_minutes = payload.default_sync_interval_minutes
+    row.shared_socks5_proxy_url = normalize_socks5_proxy_url(payload.shared_socks5_proxy_url)
     db.commit()
     db.refresh(row)
 
@@ -111,6 +116,7 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
         scheduler_timezone=row.scheduler_timezone,
         sync_history_lookback_days=row.sync_history_lookback_days,
         default_sync_interval_minutes=row.default_sync_interval_minutes,
+        shared_socks5_proxy_url=row.shared_socks5_proxy_url,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

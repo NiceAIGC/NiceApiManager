@@ -25,10 +25,16 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       theme={{
         algorithm: theme.defaultAlgorithm,
         token: {
-          colorPrimary: '#0f172a',
-          colorInfo: '#0f172a',
+          colorPrimary: '#1677ff',
           borderRadius: 10,
           fontSize: 14,
+        },
+        components: {
+          Table: {
+            rowSelectedBg: '#e6f4ff',
+            rowSelectedHoverBg: '#d6eaff',
+            headerBg: '#fafafa',
+          },
         },
       }}
     >
@@ -40,4 +46,3 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </ConfigProvider>
   </React.StrictMode>,
 );
-

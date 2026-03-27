@@ -17,6 +17,7 @@ from app.schemas.instance import (
 )
 from app.services.app_setting_service import get_runtime_app_settings
 from app.services.instance_filters import apply_instance_filters, normalize_base_url
+from app.services.proxy_utils import normalize_socks5_proxy_url
 from app.services.snapshot_metrics import current_day_start_utc, quota_to_display_amount, today_request_count, uses_postpaid_billing
 
 
@@ -38,16 +39,6 @@ def _normalize_tags(tags: list[str] | None) -> list[str]:
 def _normalize_optional_text(value: str | None) -> str:
     """Trim optional text input while preserving empty-string semantics."""
     return (value or "").strip()
-
-
-def _normalize_socks5_proxy_url(value: str | None) -> str | None:
-    """Normalize optional SOCKS5 proxy input to a stable URL-like string."""
-    normalized = (value or "").strip()
-    if not normalized:
-        return None
-    if not normalized.startswith(("socks5://", "socks5h://")):
-        normalized = f"socks5://{normalized}"
-    return normalized
 
 
 def _validate_instance_auth(username: str, password: str, remote_user_id: int | None, access_token: str | None) -> None:
@@ -85,9 +76,11 @@ def create_instance(db: Session, payload: InstanceCreate) -> Instance:
         password=password,
         remote_user_id=payload.remote_user_id,
         access_token=access_token,
-        socks5_proxy_url=_normalize_socks5_proxy_url(payload.socks5_proxy_url),
+        proxy_mode=payload.proxy_mode,
+        socks5_proxy_url=normalize_socks5_proxy_url(payload.socks5_proxy_url),
         enabled=payload.enabled,
         billing_mode=payload.billing_mode,
+        priority=payload.priority,
         sync_interval_minutes=payload.sync_interval_minutes or runtime_settings.default_sync_interval_minutes,
         tags_json=_normalize_tags(payload.tags),
     )
@@ -115,9 +108,11 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
                 password=password,
                 remote_user_id=payload.remote_user_id,
                 access_token=access_token,
-                socks5_proxy_url=_normalize_socks5_proxy_url(payload.socks5_proxy_url),
+                proxy_mode=payload.proxy_mode,
+                socks5_proxy_url=normalize_socks5_proxy_url(payload.socks5_proxy_url),
                 enabled=payload.enabled,
                 billing_mode=payload.billing_mode,
+                priority=payload.priority,
                 sync_interval_minutes=payload.sync_interval_minutes or runtime_settings.default_sync_interval_minutes,
                 tags_json=_normalize_tags(payload.tags),
             )
@@ -144,7 +139,8 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
     new_remote_user_id = payload.remote_user_id
     new_program_type = payload.program_type
     new_base_url = normalize_base_url(payload.base_url)
-    new_socks5_proxy_url = _normalize_socks5_proxy_url(payload.socks5_proxy_url)
+    new_proxy_mode = payload.proxy_mode
+    new_socks5_proxy_url = normalize_socks5_proxy_url(payload.socks5_proxy_url)
 
     if new_username:
         new_password = instance.password
@@ -169,6 +165,7 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
             instance.password != new_password,
             instance.remote_user_id != new_remote_user_id,
             instance.access_token != new_access_token,
+            instance.proxy_mode != new_proxy_mode,
             instance.socks5_proxy_url != new_socks5_proxy_url,
         ]
     )
@@ -180,9 +177,11 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
     instance.password = new_password
     instance.remote_user_id = new_remote_user_id
     instance.access_token = new_access_token
+    instance.proxy_mode = new_proxy_mode
     instance.socks5_proxy_url = new_socks5_proxy_url
     instance.enabled = payload.enabled
     instance.billing_mode = payload.billing_mode
+    instance.priority = payload.priority
     instance.sync_interval_minutes = payload.sync_interval_minutes
     instance.tags_json = _normalize_tags(payload.tags)
     if auth_changed:
@@ -220,7 +219,8 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         new_remote_user_id = payload.remote_user_id
         new_program_type = payload.program_type
         new_base_url = normalize_base_url(payload.base_url)
-        new_socks5_proxy_url = _normalize_socks5_proxy_url(payload.socks5_proxy_url)
+        new_proxy_mode = payload.proxy_mode
+        new_socks5_proxy_url = normalize_socks5_proxy_url(payload.socks5_proxy_url)
 
         if new_username:
             new_password = instance.password
@@ -245,6 +245,7 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
                 instance.password != new_password,
                 instance.remote_user_id != new_remote_user_id,
                 instance.access_token != new_access_token,
+                instance.proxy_mode != new_proxy_mode,
                 instance.socks5_proxy_url != new_socks5_proxy_url,
             ]
         )
@@ -256,9 +257,11 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         instance.password = new_password
         instance.remote_user_id = new_remote_user_id
         instance.access_token = new_access_token
+        instance.proxy_mode = new_proxy_mode
         instance.socks5_proxy_url = new_socks5_proxy_url
         instance.enabled = payload.enabled
         instance.billing_mode = payload.billing_mode
+        instance.priority = payload.priority
         instance.sync_interval_minutes = payload.sync_interval_minutes
         instance.tags_json = _normalize_tags(payload.tags)
         if auth_changed:
@@ -404,7 +407,9 @@ def _instance_to_response(
             ),
             "remote_user_id": instance.session.remote_user_id if instance.session else instance.remote_user_id,
             "has_access_token": bool(instance.access_token),
+            "proxy_mode": instance.proxy_mode,
             "socks5_proxy_url": instance.socks5_proxy_url,
+            "priority": instance.priority,
             "sync_interval_minutes": instance.sync_interval_minutes,
             "session_expires_at": instance.session.expires_at if instance.session else None,
         }
