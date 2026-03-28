@@ -299,6 +299,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pydantic-settings" },
+    { name = "pymysql" },
     { name = "socksio" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
@@ -311,6 +312,7 @@ requires-dist = [
     { name = "fastapi", specifier = "==0.115.12" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "pydantic-settings", specifier = "==2.8.1" },
+    { name = "pymysql", specifier = "==1.1.1" },
     { name = "socksio", specifier = "==1.0.0" },
     { name = "sqlalchemy", specifier = "==2.0.39" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.34.0" },
@@ -413,6 +415,15 @@ dependencies = [
 sdist = { url = "https://mirrors.hust.edu.cn/pypi/web/packages/88/82/c79424d7d8c29b994fb01d277da57b0a9b09cc03c3ff875f9bd8a86b2145/pydantic_settings-2.8.1.tar.gz", hash = "sha256:d5c663dfbe9db9d5e1c646b2e161da12f0d734d422ee56f567d0ea2cee4e8585" }
 wheels = [
     { url = "https://mirrors.hust.edu.cn/pypi/web/packages/0b/53/a64f03044927dc47aafe029c42a5b7aabc38dfb813475e0e1bf71c4a59d0/pydantic_settings-2.8.1-py3-none-any.whl", hash = "sha256:81942d5ac3d905f7f3ee1a70df5dfb62d5569c12f51a5a647defc1c3d9ee2e9c" },
+]
+
+[[package]]
+name = "pymysql"
+version = "1.1.1"
+source = { registry = "https://mirrors.hust.edu.cn/pypi/web/simple" }
+sdist = { url = "https://mirrors.hust.edu.cn/pypi/web/packages/b3/8f/ce59b5e5ed4ce8512f879ff1fa5ab699d211ae2495f1adaa5fbba2a1eada/pymysql-1.1.1.tar.gz", hash = "sha256:e127611aaf2b417403c60bf4dc570124aeb4a57f5f37b8e95ae399a42f904cd0" }
+wheels = [
+    { url = "https://mirrors.hust.edu.cn/pypi/web/packages/0c/94/e4181a1f6286f545507528c78016e00065ea913276888db2262507693ce5/PyMySQL-1.1.1-py3-none-any.whl", hash = "sha256:4de15da4c61dc132f4fb9ab763063e693d521a80fd0e87943b9a453dd4c19d6c" },
 ]
 
 [[package]]

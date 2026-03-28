@@ -75,6 +75,11 @@ interface SyncProgressState {
   items: SyncProgressItem[];
 }
 
+interface SyncTarget {
+  id: number;
+  name: string;
+}
+
 const INITIAL_SYNC_PROGRESS: SyncProgressState = {
   open: false,
   running: false,
@@ -379,8 +384,8 @@ export function InstancesPage() {
     });
   };
 
-  const runSyncAll = async () => {
-    if (!syncTargets.length) {
+  const runBatchSync = async (targets: SyncTarget[]) => {
+    if (!targets.length) {
       message.info('当前筛选下没有可同步的启用实例');
       return;
     }
@@ -388,12 +393,12 @@ export function InstancesPage() {
     setSyncProgress({
       open: true,
       running: true,
-      total: syncTargets.length,
+      total: targets.length,
       completed: 0,
       successCount: 0,
       failedCount: 0,
       activeNames: [],
-      items: syncTargets.map((item) => ({
+      items: targets.map((item) => ({
         key: item.id,
         name: item.name,
         status: 'pending',
@@ -402,14 +407,14 @@ export function InstancesPage() {
 
     try {
       const result = await runBatchSyncWithConcurrency({
-        targets: syncTargets,
+        targets,
         maxWorkers: appSettingsData?.sync_max_workers ?? 5,
         syncOne: syncInstance,
         onStateChange: ({ running, completed, successCount, failedCount, activeNames, items }) => {
           setSyncProgress({
             open: true,
             running,
-            total: syncTargets.length,
+            total: targets.length,
             completed,
             successCount,
             failedCount,
@@ -437,6 +442,19 @@ export function InstancesPage() {
       }));
       message.error(getErrorMessage(error));
     }
+  };
+
+  const runSyncAll = async () => {
+    await runBatchSync(syncTargets);
+  };
+
+  const retryFailedSyncItems = async (items: SyncProgressItem[]) => {
+    await runBatchSync(
+      items.map((item) => ({
+        id: Number(item.key),
+        name: item.name,
+      })),
+    );
   };
 
   const columns = useMemo<TableColumnsType<Instance>>(
@@ -858,6 +876,7 @@ export function InstancesPage() {
         failedCount={syncProgress.failedCount}
         activeNames={syncProgress.activeNames}
         items={syncProgress.items}
+        onRetryFailed={retryFailedSyncItems}
         onClose={() => setSyncProgress(INITIAL_SYNC_PROGRESS)}
       />
     </div>

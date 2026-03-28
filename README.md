@@ -71,6 +71,12 @@ docker compose logs -f niceapimanager
 - 管理台：`http://<你的主机>:8000`
 - OpenAPI 文档：`http://<你的主机>:8000/docs`
 - 健康检查：`http://<你的主机>:8000/health`
+ 
+如果直接使用仓库内置的 `docker-compose.yml`，默认映射端口是 `18101`，对应访问地址为：
+
+- 管理台：`http://<你的主机>:18101`
+- OpenAPI 文档：`http://<你的主机>:18101/docs`
+- 健康检查：`http://<你的主机>:18101/health`
 
 首次登录密码使用 `.env` 中的 `NICE_API_MANAGER_AUTH_PASSWORD`。
 
@@ -124,6 +130,24 @@ docker compose logs -f niceapimanager
 - SQLite 数据默认存放在 `./data/niceapimanager.db`
 - 容器启动时会自动执行 `alembic upgrade head`
 - 重建容器不会删除 `./data` 中的持久化数据
+
+## MySQL 配置
+
+项目默认使用 SQLite，但也支持 MySQL。当前镜像已经内置 `PyMySQL` 驱动，只需要把 `.env` 里的数据库连接改成 MySQL URL 即可。
+
+示例：
+
+```env
+NICE_API_MANAGER_DATABASE_URL=mysql+pymysql://niceapi:your-password@mysql:3306/niceapimanager?charset=utf8mb4
+```
+
+使用 MySQL 时注意：
+
+- 目标 MySQL 数据库需要提前创建，例如 `niceapimanager`
+- 容器启动时仍会自动执行 `alembic upgrade head`
+- 如果 MySQL 和应用在同一个 `docker compose` 网络里，主机名可以直接写 MySQL 服务名，例如 `mysql`
+- 如果 MySQL 在宿主机或外部服务器，请把主机名改成真实地址，并确保容器网络可以访问
+- 使用 MySQL 时，`./data` 这个 SQLite 挂载目录不会再存储业务数据，可以保留，也可以按你的部署习惯移除
 
 ## 开源前建议
 

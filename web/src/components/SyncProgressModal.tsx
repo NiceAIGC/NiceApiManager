@@ -1,4 +1,4 @@
-import { Alert, Descriptions, Modal, Progress, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Descriptions, Modal, Progress, Space, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 const { Text } = Typography;
@@ -25,6 +25,7 @@ interface SyncProgressModalProps {
   activeNames?: string[];
   items: SyncProgressItem[];
   onClose: () => void;
+  onRetryFailed?: (items: SyncProgressItem[]) => void;
 }
 
 function formatStatus(status: SyncProgressStatus) {
@@ -61,8 +62,10 @@ export function SyncProgressModal({
   activeNames = [],
   items,
   onClose,
+  onRetryFailed,
 }: SyncProgressModalProps) {
   const percent = total ? Math.round((completed / total) * 100) : 0;
+  const failedItems = items.filter((item) => item.status === 'failed');
   const columns: ColumnsType<SyncProgressItem> = [
     {
       title: '实例',
@@ -102,10 +105,16 @@ export function SyncProgressModal({
       title={title}
       open={open}
       onCancel={running ? undefined : onClose}
-      okText="关闭"
-      okButtonProps={{ disabled: running }}
-      cancelButtonProps={{ style: { display: 'none' } }}
-      onOk={onClose}
+      footer={[
+        !running && failedItems.length && onRetryFailed ? (
+          <Button key="retry-failed" onClick={() => onRetryFailed(failedItems)}>
+            重试失败实例（{failedItems.length}）
+          </Button>
+        ) : null,
+        <Button key="close" type="primary" onClick={onClose} disabled={running}>
+          关闭
+        </Button>,
+      ]}
       destroyOnHidden
       width={920}
     >

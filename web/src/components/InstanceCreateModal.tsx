@@ -1,4 +1,4 @@
-import { App, Button, Descriptions, Form, Input, InputNumber, Modal, Rate, Select, Space, Switch, Typography } from 'antd';
+import { App, Button, Col, Descriptions, Form, Input, InputNumber, Modal, Rate, Row, Select, Space, Switch, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 
 import { getErrorMessage } from '../api/client';
@@ -113,153 +113,187 @@ export function InstanceCreateModal({
       cancelText="取消"
       confirmLoading={loading}
       destroyOnHidden
+      width={960}
+      styles={{ body: { maxHeight: '72vh', overflowY: 'auto', paddingRight: 8 } }}
     >
       <Form
         form={form}
         layout="vertical"
         onFinish={(values) => onSubmit(normalizeInstancePayload(values))}
       >
-        <Form.Item
-          name="name"
-          label="实例名称"
-          rules={[{ required: true, message: '请输入实例名称' }]}
-        >
-          <Input placeholder="例如：gac 主站" />
-        </Form.Item>
-        <Form.Item
-          name="base_url"
-          label="Base URL"
-          rules={[
-            { required: true, message: '请输入实例地址' },
-            { type: 'url', message: '请输入合法的 URL' },
-          ]}
-        >
-          <Input
-            placeholder="https://example.com"
-            onBlur={(event) => {
-              form.setFieldValue('base_url', normalizeBaseUrl(event.target.value));
-            }}
-          />
-        </Form.Item>
-        <Form.Item
-          name="program_type"
-          label="程序类型"
-          rules={[{ required: true, message: '请选择程序类型' }]}
-          extra="默认按 NewAPI 处理；如站点是二开程序，可切到对应类型。"
-        >
-          <Select
-            options={[
-              { label: 'NewAPI', value: 'newapi' },
-              { label: 'RixAPI', value: 'rixapi' },
-              { label: 'ShellAPI', value: 'shellapi' },
-            ]}
-          />
-        </Form.Item>
-        <Form.Item
-          name="username"
-          label="用户名"
-          extra="使用账密登录时填写。与远端用户 ID + 访问密钥二选一即可。"
-        >
-          <Input placeholder="远端站点用户名" />
-        </Form.Item>
-        <Form.Item
-          name="password"
-          label="密码"
-          extra={mode === 'create' ? '使用账密登录时填写。' : '留空则保持现有密码。'}
-        >
-          <Input.Password placeholder={mode === 'create' ? '远端站点密码' : '留空则保持现有密码'} />
-        </Form.Item>
-        <Form.Item
-          name="remote_user_id"
-          label="远端用户 ID"
-          extra="使用 Access Token / 管理密钥时填写。"
-        >
-          <InputNumber style={{ width: '100%' }} min={1} precision={0} placeholder="例如：11766" />
-        </Form.Item>
-        <Form.Item
-          name="access_token"
-          label="访问密钥"
-          extra={accessTokenExtra}
-        >
-          <Input.Password placeholder={mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥'} />
-        </Form.Item>
-        <Form.Item
-          name="priority"
-          label="常用优先级"
-          extra="最低 1 星，最高 5 星，默认 3 星。"
-          rules={[{ required: true, message: '请选择优先级' }]}
-        >
-          <Rate count={5} />
-        </Form.Item>
-        <Form.Item
-          name="proxy_mode"
-          label="代理方式"
-          rules={[{ required: true, message: '请选择代理方式' }]}
-          extra="默认直连；也可以走系统设置里的公用 SOCKS5，或为该实例单独指定自定义代理。"
-        >
-          <Select
-            options={[
-              { label: '本地直连', value: 'direct' },
-              { label: '公用 SOCKS5', value: 'global' },
-              { label: '自定义 SOCKS5', value: 'custom' },
-            ]}
-          />
-        </Form.Item>
-        {proxyMode === 'custom' ? (
-          <Form.Item
-            name="socks5_proxy_url"
-            label="自定义 SOCKS5 代理"
-            extra="支持 `用户名:密码@主机:端口`，会自动补 `socks5://`。"
-            rules={[{ required: true, message: '请输入自定义 SOCKS5 代理' }]}
-          >
-            <Input placeholder="例如：xxxmit3t:Sxxxxx@6xxx37.233:2xxx" />
-          </Form.Item>
-        ) : null}
-        {proxyMode !== 'direct' ? (
-          <Form.Item label="代理测试">
-            <Space>
-              <Button onClick={handleProxyTest} loading={testingProxy}>
-                测试当前代理
-              </Button>
-              <Text type="secondary">会使用当前 Base URL 请求远端 `/api/status`。</Text>
-            </Space>
-          </Form.Item>
-        ) : null}
-        <Form.Item
-          name="billing_mode"
-          label="计费方式"
-          rules={[{ required: true, message: '请选择计费方式' }]}
-          extra="默认预付费；后付费站点只统计周期内已用额度，不展示余额。"
-        >
-          <Select
-            options={[
-              { label: '预付费', value: 'prepaid' },
-              { label: '后付费', value: 'postpaid' },
-            ]}
-          />
-        </Form.Item>
-        <Form.Item
-          name="sync_interval_minutes"
-          label="同步周期（分钟）"
-          extra="后台自动同步按这里的周期执行。"
-          rules={[{ required: true, message: '请输入同步周期' }]}
-        >
-          <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} addonAfter="分钟" />
-        </Form.Item>
-        <Form.Item
-          name="tags"
-          label="标签"
-        >
-          <Select
-            mode="tags"
-            options={tagOptions}
-            tokenSeparators={[',']}
-            placeholder="可直接选择已有标签，也可输入新标签"
-          />
-        </Form.Item>
-        <Form.Item name="enabled" label="启用状态" valuePropName="checked">
-          <Switch checkedChildren="启用" unCheckedChildren="停用" />
-        </Form.Item>
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="name"
+              label="实例名称"
+              rules={[{ required: true, message: '请输入实例名称' }]}
+            >
+              <Input placeholder="例如：gac 主站" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="program_type"
+              label="程序类型"
+              rules={[{ required: true, message: '请选择程序类型' }]}
+              extra="默认按 NewAPI 处理；如站点是二开程序，可切到对应类型。"
+            >
+              <Select
+                options={[
+                  { label: 'NewAPI', value: 'newapi' },
+                  { label: 'RixAPI', value: 'rixapi' },
+                  { label: 'ShellAPI', value: 'shellapi' },
+                ]}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="base_url"
+              label="Base URL"
+              rules={[
+                { required: true, message: '请输入实例地址' },
+                { type: 'url', message: '请输入合法的 URL' },
+              ]}
+            >
+              <Input
+                placeholder="https://example.com"
+                onBlur={(event) => {
+                  form.setFieldValue('base_url', normalizeBaseUrl(event.target.value));
+                }}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="billing_mode"
+              label="计费方式"
+              rules={[{ required: true, message: '请选择计费方式' }]}
+              extra="默认预付费；后付费站点只统计周期内已用额度，不展示余额。"
+            >
+              <Select
+                options={[
+                  { label: '预付费', value: 'prepaid' },
+                  { label: '后付费', value: 'postpaid' },
+                ]}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="username"
+              label="用户名"
+              extra="使用账密登录时填写。与远端用户 ID + 访问密钥二选一即可。"
+            >
+              <Input placeholder="远端站点用户名" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="password"
+              label="密码"
+              extra={mode === 'create' ? '使用账密登录时填写。' : '留空则保持现有密码。'}
+            >
+              <Input.Password placeholder={mode === 'create' ? '远端站点密码' : '留空则保持现有密码'} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="remote_user_id"
+              label="远端用户 ID"
+              extra="使用 Access Token / 管理密钥时填写。"
+            >
+              <InputNumber style={{ width: '100%' }} min={1} precision={0} placeholder="例如：11766" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="access_token"
+              label="访问密钥"
+              extra={accessTokenExtra}
+            >
+              <Input.Password placeholder={mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥'} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="priority"
+              label="常用优先级"
+              extra="最低 1 星，最高 5 星，默认 3 星。"
+              rules={[{ required: true, message: '请选择优先级' }]}
+            >
+              <Rate count={5} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="sync_interval_minutes"
+              label="同步周期（分钟）"
+              extra="后台自动同步按这里的周期执行。"
+              rules={[{ required: true, message: '请输入同步周期' }]}
+            >
+              <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} addonAfter="分钟" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="proxy_mode"
+              label="代理方式"
+              rules={[{ required: true, message: '请选择代理方式' }]}
+              extra="默认直连；也可以走系统设置里的公用 SOCKS5，或为该实例单独指定自定义代理。"
+            >
+              <Select
+                options={[
+                  { label: '本地直连', value: 'direct' },
+                  { label: '公用 SOCKS5', value: 'global' },
+                  { label: '自定义 SOCKS5', value: 'custom' },
+                ]}
+              />
+            </Form.Item>
+          </Col>
+          {proxyMode === 'custom' ? (
+            <Col xs={24} md={12}>
+              <Form.Item
+                name="socks5_proxy_url"
+                label="自定义 SOCKS5 代理"
+                extra="支持 `用户名:密码@主机:端口`，会自动补 `socks5://`。"
+                rules={[{ required: true, message: '请输入自定义 SOCKS5 代理' }]}
+              >
+                <Input placeholder="例如：xxxmit3t:Sxxxxx@6xxx37.233:2xxx" />
+              </Form.Item>
+            </Col>
+          ) : null}
+          {proxyMode !== 'direct' ? (
+            <Col xs={24} md={proxyMode === 'custom' ? 12 : 24}>
+              <Form.Item label="代理测试">
+                <Space>
+                  <Button onClick={handleProxyTest} loading={testingProxy}>
+                    测试当前代理
+                  </Button>
+                  <Text type="secondary">会使用当前 Base URL 请求远端 `/api/status`。</Text>
+                </Space>
+              </Form.Item>
+            </Col>
+          ) : null}
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="tags"
+              label="标签"
+            >
+              <Select
+                mode="tags"
+                options={tagOptions}
+                tokenSeparators={[',']}
+                placeholder="可直接选择已有标签，也可输入新标签"
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="enabled" label="启用状态" valuePropName="checked">
+              <Switch checkedChildren="启用" unCheckedChildren="停用" />
+            </Form.Item>
+          </Col>
+        </Row>
       </Form>
     </Modal>
   );
