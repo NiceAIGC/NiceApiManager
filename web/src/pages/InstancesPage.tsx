@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
   Descriptions,
   Empty,
   Input,
@@ -489,39 +490,12 @@ export function InstancesPage() {
           ),
       },
       {
-        title: '周期已用',
-        dataIndex: 'latest_display_used_quota',
-        key: 'latest_display_used_quota',
-        width: 120,
-        sorter: (left, right) => (left.latest_display_used_quota ?? 0) - (right.latest_display_used_quota ?? 0),
-        render: (value?: number | null) => formatMoney(value),
-      },
-      {
         title: '今日请求',
         dataIndex: 'today_request_count',
         key: 'today_request_count',
         width: 110,
         sorter: (left, right) => left.today_request_count - right.today_request_count,
         render: (value: number) => formatNumber(value),
-      },
-      {
-        title: '同步周期',
-        dataIndex: 'sync_interval_minutes',
-        key: 'sync_interval_minutes',
-        width: 120,
-        sorter: (left, right) => left.sync_interval_minutes - right.sync_interval_minutes,
-        render: (value: number) => `${value} 分钟`,
-      },
-      {
-        title: '代理方式',
-        dataIndex: 'proxy_mode',
-        key: 'proxy_mode',
-        width: 130,
-        sorter: (left, right) => left.proxy_mode.localeCompare(right.proxy_mode),
-        render: (_: string, record) => {
-          const proxyMeta = formatProxyMode(record);
-          return <Tag color={proxyMeta.color}>{proxyMeta.label}</Tag>;
-        },
       },
       {
         title: '最近同步',
@@ -592,9 +566,6 @@ export function InstancesPage() {
         </Col>
         <Col xs={24} md={12} xl={4}>
           <StatCard title="预付费余额" value={formatMoney(summary.totalBalance)} />
-        </Col>
-        <Col xs={24} md={12} xl={4}>
-          <StatCard title="周期已用额度" value={formatMoney(summary.totalUsed)} />
         </Col>
         <Col xs={24} md={12} xl={4}>
           <StatCard title="今日请求数" value={formatNumber(summary.todayRequests)} />
@@ -719,67 +690,85 @@ export function InstancesPage() {
                     : '本地直连';
 
               return (
-                <Descriptions
-                  size="small"
-                  bordered
-                  column={2}
-                  items={[
-                    {
-                      key: 'base_url',
-                      label: '实例地址',
-                      children: (
-                        <Link href={record.base_url} target="_blank">
-                          {record.base_url}
-                        </Link>
-                      ),
-                    },
-                    {
-                      key: 'program_type',
-                      label: '程序类型',
-                      children: formatProgramType(record.program_type),
-                    },
-                    {
-                      key: 'auth',
-                      label: '认证信息',
-                      children: record.username ? `用户：${record.username}` : `远端用户 ID：${record.remote_user_id ?? '-'}`,
-                    },
-                    {
-                      key: 'proxy_mode',
-                      label: '代理配置',
-                      children: `${proxyMeta.label} / ${proxyDetail}`,
-                    },
-                    {
-                      key: 'session',
-                      label: 'Session / Token',
-                      children: record.has_access_token ? 'Access Token' : formatDateTime(record.session_expires_at),
-                    },
-                    {
-                      key: 'group',
-                      label: '当前分组',
-                      children: record.latest_group_name || '-',
-                    },
-                    {
-                      key: 'quota_per_unit',
-                      label: '兑换比',
-                      children: formatNumber(record.quota_per_unit),
-                    },
-                    {
-                      key: 'request_total',
-                      label: '累计请求数',
-                      children: formatNumber(record.latest_request_count),
-                    },
-                    {
-                      key: 'updated_at',
-                      label: '最后更新',
-                      children: formatDateTime(record.updated_at),
-                    },
-                    {
-                      key: 'error',
-                      label: '最近错误',
-                      children: record.last_health_error || '-',
-                    },
-                  ]}
-                />
+                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <Descriptions
+                    size="small"
+                    bordered
+                    column={2}
+                    items={[
+                      {
+                        key: 'base_url',
+                        label: '实例地址',
+                        children: (
+                          <Link href={record.base_url} target="_blank">
+                            {record.base_url}
+                          </Link>
+                        ),
+                      },
+                      {
+                        key: 'auth',
+                        label: '认证信息',
+                        children: record.username ? `用户：${record.username}` : `远端用户 ID：${record.remote_user_id ?? '-'}`,
+                      },
+                      {
+                        key: 'program_type',
+                        label: '程序类型',
+                        children: formatProgramType(record.program_type),
+                      },
+                      {
+                        key: 'session',
+                        label: 'Session / Token',
+                        children: record.has_access_token ? 'Access Token' : formatDateTime(record.session_expires_at),
+                      },
+                      {
+                        key: 'group',
+                        label: '当前分组',
+                        children: record.latest_group_name || '-',
+                      },
+                      {
+                        key: 'request_total',
+                        label: '累计请求数',
+                        children: formatNumber(record.latest_request_count),
+                      },
+                      {
+                        key: 'quota_per_unit',
+                        label: '兑换比',
+                        children: formatNumber(record.quota_per_unit),
+                      },
+                      {
+                        key: 'updated_at',
+                        label: '最后更新',
+                        children: formatDateTime(record.updated_at),
+                      },
+                      {
+                        key: 'error',
+                        label: '最近错误',
+                        children: record.last_health_error || '-',
+                      },
+                    ]}
+                  />
+
+                  <Collapse
+                    size="small"
+                    items={[
+                      {
+                        key: 'quota',
+                        label: '周期已用',
+                        children: formatMoney(record.latest_display_used_quota),
+                      },
+                      {
+                        key: 'sync_interval',
+                        label: '同步周期',
+                        children: `${record.sync_interval_minutes} 分钟`,
+                      },
+                      {
+                        key: 'proxy_mode',
+                        label: '代理方式',
+                        children: `${proxyMeta.label} / ${proxyDetail}`,
+                      },
+                    ]}
+                  />
+                </Space>
               );
             },
           }}

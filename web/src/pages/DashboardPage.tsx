@@ -25,10 +25,6 @@ import { getErrorMessage } from '../api/client';
 import { fetchDashboardOverview, fetchDashboardTrends } from '../api/dashboard';
 import { fetchInstances, syncInstance } from '../api/instances';
 import { fetchAppSettings } from '../api/settings';
-import {
-  InstanceOverviewChart,
-  type InstanceOverviewMode,
-} from '../components/InstanceOverviewChart';
 import { StackedUsageChart } from '../components/StackedUsageChart';
 import {
   SyncProgressModal,
@@ -42,7 +38,6 @@ const { RangePicker } = DatePicker;
 const { Text } = Typography;
 
 type TrendMode = '7d' | '15d' | '30d' | 'custom-days' | 'range';
-type InstanceSortMode = 'used' | 'remaining' | 'sync';
 
 interface SyncProgressState {
   open: boolean;
@@ -113,10 +108,6 @@ export function DashboardPage() {
   const [customTrendDays, setCustomTrendDays] = useState(14);
   const [customRange, setCustomRange] = useState<[Dayjs, Dayjs]>(DEFAULT_RANGE);
   const [trendBreakdownLimit, setTrendBreakdownLimit] = useState(8);
-  const [instanceViewMode, setInstanceViewMode] = useState<InstanceOverviewMode>('used');
-  const [instanceSortMode, setInstanceSortMode] = useState<InstanceSortMode>('used');
-  const [instanceLimit, setInstanceLimit] = useState(10);
-  const [selectedInstanceIds, setSelectedInstanceIds] = useState<number[]>([]);
   const [syncProgress, setSyncProgress] = useState<SyncProgressState>(INITIAL_SYNC_PROGRESS);
 
   const filters = useMemo<InstanceQuery>(
@@ -189,15 +180,6 @@ export function DashboardPage() {
       .map((tag) => ({ label: tag, value: tag }));
   }, [instanceData]);
 
-  const instanceOptions = useMemo(
-    () =>
-      (data?.items ?? []).map((item) => ({
-        label: item.instance_name,
-        value: item.instance_id,
-      })),
-    [data?.items],
-  );
-
   const syncTargets = useMemo(
     () =>
       (data?.items ?? [])
@@ -243,30 +225,6 @@ export function DashboardPage() {
         .slice(0, 6),
     [trendData],
   );
-
-  const visibleInstanceItems = useMemo(() => {
-    const items = [...(data?.items ?? [])];
-    const filteredItems = selectedInstanceIds.length
-      ? items.filter((item) => selectedInstanceIds.includes(item.instance_id))
-      : items;
-
-    filteredItems.sort((left, right) => {
-      if (instanceSortMode === 'remaining') {
-        const leftRemaining = Math.max((left.latest_display_quota ?? 0) - (left.latest_display_used_quota ?? 0), 0);
-        const rightRemaining = Math.max((right.latest_display_quota ?? 0) - (right.latest_display_used_quota ?? 0), 0);
-        return rightRemaining - leftRemaining;
-      }
-      if (instanceSortMode === 'sync') {
-        return new Date(right.last_sync_at ?? 0).getTime() - new Date(left.last_sync_at ?? 0).getTime();
-      }
-      return (right.latest_display_used_quota ?? 0) - (left.latest_display_used_quota ?? 0);
-    });
-
-    if (selectedInstanceIds.length) {
-      return filteredItems;
-    }
-    return filteredItems.slice(0, instanceLimit);
-  }, [data?.items, instanceLimit, instanceSortMode, selectedInstanceIds]);
 
   const refreshDashboardData = async () => {
     await Promise.all([
@@ -345,7 +303,6 @@ export function DashboardPage() {
     setBillingMode(undefined);
     setEnabled(undefined);
     setHealthStatus(undefined);
-    setSelectedInstanceIds([]);
   };
 
   const resetTrendRange = () => {
@@ -527,97 +484,40 @@ export function DashboardPage() {
         />
       </Card>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={8}>
-          <Card className="section-card" title="区间洞察" loading={isLoading || trendsLoading}>
-            <Descriptions column={1} size="small" colon={false}>
-              <Descriptions.Item label="当前区间">
-                {trendData ? `${trendData.start_date} 至 ${trendData.end_date}` : '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="已应用筛选">
-                {activeFilterCount ? `${activeFilterCount} 项` : '未筛选'}
-              </Descriptions.Item>
-              <Descriptions.Item label="命中实例">{formatNumber(totalInstances)}</Descriptions.Item>
-              <Descriptions.Item label="健康状态">{formatHealthStatusLabel(healthStatus)}</Descriptions.Item>
-              <Descriptions.Item label="计费方式">{billingMode ? formatBillingMode(billingMode) : '全部'}</Descriptions.Item>
-            </Descriptions>
+      <Card className="section-card" title="区间洞察" loading={isLoading || trendsLoading}>
+        <Descriptions column={1} size="small" colon={false}>
+          <Descriptions.Item label="当前区间">
+            {trendData ? `${trendData.start_date} 至 ${trendData.end_date}` : '-'}
+          </Descriptions.Item>
+          <Descriptions.Item label="已应用筛选">
+            {activeFilterCount ? `${activeFilterCount} 项` : '未筛选'}
+          </Descriptions.Item>
+          <Descriptions.Item label="命中实例">{formatNumber(totalInstances)}</Descriptions.Item>
+          <Descriptions.Item label="健康状态">{formatHealthStatusLabel(healthStatus)}</Descriptions.Item>
+          <Descriptions.Item label="计费方式">{billingMode ? formatBillingMode(billingMode) : '全部'}</Descriptions.Item>
+        </Descriptions>
 
-            <div className="dashboard-top-days">
-              <div className="dashboard-section-caption">高消耗日期</div>
-              {topTrendDays.length ? (
-                topTrendDays.map((item) => (
-                  <div key={item.date} className="dashboard-top-day-row">
-                    <div>
-                      <div className="dashboard-top-day-date">{item.date}</div>
-                      <div className="dashboard-top-day-tags">
-                        {item.breakdown.slice(0, 3).map((part) => (
-                          <Tag key={`${item.date}-${part.key}`}>{part.instance_name}</Tag>
-                        ))}
-                      </div>
-                    </div>
-                    <Text strong>{formatMoney(item.used_display_amount)}</Text>
+        <div className="dashboard-top-days">
+          <div className="dashboard-section-caption">高消耗日期</div>
+          {topTrendDays.length ? (
+            topTrendDays.map((item) => (
+              <div key={item.date} className="dashboard-top-day-row">
+                <div>
+                  <div className="dashboard-top-day-date">{item.date}</div>
+                  <div className="dashboard-top-day-tags">
+                    {item.breakdown.slice(0, 3).map((part) => (
+                      <Tag key={`${item.date}-${part.key}`}>{part.instance_name}</Tag>
+                    ))}
                   </div>
-                ))
-              ) : (
-                <Empty description="暂无区间数据" />
-              )}
-            </div>
-          </Card>
-        </Col>
-
-        <Col xs={24} xl={16}>
-          <Card
-            className="section-card"
-            title="实例对比视图"
-            loading={isLoading}
-            extra={
-              <Space size={[12, 12]} wrap>
-                <Segmented<InstanceOverviewMode>
-                  options={[
-                    { label: '已用额度', value: 'used' },
-                    { label: '剩余额度', value: 'remaining' },
-                    { label: '健康状态', value: 'health' },
-                  ]}
-                  value={instanceViewMode}
-                  onChange={(value) => setInstanceViewMode(value)}
-                />
-                <Segmented<InstanceSortMode>
-                  options={[
-                    { label: '按已用', value: 'used' },
-                    { label: '按剩余', value: 'remaining' },
-                    { label: '按最近同步', value: 'sync' },
-                  ]}
-                  value={instanceSortMode}
-                  onChange={(value) => setInstanceSortMode(value)}
-                />
-              </Space>
-            }
-          >
-            <div className="dashboard-instance-toolbar">
-              <InputNumber
-                min={1}
-                max={20}
-                addonAfter="个"
-                value={instanceLimit}
-                onChange={(value) => setInstanceLimit(value ?? 10)}
-                disabled={selectedInstanceIds.length > 0}
-              />
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="指定实例"
-                style={{ minWidth: 280 }}
-                maxTagCount="responsive"
-                value={selectedInstanceIds}
-                options={instanceOptions}
-                onChange={(value) => setSelectedInstanceIds(value)}
-              />
-            </div>
-
-            <InstanceOverviewChart items={visibleInstanceItems} mode={instanceViewMode} />
-          </Card>
-        </Col>
-      </Row>
+                </div>
+                <Text strong>{formatMoney(item.used_display_amount)}</Text>
+              </div>
+            ))
+          ) : (
+            <Empty description="暂无区间数据" />
+          )}
+        </div>
+      </Card>
 
       <SyncProgressModal
         open={syncProgress.open}
