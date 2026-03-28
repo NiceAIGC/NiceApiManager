@@ -234,15 +234,20 @@ class NewAPIClient:
             headers["Authorization"] = token_value if token_value.lower().startswith("bearer ") else f"Bearer {token_value}"
 
         cookies = {"session": cookie_value} if cookie_value else None
-        return httpx.Client(
-            base_url=self.base_url,
-            timeout=self.timeout,
-            verify=self.verify,
-            proxy=self.proxy,
-            headers=headers,
-            cookies=cookies,
-            follow_redirects=True,
-        )
+        try:
+            return httpx.Client(
+                base_url=self.base_url,
+                timeout=self.timeout,
+                verify=self.verify,
+                proxy=self.proxy,
+                headers=headers,
+                cookies=cookies,
+                follow_redirects=True,
+            )
+        except ImportError as exc:
+            if self.proxy and "socks" in self.proxy.lower():
+                raise NewAPIClientError("当前服务镜像未安装 SOCKS5 代理依赖，请重新构建并部署容器。") from exc
+            raise
 
     def _decode_response(self, response: httpx.Response) -> dict[str, Any]:
         """Normalize success/error handling across upstream endpoints."""

@@ -10,10 +10,10 @@ dependencies = [
     "fastapi==0.115.12",
     "httpx==0.28.1",
     "pydantic-settings==2.8.1",
+    "socksio==1.0.0",
     "sqlalchemy==2.0.39",
     "uvicorn[standard]==0.34.0",
 ]
 
 [tool.uv]
 package = false
-
