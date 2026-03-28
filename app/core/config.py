@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     request_timeout: float = 20.0
     sync_verify_ssl: bool = True
     scheduler_timezone: str = "Asia/Shanghai"
-    auth_password: str = "nicenicenice"
-    auth_secret_key: str = "nicenicenice-secret-key-change-me"
+    auth_password: str = "change-this-password"
+    auth_secret_key: str = "change-this-secret-key"
     auth_session_days: int = 30
 
     @field_validator("cors_origins", mode="before")

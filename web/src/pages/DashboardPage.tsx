@@ -80,22 +80,6 @@ function getTrendModeLabel(mode: TrendMode, customDays: number) {
   return '近 7 天';
 }
 
-function formatHealthStatusLabel(value?: string) {
-  if (value === 'healthy') {
-    return '健康';
-  }
-  if (value === 'unhealthy') {
-    return '异常';
-  }
-  if (value === 'degraded') {
-    return '降级';
-  }
-  if (value === 'unknown') {
-    return '未知';
-  }
-  return value || '全部';
-}
-
 export function DashboardPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
@@ -188,7 +172,6 @@ export function DashboardPage() {
     [data?.items],
   );
 
-  const totalInstances = data?.instance_count ?? 0;
   const activeFilterCount = useMemo(
     () =>
       [
@@ -482,41 +465,6 @@ export function DashboardPage() {
           points={trendData?.points ?? []}
           series={trendData?.series ?? []}
         />
-      </Card>
-
-      <Card className="section-card" title="区间洞察" loading={isLoading || trendsLoading}>
-        <Descriptions column={1} size="small" colon={false}>
-          <Descriptions.Item label="当前区间">
-            {trendData ? `${trendData.start_date} 至 ${trendData.end_date}` : '-'}
-          </Descriptions.Item>
-          <Descriptions.Item label="已应用筛选">
-            {activeFilterCount ? `${activeFilterCount} 项` : '未筛选'}
-          </Descriptions.Item>
-          <Descriptions.Item label="命中实例">{formatNumber(totalInstances)}</Descriptions.Item>
-          <Descriptions.Item label="健康状态">{formatHealthStatusLabel(healthStatus)}</Descriptions.Item>
-          <Descriptions.Item label="计费方式">{billingMode ? formatBillingMode(billingMode) : '全部'}</Descriptions.Item>
-        </Descriptions>
-
-        <div className="dashboard-top-days">
-          <div className="dashboard-section-caption">高消耗日期</div>
-          {topTrendDays.length ? (
-            topTrendDays.map((item) => (
-              <div key={item.date} className="dashboard-top-day-row">
-                <div>
-                  <div className="dashboard-top-day-date">{item.date}</div>
-                  <div className="dashboard-top-day-tags">
-                    {item.breakdown.slice(0, 3).map((part) => (
-                      <Tag key={`${item.date}-${part.key}`}>{part.instance_name}</Tag>
-                    ))}
-                  </div>
-                </div>
-                <Text strong>{formatMoney(item.used_display_amount)}</Text>
-              </div>
-            ))
-          ) : (
-            <Empty description="暂无区间数据" />
-          )}
-        </div>
       </Card>
 
       <SyncProgressModal

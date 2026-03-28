@@ -17,6 +17,8 @@ from app.schemas.instance import (
     InstanceResponse,
     InstanceTestResponse,
     InstanceUpdate,
+    ProxyConnectivityTestRequest,
+    ProxyConnectivityTestResponse,
 )
 from app.services.instance_service import (
     create_instance,
@@ -25,6 +27,7 @@ from app.services.instance_service import (
     delete_instances_batch,
     get_instance_or_404,
     list_instances,
+    test_proxy_connectivity,
     update_instance,
     update_instances_batch,
 )
@@ -143,6 +146,15 @@ def batch_delete_instances_route(
         return delete_instances_batch(db, payload.ids)
     except OperationalError as exc:
         _raise_if_sqlite_locked(exc, db)
+
+
+@router.post("/instances/test-proxy", response_model=ProxyConnectivityTestResponse)
+def test_proxy_connectivity_route(
+    payload: ProxyConnectivityTestRequest,
+    db: Session = Depends(get_db),
+) -> ProxyConnectivityTestResponse:
+    """Test one proxy configuration against the provided target instance URL."""
+    return test_proxy_connectivity(db, payload)
 
 
 @router.patch("/instances/{instance_id}", response_model=InstanceResponse)

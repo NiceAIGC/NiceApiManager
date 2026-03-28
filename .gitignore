@@ -5,3 +5,6 @@ __pycache__/
 data/
 web/node_modules/
 web/dist/
+*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts

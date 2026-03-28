@@ -7,6 +7,8 @@ import type {
   InstanceQuery,
   InstanceListResponse,
   InstanceTestResponse,
+  ProxyConnectivityTestPayload,
+  ProxyConnectivityTestResponse,
   SingleSyncResponse,
   InstanceUpdatePayload,
 } from '../types/api';
@@ -44,6 +46,13 @@ export async function createInstancesBatch(payloads: InstanceCreatePayload[]): P
 
 export async function testInstance(instanceId: number): Promise<InstanceTestResponse> {
   const { data } = await apiClient.post<InstanceTestResponse>(`/instances/${instanceId}/test`);
+  return data;
+}
+
+export async function testInstanceProxy(
+  payload: ProxyConnectivityTestPayload,
+): Promise<ProxyConnectivityTestResponse> {
+  const { data } = await apiClient.post<ProxyConnectivityTestResponse>('/instances/test-proxy', payload);
   return data;
 }
 

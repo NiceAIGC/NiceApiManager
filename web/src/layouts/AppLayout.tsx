@@ -8,13 +8,13 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import { App, Button, Layout, Menu, Space, Typography } from 'antd';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
-import { changePassword, logout } from '../api/auth';
-import { getErrorMessage } from '../api/client';
-import { ChangePasswordModal } from '../components/ChangePasswordModal';
+import { logout } from '../api/auth';
+import { fetchAppSettings } from '../api/settings';
+import { setDisplayTimezone } from '../utils/format';
 
 const { Header, Content, Sider } = Layout;
 const { Text } = Typography;
@@ -57,7 +57,16 @@ export function AppLayout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { message } = App.useApp();
-  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+
+  const { data: appSettingsData } = useQuery({
+    queryKey: ['app-settings'],
+    queryFn: fetchAppSettings,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  useEffect(() => {
+    setDisplayTimezone(appSettingsData?.scheduler_timezone);
+  }, [appSettingsData?.scheduler_timezone]);
 
   const logoutMutation = useMutation({
     mutationFn: logout,
@@ -67,17 +76,6 @@ export function AppLayout() {
     },
     onError: () => {
       message.error('退出登录失败，请稍后重试。');
-    },
-  });
-
-  const changePasswordMutation = useMutation({
-    mutationFn: changePassword,
-    onSuccess: () => {
-      setPasswordModalOpen(false);
-      message.success('登录密码修改成功');
-    },
-    onError: (error) => {
-      message.error(getErrorMessage(error));
     },
   });
 
@@ -106,9 +104,6 @@ export function AppLayout() {
             <Text type="secondary">前后端一体部署的中转站管理台</Text>
           </Space>
           <Space>
-            <Button icon={<SettingOutlined />} onClick={() => setPasswordModalOpen(true)}>
-              修改密码
-            </Button>
             <Button
               icon={<LogoutOutlined />}
               loading={logoutMutation.isPending}
@@ -122,12 +117,6 @@ export function AppLayout() {
           <Outlet />
         </Content>
       </Layout>
-      <ChangePasswordModal
-        open={passwordModalOpen}
-        loading={changePasswordMutation.isPending}
-        onCancel={() => setPasswordModalOpen(false)}
-        onSubmit={(values) => changePasswordMutation.mutate(values)}
-      />
     </Layout>
   );
 }

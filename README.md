@@ -1,50 +1,37 @@
 # NiceApiManager
 
-这是一个前后端一体化的 NiceApiManager：
+NiceApiManager 是一个面向 NewAPI / RixAPI / ShellAPI 站点的统一管理后台，采用前后端一体化部署：
 
-- 后端：`FastAPI + SQLAlchemy 2.0 + SQLite + Alembic`
+- 后端：`FastAPI + SQLAlchemy + Alembic`
 - 前端：`React + TypeScript + Vite + Ant Design`
-- Python 包管理：`uv`
-- 部署方式：单镜像、单服务、前后端一起打包
+- 数据库：默认 `SQLite`
+- 部署方式：推荐 `Docker Compose` 单容器部署
 
-当前版本能力：
+## 功能简介
 
-- 管理多个 `New API` 实例配置
-- 支持区分预付费 / 后付费实例，后付费仅统计周期已用额度
-- 支持实例标签筛选
-- 支持批量新增、批量编辑、批量删除实例
-- 测试实例登录和只读接口连通性
-- 手动同步实例的用户信息、分组倍率、定价模型
-- 聚合展示总览、分组、定价模型、同步记录
-- 仪表盘支持显示金额换算、颜色分档和额度范围筛选
-- 使用 `Alembic` 管理数据库结构
-- 提供 React 管理台
-- 提供 `Docker` / `docker compose` 一体化启动方式
-- 整个管理台支持密码登录后访问
+- 管理多个实例，支持标签、优先级、批量新增、批量编辑、批量删除
+- 支持账密登录和 `远端用户 ID + Access Token` 两种认证方式
+- 支持本地直连、公用 SOCKS5、自定义 SOCKS5
+- 支持实例连通性测试、手动同步、批量同步和同步记录
+- 聚合展示实例余额、周期已用、分组倍率、定价模型和每日用量
+- 支持在系统设置中修改统计时区、默认同步周期、并发数、SSL 校验等运行参数
 
-## 目录结构
+## Docker 部署
 
-```text
-app/
-  api/         FastAPI 路由
-  clients/     远端 NewAPI 客户端
-  core/        配置、数据库、日志、调度器占位
-  models/      SQLAlchemy 模型
-  schemas/     Pydantic Schema
-  services/    核心业务逻辑
-alembic/       数据库迁移
-web/           React 管理台
-```
-
-## 环境变量
-
-复制环境变量模板：
+### 1. 准备环境变量
 
 ```bash
 cp .env.example .env
 ```
 
-推荐的 `.env` 内容示例：
+最少需要改这两个值：
+
+```env
+NICE_API_MANAGER_AUTH_PASSWORD=change-this-password
+NICE_API_MANAGER_AUTH_SECRET_KEY=change-this-secret-key
+```
+
+常用环境变量如下：
 
 ```env
 NICE_API_MANAGER_APP_NAME=NiceApiManager API
@@ -55,145 +42,91 @@ NICE_API_MANAGER_CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 NICE_API_MANAGER_REQUEST_TIMEOUT=20
 NICE_API_MANAGER_SYNC_VERIFY_SSL=true
 NICE_API_MANAGER_SCHEDULER_TIMEZONE=Asia/Shanghai
-NICE_API_MANAGER_AUTH_PASSWORD=nicenicenice
-NICE_API_MANAGER_AUTH_SECRET_KEY=nicenicenice-secret-key-change-me
+NICE_API_MANAGER_AUTH_PASSWORD=change-this-password
+NICE_API_MANAGER_AUTH_SECRET_KEY=change-this-secret-key
 NICE_API_MANAGER_AUTH_SESSION_DAYS=30
 ```
 
-公网部署前至少要修改：
-
-- `NICE_API_MANAGER_AUTH_PASSWORD`
-- `NICE_API_MANAGER_AUTH_SECRET_KEY`
-
-## 本地运行
-
-### 1. 准备环境变量
+### 2. 构建并启动
 
 ```bash
-cp .env.example .env
+docker compose up -d --build
 ```
 
-### 2. 安装 Python 依赖
+如果是更新后强制重建容器：
 
 ```bash
-uv sync
+docker compose up -d --build --force-recreate
 ```
 
-### 3. 执行数据库迁移
-
-```bash
-uv run alembic upgrade head
-```
-
-### 4. 启动后端
-
-```bash
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### 5. 本地开发前端
-
-```bash
-npm install --prefix web
-npm run dev --prefix web
-```
-
-开发模式下：
-
-- 后端：`http://localhost:8000`
-- 前端：`http://localhost:5173`
-
-### 6. 构建前端静态资源
-
-```bash
-npm run build --prefix web
-```
-
-构建完成后，后端会直接托管 `web/dist` 中的静态资源。
-
-## Docker 运行
-
-`docker compose` 使用的是单服务部署：
-
-- 服务名：`niceapimanager-backend`
-- 暴露端口：宿主机 `8000` -> 容器 `8000`
-- 数据目录：宿主机 `./data` -> 容器 `/app/data`
-- 启动命令：容器启动时自动执行 `alembic upgrade head`，然后启动 `uvicorn`
-
-基础使用步骤：
-
-### 1. 准备环境变量
-
-```bash
-cp .env.example .env
-```
-
-公网部署前至少修改：
-
-- `NICE_API_MANAGER_AUTH_PASSWORD`
-- `NICE_API_MANAGER_AUTH_SECRET_KEY`
-
-### 2. 构建并启动服务
-
-```bash
-docker compose up --build -d
-```
-
-### 3. 检查服务状态
+### 3. 查看状态
 
 ```bash
 docker compose ps
-docker compose logs -f niceapimanager-backend
+docker compose logs -f niceapimanager
 ```
 
-容器启动后会自动执行数据库迁移；`docker compose ps` 中状态变为 `healthy` 后即可访问。
+### 4. 访问
 
-### 4. 访问管理台
+- 管理台：`http://<你的主机>:8000`
+- OpenAPI 文档：`http://<你的主机>:8000/docs`
+- 健康检查：`http://<你的主机>:8000/health`
 
-默认地址：
+首次登录密码使用 `.env` 中的 `NICE_API_MANAGER_AUTH_PASSWORD`。
 
-- 管理台：`http://localhost:8000`
-- 文档地址：`http://localhost:8000/docs`
-- 健康检查：`http://localhost:8000/health`
+## 基本使用
 
-首次登录密码来自 `.env` 中的 `NICE_API_MANAGER_AUTH_PASSWORD`。
+### 1. 登录后台
 
-### 5. 停止或重建
+启动后访问管理台，使用 `.env` 中配置的管理密码登录。
 
-停止服务：
+### 2. 配置系统设置
 
-```bash
-docker compose down
-```
+建议先到“系统设置”完成以下配置：
 
-重新构建并启动：
+- 统计时区
+- 默认实例同步周期
+- 批量同步并发数
+- 公用 SOCKS5 代理
+- SSL 校验策略
 
-```bash
-docker compose up --build -d
-```
+### 3. 新增实例
 
-如果只想重启容器而不重建镜像：
+在“实例管理”中添加实例，至少提供下面任一认证方式：
 
-```bash
-docker compose restart
-```
+- 用户名 + 密码
+- 远端用户 ID + Access Token
 
-### 6. 数据持久化说明
+如实例需要代理，可选择：
 
-- SQLite 数据库默认写入 `./data/niceapimanager.db`
-- 执行 `docker compose down` 不会删除 `./data` 中的持久化数据
-- 如需全新初始化，可以先停止容器，再手动清理 `./data`
+- 本地直连
+- 公用 SOCKS5
+- 自定义 SOCKS5
 
-### 7. 手动验证
+保存前可以直接测试当前代理连通性。
 
-可以用下面的命令确认容器内服务已正常响应：
+### 4. 同步数据
 
-```bash
-curl http://localhost:8000/health
-```
+实例创建后可执行：
 
-预期返回：
+- 单实例同步
+- 批量同步全部实例
 
-```json
-{"status":"ok"}
-```
+同步完成后可在以下页面查看结果：
+
+- 仪表盘
+- 分组倍率
+- 定价模型
+- 同步记录
+
+## 数据与升级
+
+- SQLite 数据默认存放在 `./data/niceapimanager.db`
+- 容器启动时会自动执行 `alembic upgrade head`
+- 重建容器不会删除 `./data` 中的持久化数据
+
+## 开源前建议
+
+- 不要提交真实 `.env`
+- 生产环境务必修改管理密码和会话签名密钥
+- 如使用反向代理，请限制外部访问来源并开启 HTTPS

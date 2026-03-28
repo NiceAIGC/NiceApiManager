@@ -1,10 +1,28 @@
 import dayjs from 'dayjs';
+import timezone from 'dayjs/plugin/timezone';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+let displayTimezone = 'Asia/Shanghai';
+
+export function setDisplayTimezone(value?: string | null): void {
+  const normalized = value?.trim();
+  displayTimezone = normalized || 'Asia/Shanghai';
+}
 
 export function formatDateTime(value?: string | null): string {
   if (!value) {
     return '-';
   }
-  return dayjs(value).format('YYYY-MM-DD HH:mm:ss');
+
+  const parsed = dayjs.utc(value);
+  if (!parsed.isValid()) {
+    return '-';
+  }
+
+  return parsed.tz(displayTimezone).format('YYYY-MM-DD HH:mm:ss');
 }
 
 export function formatNumber(value?: number | null): string {

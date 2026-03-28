@@ -1,8 +1,11 @@
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Card, Form, Input, InputNumber, Modal, Rate, Select, Space, Switch } from 'antd';
-import { useEffect } from 'react';
+import { App, Button, Card, Descriptions, Form, Input, InputNumber, Modal, Rate, Select, Space, Switch, Typography } from 'antd';
+import { useEffect, useState } from 'react';
 
+import { getErrorMessage } from '../api/client';
+import { testInstanceProxy } from '../api/instances';
 import type { BatchInstanceUpdatePayload, Instance, InstanceCreatePayload } from '../types/api';
+import { formatNumber, formatProgramType } from '../utils/format';
 import { normalizeBaseUrl, normalizeInstancePayload } from '../utils/instance';
 
 interface BatchFormValues {
@@ -19,6 +22,8 @@ interface InstanceBatchModalProps {
   onCancel: () => void;
   onSubmit: (items: Array<InstanceCreatePayload | BatchInstanceUpdatePayload>) => void;
 }
+
+const { Text } = Typography;
 
 function buildEmptyItem(): InstanceCreatePayload {
   return {
@@ -49,7 +54,9 @@ export function InstanceBatchModal({
   onCancel,
   onSubmit,
 }: InstanceBatchModalProps) {
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm<BatchFormValues>();
+  const [testingFieldKey, setTestingFieldKey] = useState<number | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -89,6 +96,48 @@ export function InstanceBatchModal({
       ],
     });
   }, [defaultSyncIntervalMinutes, form, initialItems, mode, open]);
+
+  const handleProxyTest = async (fieldName: number, fieldKey: number) => {
+    const proxyMode = form.getFieldValue(['items', fieldName, 'proxy_mode']) as InstanceCreatePayload['proxy_mode'];
+    await form.validateFields(
+      proxyMode === 'custom'
+        ? [['items', fieldName, 'base_url'], ['items', fieldName, 'proxy_mode'], ['items', fieldName, 'socks5_proxy_url']]
+        : [['items', fieldName, 'base_url'], ['items', fieldName, 'proxy_mode']],
+    );
+
+    try {
+      const values = form.getFieldValue(['items', fieldName]) as InstanceCreatePayload;
+      setTestingFieldKey(fieldKey);
+      const result = await testInstanceProxy({
+        base_url: normalizeBaseUrl(values.base_url),
+        proxy_mode: values.proxy_mode,
+        socks5_proxy_url: values.socks5_proxy_url,
+      });
+
+      modal.success({
+        title: '代理测试成功',
+        content: (
+          <Descriptions bordered size="small" column={1}>
+            <Descriptions.Item label="目标地址">{result.base_url}</Descriptions.Item>
+            <Descriptions.Item label="代理方式">
+              {result.proxy_mode === 'custom'
+                ? '自定义 SOCKS5'
+                : result.proxy_mode === 'global'
+                  ? '公用 SOCKS5'
+                  : '本地直连'}
+            </Descriptions.Item>
+            <Descriptions.Item label="实际代理">{result.resolved_proxy_url || '本地直连'}</Descriptions.Item>
+            <Descriptions.Item label="识别程序">{formatProgramType(result.detected_program_type)}</Descriptions.Item>
+            <Descriptions.Item label="兑换比">{formatNumber(result.quota_per_unit)}</Descriptions.Item>
+          </Descriptions>
+        ),
+      });
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setTestingFieldKey(null);
+    }
+  };
 
   return (
     <Modal
@@ -252,6 +301,33 @@ export function InstanceBatchModal({
                           </Form.Item>
                         ) : null
                       }
+                    </Form.Item>
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prev, next) =>
+                        prev.items?.[field.name]?.proxy_mode !== next.items?.[field.name]?.proxy_mode
+                      }
+                    >
+                      {() => {
+                        const currentProxyMode = form.getFieldValue(['items', field.name, 'proxy_mode']) as InstanceCreatePayload['proxy_mode'];
+                        if (currentProxyMode === 'direct') {
+                          return null;
+                        }
+
+                        return (
+                          <Form.Item label="代理测试">
+                            <Space>
+                              <Button
+                                onClick={() => handleProxyTest(field.name, field.key)}
+                                loading={testingFieldKey === field.key}
+                              >
+                                测试当前代理
+                              </Button>
+                              <Text type="secondary">会使用当前 Base URL 请求远端 `/api/status`。</Text>
+                            </Space>
+                          </Form.Item>
+                        );
+                      }}
                     </Form.Item>
                     <Form.Item
                       name={[field.name, 'sync_interval_minutes']}

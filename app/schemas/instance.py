@@ -134,6 +134,31 @@ class InstanceTestResponse(BaseModel):
     pricing_model_count: int
 
 
+class ProxyConnectivityTestRequest(BaseModel):
+    """Payload used to validate proxy connectivity against one target instance URL."""
+
+    base_url: str
+    proxy_mode: ProxyMode = "direct"
+    socks5_proxy_url: str | None = None
+
+    @model_validator(mode="after")
+    def validate_proxy_fields(self) -> "ProxyConnectivityTestRequest":
+        if self.proxy_mode == "custom" and not (self.socks5_proxy_url or "").strip():
+            raise ValueError("选择自定义 SOCKS5 代理时，请填写代理地址。")
+        return self
+
+
+class ProxyConnectivityTestResponse(BaseModel):
+    """Result of testing one resolved proxy against the target `/api/status` endpoint."""
+
+    success: bool
+    base_url: str
+    proxy_mode: ProxyMode
+    resolved_proxy_url: str | None = None
+    detected_program_type: ProgramType
+    quota_per_unit: float | None = None
+
+
 class BatchInstanceCreateRequest(BaseModel):
     """Payload for creating multiple instances in one request."""
 

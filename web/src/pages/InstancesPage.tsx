@@ -3,7 +3,6 @@ import {
   Button,
   Card,
   Col,
-  Collapse,
   Descriptions,
   Empty,
   Input,
@@ -736,23 +735,7 @@ export function InstancesPage() {
                         children: formatNumber(record.quota_per_unit),
                       },
                       {
-                        key: 'updated_at',
-                        label: '最后更新',
-                        children: formatDateTime(record.updated_at),
-                      },
-                      {
-                        key: 'error',
-                        label: '最近错误',
-                        children: record.last_health_error || '-',
-                      },
-                    ]}
-                  />
-
-                  <Collapse
-                    size="small"
-                    items={[
-                      {
-                        key: 'quota',
+                        key: 'used_quota',
                         label: '周期已用',
                         children: formatMoney(record.latest_display_used_quota),
                       },
@@ -765,6 +748,16 @@ export function InstancesPage() {
                         key: 'proxy_mode',
                         label: '代理方式',
                         children: `${proxyMeta.label} / ${proxyDetail}`,
+                      },
+                      {
+                        key: 'updated_at',
+                        label: '最后更新',
+                        children: formatDateTime(record.updated_at),
+                      },
+                      {
+                        key: 'error',
+                        label: '最近错误',
+                        children: record.last_health_error || '-',
                       },
                     ]}
                   />

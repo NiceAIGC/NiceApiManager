@@ -1,9 +1,14 @@
 """Instance CRUD helpers."""
 
+from __future__ import annotations
+
+import httpx
+
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.clients.newapi import NewAPIClient, NewAPIClientError, detect_program_type
 from app.models import Instance
 from app.models.user_snapshot import UserSnapshot
 from app.schemas.instance import (
@@ -12,12 +17,14 @@ from app.schemas.instance import (
     BatchInstanceUpdateItem,
     InstanceCreate,
     InstanceListResponse,
+    ProxyConnectivityTestRequest,
+    ProxyConnectivityTestResponse,
     InstanceResponse,
     InstanceUpdate,
 )
 from app.services.app_setting_service import get_runtime_app_settings
 from app.services.instance_filters import apply_instance_filters, normalize_base_url
-from app.services.proxy_utils import normalize_socks5_proxy_url
+from app.services.proxy_utils import normalize_socks5_proxy_url, resolve_socks5_proxy_url
 from app.services.snapshot_metrics import current_day_start_utc, quota_to_display_amount, today_request_count, uses_postpaid_billing
 
 
@@ -312,6 +319,56 @@ def delete_instances_batch(db: Session, ids: list[int]) -> BatchInstanceDeleteRe
     return BatchInstanceDeleteResponse(count=len(unique_ids), deleted_ids=unique_ids)
 
 
+def test_proxy_connectivity(
+    db: Session,
+    payload: ProxyConnectivityTestRequest,
+) -> ProxyConnectivityTestResponse:
+    """Test one proxy setting by requesting the target instance `/api/status` endpoint."""
+    runtime_settings = get_runtime_app_settings(db)
+    normalized_base_url = normalize_base_url(payload.base_url)
+    normalized_custom_proxy_url = normalize_socks5_proxy_url(payload.socks5_proxy_url)
+    resolved_proxy_url = resolve_socks5_proxy_url(
+        proxy_mode=payload.proxy_mode,
+        custom_proxy_url=normalized_custom_proxy_url,
+        shared_proxy_url=runtime_settings.shared_socks5_proxy_url,
+    )
+
+    if payload.proxy_mode == "global" and not resolved_proxy_url:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="当前未配置公用 SOCKS5 代理，请先到系统设置里保存后再测试。",
+        )
+
+    client = NewAPIClient(
+        base_url=normalized_base_url,
+        timeout=runtime_settings.request_timeout,
+        verify=runtime_settings.sync_verify_ssl,
+        proxy=resolved_proxy_url,
+    )
+
+    try:
+        status_data = client.get_status()
+    except NewAPIClientError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"代理测试失败：{exc}",
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"代理测试失败：{exc}",
+        ) from exc
+
+    return ProxyConnectivityTestResponse(
+        success=True,
+        base_url=normalized_base_url,
+        proxy_mode=payload.proxy_mode,
+        resolved_proxy_url=resolved_proxy_url,
+        detected_program_type=detect_program_type(status_data),
+        quota_per_unit=_coerce_positive_float(status_data.get("quota_per_unit")),
+    )
+
+
 def get_instance_or_404(db: Session, instance_id: int) -> Instance:
     """Fetch one instance or raise an HTTP 404 for API callers."""
     instance = db.scalar(
@@ -414,3 +471,16 @@ def _instance_to_response(
             "session_expires_at": instance.session.expires_at if instance.session else None,
         }
     )
+
+
+def _coerce_positive_float(value: object) -> float | None:
+    """Return one positive float or `None` when the input is blank or invalid."""
+    if value in (None, ""):
+        return None
+
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    return parsed if parsed > 0 else None

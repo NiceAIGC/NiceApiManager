@@ -162,6 +162,21 @@ export interface InstanceTestResponse {
   pricing_model_count: number;
 }
 
+export interface ProxyConnectivityTestPayload {
+  base_url: string;
+  proxy_mode: 'direct' | 'global' | 'custom';
+  socks5_proxy_url?: string;
+}
+
+export interface ProxyConnectivityTestResponse {
+  success: boolean;
+  base_url: string;
+  proxy_mode: 'direct' | 'global' | 'custom';
+  resolved_proxy_url?: string | null;
+  detected_program_type: 'newapi' | 'rixapi' | 'shellapi';
+  quota_per_unit?: number | null;
+}
+
 export interface GroupRatioItem {
   id: number;
   instance_id: number;

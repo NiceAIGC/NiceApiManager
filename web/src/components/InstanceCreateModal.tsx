@@ -1,7 +1,10 @@
-import { Modal, Form, Input, InputNumber, Rate, Select, Switch } from 'antd';
-import { useEffect } from 'react';
+import { App, Button, Descriptions, Form, Input, InputNumber, Modal, Rate, Select, Space, Switch, Typography } from 'antd';
+import { useEffect, useState } from 'react';
 
+import { getErrorMessage } from '../api/client';
+import { testInstanceProxy } from '../api/instances';
 import type { Instance, InstanceCreatePayload, InstanceUpdatePayload } from '../types/api';
+import { formatNumber, formatProgramType } from '../utils/format';
 import { normalizeBaseUrl, normalizeInstancePayload } from '../utils/instance';
 
 interface InstanceCreateModalProps {
@@ -15,6 +18,8 @@ interface InstanceCreateModalProps {
   onSubmit: (values: InstanceCreatePayload | InstanceUpdatePayload) => void;
 }
 
+const { Text } = Typography;
+
 export function InstanceCreateModal({
   open,
   loading,
@@ -25,7 +30,9 @@ export function InstanceCreateModal({
   onCancel,
   onSubmit,
 }: InstanceCreateModalProps) {
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm<InstanceCreatePayload | InstanceUpdatePayload>();
+  const [testingProxy, setTestingProxy] = useState(false);
   const proxyMode = Form.useWatch('proxy_mode', form) ?? initialValues?.proxy_mode ?? 'direct';
 
   useEffect(() => {
@@ -55,6 +62,46 @@ export function InstanceCreateModal({
     mode === 'edit' && initialValues?.has_access_token
       ? '留空则保持现有访问密钥。'
       : '与远端用户 ID 配合使用；账密和 ID+密钥二选一即可。';
+
+  const handleProxyTest = async () => {
+    await form.validateFields(proxyMode === 'custom' ? ['base_url', 'proxy_mode', 'socks5_proxy_url'] : ['base_url', 'proxy_mode']);
+    const values = form.getFieldsValue(['base_url', 'proxy_mode', 'socks5_proxy_url']) as Pick<
+      InstanceCreatePayload,
+      'base_url' | 'proxy_mode' | 'socks5_proxy_url'
+    >;
+
+    try {
+      setTestingProxy(true);
+      const result = await testInstanceProxy({
+        base_url: normalizeBaseUrl(values.base_url),
+        proxy_mode: values.proxy_mode,
+        socks5_proxy_url: values.socks5_proxy_url,
+      });
+
+      modal.success({
+        title: '代理测试成功',
+        content: (
+          <Descriptions bordered size="small" column={1}>
+            <Descriptions.Item label="目标地址">{result.base_url}</Descriptions.Item>
+            <Descriptions.Item label="代理方式">
+              {result.proxy_mode === 'custom'
+                ? '自定义 SOCKS5'
+                : result.proxy_mode === 'global'
+                  ? '公用 SOCKS5'
+                  : '本地直连'}
+            </Descriptions.Item>
+            <Descriptions.Item label="实际代理">{result.resolved_proxy_url || '本地直连'}</Descriptions.Item>
+            <Descriptions.Item label="识别程序">{formatProgramType(result.detected_program_type)}</Descriptions.Item>
+            <Descriptions.Item label="兑换比">{formatNumber(result.quota_per_unit)}</Descriptions.Item>
+          </Descriptions>
+        ),
+      });
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setTestingProxy(false);
+    }
+  };
 
   return (
     <Modal
@@ -166,6 +213,16 @@ export function InstanceCreateModal({
             rules={[{ required: true, message: '请输入自定义 SOCKS5 代理' }]}
           >
             <Input placeholder="例如：xxxmit3t:Sxxxxx@6xxx37.233:2xxx" />
+          </Form.Item>
+        ) : null}
+        {proxyMode !== 'direct' ? (
+          <Form.Item label="代理测试">
+            <Space>
+              <Button onClick={handleProxyTest} loading={testingProxy}>
+                测试当前代理
+              </Button>
+              <Text type="secondary">会使用当前 Base URL 请求远端 `/api/status`。</Text>
+            </Space>
           </Form.Item>
         ) : null}
         <Form.Item

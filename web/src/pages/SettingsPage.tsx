@@ -1,11 +1,13 @@
-import { App, Button, Card, Col, Form, Input, InputNumber, Row, Space, Switch, Typography } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { App, Button, Card, Col, Form, Input, InputNumber, Row, Space, Switch, Typography } from 'antd';
+import { useEffect, useState } from 'react';
 
+import { changePassword } from '../api/auth';
 import { getErrorMessage } from '../api/client';
 import { fetchAppSettings, updateAppSettings } from '../api/settings';
+import { ChangePasswordModal } from '../components/ChangePasswordModal';
 import type { AppSettings } from '../types/api';
-import { formatDateTime } from '../utils/format';
+import { formatDateTime, setDisplayTimezone } from '../utils/format';
 
 const { Paragraph, Text } = Typography;
 
@@ -13,6 +15,7 @@ export function SettingsPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<AppSettings>();
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['app-settings'],
@@ -29,6 +32,7 @@ export function SettingsPage() {
     mutationFn: (payload: AppSettings) => updateAppSettings(payload),
     onSuccess: async (result) => {
       form.setFieldsValue(result);
+      setDisplayTimezone(result.scheduler_timezone);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['app-settings'] }),
         queryClient.invalidateQueries({ queryKey: ['instances'] }),
@@ -43,9 +47,28 @@ export function SettingsPage() {
     },
   });
 
+  const changePasswordMutation = useMutation({
+    mutationFn: changePassword,
+    onSuccess: () => {
+      setPasswordModalOpen(false);
+      message.success('登录密码修改成功');
+    },
+    onError: (error) => {
+      message.error(getErrorMessage(error));
+    },
+  });
+
   return (
     <div className="page-stack">
-      <Card className="section-card" loading={isLoading}>
+      <Card
+        className="section-card"
+        loading={isLoading}
+        extra={
+          <Button onClick={() => setPasswordModalOpen(true)}>
+            修改登录密码
+          </Button>
+        }
+      >
         <Space direction="vertical" size={4}>
           <Typography.Title level={4} style={{ margin: 0 }}>
             系统设置
@@ -151,6 +174,13 @@ export function SettingsPage() {
           </Button>
         </Form>
       </Card>
+
+      <ChangePasswordModal
+        open={passwordModalOpen}
+        loading={changePasswordMutation.isPending}
+        onCancel={() => setPasswordModalOpen(false)}
+        onSubmit={(values) => changePasswordMutation.mutate(values)}
+      />
     </div>
   );
 }
