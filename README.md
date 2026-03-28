@@ -148,9 +148,3 @@ NICE_API_MANAGER_DATABASE_URL=mysql+pymysql://niceapi:your-password@mysql:3306/n
 - 如果 MySQL 和应用在同一个 `docker compose` 网络里，主机名可以直接写 MySQL 服务名，例如 `mysql`
 - 如果 MySQL 在宿主机或外部服务器，请把主机名改成真实地址，并确保容器网络可以访问
 - 使用 MySQL 时，`./data` 这个 SQLite 挂载目录不会再存储业务数据，可以保留，也可以按你的部署习惯移除
-
-## 开源前建议
-
-- 不要提交真实 `.env`
-- 生产环境务必修改管理密码和会话签名密钥
-- 如使用反向代理，请限制外部访问来源并开启 HTTPS
