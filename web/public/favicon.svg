@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="NiceApiManager">
+  <defs>
+    <linearGradient id="bg" x1="10%" y1="10%" x2="90%" y2="90%">
+      <stop offset="0%" stop-color="#1677ff" />
+      <stop offset="100%" stop-color="#0f3d91" />
+    </linearGradient>
+    <linearGradient id="shine" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#dbeafe" stop-opacity="0.65" />
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="52" height="52" rx="16" fill="url(#bg)" />
+  <path d="M20 45V19h6l18 18V19h6v26h-5.8L26 26.8V45z" fill="url(#shine)" />
+  <circle cx="48" cy="18" r="4" fill="#7dd3fc" fill-opacity="0.95" />
+</svg>
