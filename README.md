@@ -1,5 +1,12 @@
 # NiceApiManager
 
+
+<img width="1250" height="600" alt="image" src="https://github.com/user-attachments/assets/b0bfc08e-63de-4658-836f-937a5ea1b68b" />
+<img width="1250" height="600" alt="image" src="https://github.com/user-attachments/assets/4e1b4bd2-a1fc-406a-95f4-3b01f0d9524d" />
+<img width="600" height="500" alt="image" src="https://github.com/user-attachments/assets/667e8b13-c05f-4e15-b210-c5c7203874a3" />
+
+
+
 NiceApiManager 是一个面向 NewAPI / RixAPI / ShellAPI 站点的统一管理后台，采用前后端一体化部署：
 
 - 后端：`FastAPI + SQLAlchemy + Alembic`
