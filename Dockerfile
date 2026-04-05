@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.npm \
 
 FROM python:3.12-slim
 
-ARG UV_HTTP_TIMEOUT=120
+ARG UV_HTTP_TIMEOUT=240
 ARG UV_DEFAULT_INDEX=https://pypi.org/simple
 
 ENV PYTHONDONTWRITEBYTECODE=1
