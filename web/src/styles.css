@@ -73,6 +73,18 @@ a {
   border-bottom: 1px solid #e5e7eb;
 }
 
+.app-mobile-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+}
+
+.app-mobile-drawer .ant-drawer-content {
+  background: #001529;
+}
+
 .app-header-title {
   margin: 0 !important;
   line-height: 1.25 !important;
@@ -721,6 +733,10 @@ a {
 }
 
 @media (max-width: 992px) {
+  .app-sider {
+    display: none !important;
+  }
+
   .page-content {
     padding: 16px;
   }
@@ -729,6 +745,11 @@ a {
     padding: 14px 16px;
     flex-wrap: wrap;
     gap: 12px;
+  }
+
+  .app-mobile-drawer .brand-block {
+    height: auto;
+    min-height: 72px;
   }
 
   .instance-batch-grid {

@@ -91,7 +91,7 @@ const INITIAL_SYNC_PROGRESS: SyncProgressState = {
   items: [],
 };
 
-const PAGE_SIZE_OPTIONS = [20, 50, 100, 1000];
+const PAGE_SIZE_OPTIONS = [30, 50, 100, 1000];
 
 function getBalanceBadgeClass(value?: number | null) {
   if (value == null) {
@@ -150,7 +150,7 @@ export function InstancesPage() {
   const [testResult, setTestResult] = useState<InstanceTestResponse | null>(null);
   const [syncProgress, setSyncProgress] = useState<SyncProgressState>(INITIAL_SYNC_PROGRESS);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(30);
 
   const filters = useMemo<InstanceQuery>(
     () => ({
@@ -487,13 +487,6 @@ export function InstancesPage() {
         ),
       },
       {
-        title: '标签',
-        dataIndex: 'tags',
-        key: 'tags',
-        width: 170,
-        render: (value: string[]) => renderCompactTags(value),
-      },
-      {
         title: '当前余额',
         dataIndex: 'latest_display_quota',
         key: 'latest_display_quota',
@@ -741,6 +734,11 @@ export function InstancesPage() {
                         key: 'group',
                         label: '当前分组',
                         children: record.latest_group_name || '-',
+                      },
+                      {
+                        key: 'tags',
+                        label: '标签',
+                        children: renderCompactTags(record.tags),
                       },
                       {
                         key: 'request_total',

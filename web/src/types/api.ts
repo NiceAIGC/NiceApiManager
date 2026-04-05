@@ -303,6 +303,115 @@ export interface AppSettings {
   sync_history_lookback_days: number;
   default_sync_interval_minutes: number;
   shared_socks5_proxy_url?: string | null;
+  notification_enabled: boolean;
+  notification_check_interval_minutes: number;
+  notification_channels: NotificationChannelConfig[];
+  notification_rules: NotificationRuleSet;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface NotificationChannelConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  apprise_url: string;
+}
+
+export interface BalanceNotificationRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  severity: 'warning' | 'critical';
+  threshold: number;
+  resolve_threshold?: number | null;
+  min_consecutive_checks: number;
+  instance_ids: number[];
+  tags: string[];
+  include_disabled: boolean;
+  repeat_interval_minutes: number;
+  notify_on_recovery: boolean;
+  channel_ids: string[];
+}
+
+export interface AggregateBalanceNotificationRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  severity: 'warning' | 'critical';
+  threshold: number;
+  resolve_threshold?: number | null;
+  min_consecutive_checks: number;
+  instance_ids: number[];
+  tags: string[];
+  include_disabled: boolean;
+  repeat_interval_minutes: number;
+  notify_on_recovery: boolean;
+  channel_ids: string[];
+}
+
+export interface ConnectivityFailureNotificationRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  consecutive_failures: number;
+  instance_ids: number[];
+  tags: string[];
+  include_disabled: boolean;
+  repeat_interval_minutes: number;
+  notify_on_recovery: boolean;
+  channel_ids: string[];
+}
+
+export interface NotificationRuleSet {
+  low_balance_rules: BalanceNotificationRule[];
+  aggregate_balance_rules: AggregateBalanceNotificationRule[];
+  connectivity_failure_rules: ConnectivityFailureNotificationRule[];
+}
+
+export interface NotificationTestPayload {
+  channel_ids?: string[];
+  title?: string;
+  body?: string;
+}
+
+export interface NotificationTestChannelResult {
+  channel_id: string;
+  channel_name: string;
+  success: boolean;
+  error_message?: string | null;
+}
+
+export interface NotificationTestResponse {
+  success: boolean;
+  total: number;
+  success_count: number;
+  failed_count: number;
+  items: NotificationTestChannelResult[];
+}
+
+export interface NotificationLogItem {
+  id: number;
+  instance_id?: number | null;
+  instance_name?: string | null;
+  rule_type?: string | null;
+  rule_id?: string | null;
+  rule_name?: string | null;
+  event_type: string;
+  source_type: string;
+  target_key?: string | null;
+  title: string;
+  body?: string | null;
+  notify_type: string;
+  delivery_status: string;
+  channels_json?: NotificationTestChannelResult[] | null;
+  error_message?: string | null;
+  created_at: string;
+}
+
+export interface NotificationLogListResponse {
+  total: number;
+  offset: number;
+  limit: number;
+  items: NotificationLogItem[];
 }

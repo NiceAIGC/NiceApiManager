@@ -6,6 +6,7 @@ const colorMap: Record<string, string> = {
   degraded: 'warning',
   unknown: 'default',
   success: 'success',
+  partial: 'warning',
   failed: 'error',
   running: 'processing',
 };
@@ -16,6 +17,7 @@ const labelMap: Record<string, string> = {
   degraded: '降级',
   unknown: '未知',
   success: '成功',
+  partial: '部分成功',
   failed: '失败',
   running: '执行中',
 };
@@ -28,4 +30,3 @@ export function StatusTag({ value }: StatusTagProps) {
   const normalized = value || 'unknown';
   return <Tag color={colorMap[normalized] || 'default'}>{labelMap[normalized] || normalized}</Tag>;
 }
-

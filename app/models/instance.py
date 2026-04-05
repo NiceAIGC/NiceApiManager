@@ -14,6 +14,7 @@ from app.models.base import Base
 if TYPE_CHECKING:
     from app.models.daily_usage_stat import DailyUsageStat
     from app.models.group_ratio import GroupRatio
+    from app.models.notification_log import NotificationLog
     from app.models.instance_session import InstanceSession
     from app.models.pricing_model import PricingModel
     from app.models.sync_run import SyncRun
@@ -76,4 +77,9 @@ class Instance(Base):
     sync_runs: Mapped[list[SyncRun]] = relationship(
         back_populates="instance",
         cascade="all, delete-orphan",
+    )
+    notification_logs: Mapped[list[NotificationLog]] = relationship(
+        back_populates="instance",
+        cascade="save-update, merge",
+        passive_deletes=True,
     )

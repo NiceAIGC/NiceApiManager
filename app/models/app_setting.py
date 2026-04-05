@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.time import utcnow
@@ -25,6 +25,11 @@ class AppSetting(Base):
     sync_history_lookback_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     default_sync_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     shared_socks5_proxy_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notification_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    notification_check_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notification_channels_json: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
+    notification_rules_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    notification_last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
