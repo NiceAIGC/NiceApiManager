@@ -34,6 +34,37 @@ import { formatDateTime, setDisplayTimezone } from '../utils/format';
 
 const { Paragraph, Text } = Typography;
 
+type NotificationChannelType = 'wecombot' | 'bark' | 'telegram' | 'dingtalk' | 'custom';
+
+interface NotificationChannelFormValue extends NotificationChannelConfig {
+  channel_type: NotificationChannelType;
+  wecombot_key?: string;
+  bark_host?: string;
+  bark_targets?: string;
+  bark_group?: string;
+  bark_sound?: string;
+  bark_use_https?: boolean;
+  telegram_bot_token?: string;
+  telegram_targets?: string;
+  dingtalk_token?: string;
+  dingtalk_secret?: string;
+  dingtalk_targets?: string;
+}
+
+interface AppSettingsFormValues extends Omit<AppSettings, 'notification_channels'> {
+  notification_channels: NotificationChannelFormValue[];
+}
+
+const BARK_DEFAULT_HOST = 'api.day.app';
+
+const notificationChannelTypeOptions: Array<{ label: string; value: NotificationChannelType }> = [
+  { label: '企业微信机器人', value: 'wecombot' },
+  { label: 'Bark', value: 'bark' },
+  { label: 'Telegram Bot', value: 'telegram' },
+  { label: '钉钉机器人', value: 'dingtalk' },
+  { label: '自定义 Apprise URL', value: 'custom' },
+];
+
 function createId(prefix: string) {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return `${prefix}_${globalThis.crypto.randomUUID().slice(0, 8)}`;
@@ -41,12 +72,15 @@ function createId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function createNotificationChannel(): NotificationChannelConfig {
+function createNotificationChannel(): NotificationChannelFormValue {
   return {
     id: createId('channel'),
     name: '',
     enabled: true,
     apprise_url: '',
+    channel_type: 'wecombot',
+    bark_host: BARK_DEFAULT_HOST,
+    bark_use_https: true,
   };
 }
 
@@ -101,7 +135,7 @@ function createConnectivityRule(): ConnectivityFailureNotificationRule {
   };
 }
 
-const defaultSettings: AppSettings = {
+const defaultSettings: AppSettingsFormValues = {
   sync_max_workers: 5,
   request_timeout: 20,
   sync_verify_ssl: true,
@@ -119,10 +153,213 @@ const defaultSettings: AppSettings = {
   },
 };
 
+function splitDelimitedValues(value?: string): string[] {
+  return (value ?? '')
+    .split(/[\n,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function decodeUrlPart(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function buildNotificationChannelAppriseUrl(channel: NotificationChannelFormValue): string {
+  switch (channel.channel_type) {
+    case 'wecombot': {
+      const key = channel.wecombot_key?.trim();
+      return key ? `wecombot://${encodeURIComponent(key)}` : '';
+    }
+    case 'bark': {
+      const host = channel.bark_host?.trim();
+      const targets = splitDelimitedValues(channel.bark_targets);
+      if (!host || targets.length === 0) {
+        return '';
+      }
+      const params = new URLSearchParams();
+      if (channel.bark_group?.trim()) {
+        params.set('group', channel.bark_group.trim());
+      }
+      if (channel.bark_sound?.trim()) {
+        params.set('sound', channel.bark_sound.trim());
+      }
+      const schema = channel.bark_use_https === false ? 'bark' : 'barks';
+      const query = params.toString();
+      return `${schema}://${host}/${targets.map((item) => encodeURIComponent(item)).join('/')}${query ? `?${query}` : ''}`;
+    }
+    case 'telegram': {
+      const botToken = channel.telegram_bot_token?.trim();
+      const targets = splitDelimitedValues(channel.telegram_targets);
+      if (!botToken || targets.length === 0) {
+        return '';
+      }
+      return `tgram://${encodeURIComponent(botToken)}/${targets.map((item) => encodeURIComponent(item)).join('/')}`;
+    }
+    case 'dingtalk': {
+      const token = channel.dingtalk_token?.trim();
+      if (!token) {
+        return '';
+      }
+      const secret = channel.dingtalk_secret?.trim();
+      const targets = splitDelimitedValues(channel.dingtalk_targets);
+      const auth = secret ? `${encodeURIComponent(secret)}@` : '';
+      const targetPath = targets.length > 0 ? `/${targets.map((item) => encodeURIComponent(item)).join('/')}` : '';
+      return `dingtalk://${auth}${encodeURIComponent(token)}${targetPath}/`;
+    }
+    case 'custom':
+    default:
+      return channel.apprise_url.trim();
+  }
+}
+
+function inferNotificationChannelFormValue(channel: NotificationChannelConfig): NotificationChannelFormValue {
+  const fallback: NotificationChannelFormValue = {
+    ...channel,
+    channel_type: 'custom',
+    bark_host: BARK_DEFAULT_HOST,
+    bark_use_https: true,
+  };
+  const appriseUrl = channel.apprise_url.trim();
+  if (!appriseUrl) {
+    return fallback;
+  }
+
+  if (/^https:\/\/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send/i.test(appriseUrl)) {
+    try {
+      const parsed = new URL(appriseUrl);
+      const key = parsed.searchParams.get('key')?.trim();
+      if (key) {
+        return {
+          ...channel,
+          channel_type: 'wecombot',
+          wecombot_key: key,
+          bark_host: BARK_DEFAULT_HOST,
+          bark_use_https: true,
+        };
+      }
+    } catch {
+      return fallback;
+    }
+  }
+
+  if (/^wecombot:\/\//i.test(appriseUrl)) {
+    try {
+      const parsed = new URL(appriseUrl);
+      const key = decodeUrlPart(parsed.hostname || parsed.pathname.replace(/^\/+/, ''));
+      if (!key) {
+        return fallback;
+      }
+      return {
+        ...channel,
+        channel_type: 'wecombot',
+        wecombot_key: key,
+        bark_host: BARK_DEFAULT_HOST,
+        bark_use_https: true,
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  if (/^barks?:\/\//i.test(appriseUrl)) {
+    try {
+      const parsed = new URL(appriseUrl);
+      const unsupportedParams = Array.from(parsed.searchParams.keys()).filter((key) => !['group', 'sound'].includes(key));
+      if (parsed.username || parsed.password || unsupportedParams.length > 0) {
+        return fallback;
+      }
+      const targets = parsed.pathname
+        .split('/')
+        .filter(Boolean)
+        .map((item) => decodeUrlPart(item));
+      if (!parsed.host || targets.length === 0) {
+        return fallback;
+      }
+      return {
+        ...channel,
+        channel_type: 'bark',
+        bark_host: parsed.host,
+        bark_targets: targets.join(', '),
+        bark_group: parsed.searchParams.get('group') ?? '',
+        bark_sound: parsed.searchParams.get('sound') ?? '',
+        bark_use_https: parsed.protocol.toLowerCase() === 'barks:',
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  if (/^tgram:\/\//i.test(appriseUrl)) {
+    const withoutSchema = appriseUrl.replace(/^tgram:\/\//i, '');
+    const basePart = withoutSchema.split(/[?#]/, 1)[0]?.replace(/\/+$/, '') ?? '';
+    const segments = basePart.split('/').filter(Boolean).map((item) => decodeUrlPart(item));
+    if (segments.length >= 2 && !withoutSchema.includes('?')) {
+      return {
+        ...channel,
+        channel_type: 'telegram',
+        telegram_bot_token: segments[0],
+        telegram_targets: segments.slice(1).join(', '),
+        bark_host: BARK_DEFAULT_HOST,
+        bark_use_https: true,
+      };
+    }
+    return fallback;
+  }
+
+  if (/^dingtalk:\/\//i.test(appriseUrl)) {
+    try {
+      const parsed = new URL(appriseUrl);
+      if (parsed.search) {
+        return fallback;
+      }
+      return {
+        ...channel,
+        channel_type: 'dingtalk',
+        dingtalk_token: decodeUrlPart(parsed.hostname),
+        dingtalk_secret: decodeUrlPart(parsed.username),
+        dingtalk_targets: parsed.pathname
+          .split('/')
+          .filter(Boolean)
+          .map((item) => decodeUrlPart(item))
+          .join(', '),
+        bark_host: BARK_DEFAULT_HOST,
+        bark_use_https: true,
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  return fallback;
+}
+
+function normalizeSettingsForForm(settings: AppSettings): AppSettingsFormValues {
+  return {
+    ...settings,
+    notification_channels: settings.notification_channels.map((item) => inferNotificationChannelFormValue(item)),
+  };
+}
+
+function buildSettingsPayload(values: AppSettingsFormValues): AppSettings {
+  return {
+    ...values,
+    notification_channels: values.notification_channels.map((item) => ({
+      id: item.id,
+      name: item.name.trim(),
+      enabled: item.enabled,
+      apprise_url: buildNotificationChannelAppriseUrl(item),
+    })),
+  };
+}
+
 export function SettingsPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
-  const [form] = Form.useForm<AppSettings>();
+  const [form] = Form.useForm<AppSettingsFormValues>();
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
@@ -162,7 +399,7 @@ export function SettingsPage() {
   const channelOptions = useMemo(
     () =>
       notificationChannels
-        .filter((item): item is NotificationChannelConfig => Boolean(item?.id && item?.name))
+        .filter((item): item is NotificationChannelFormValue => Boolean(item?.id && item?.name))
         .map((item) => ({
           label: `${item.name}${item.enabled ? '' : '（已停用）'}`,
           value: item.id,
@@ -172,7 +409,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (data) {
-      form.setFieldsValue(data);
+      form.setFieldsValue(normalizeSettingsForForm(data));
     } else {
       form.setFieldsValue(defaultSettings);
     }
@@ -181,7 +418,7 @@ export function SettingsPage() {
   const updateMutation = useMutation({
     mutationFn: (payload: AppSettings) => updateAppSettings(payload),
     onSuccess: async (result) => {
-      form.setFieldsValue(result);
+      form.setFieldsValue(normalizeSettingsForForm(result));
       setDisplayTimezone(result.scheduler_timezone);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['app-settings'] }),
@@ -227,12 +464,23 @@ export function SettingsPage() {
     },
   });
 
+  const handleNotificationChannelTypeChange = (channelIndex: number, nextType: NotificationChannelType) => {
+    const currentChannel = form.getFieldValue(['notification_channels', channelIndex]) as NotificationChannelFormValue | undefined;
+    if (!currentChannel || nextType !== 'custom') {
+      return;
+    }
+    const generatedUrl = buildNotificationChannelAppriseUrl(currentChannel);
+    if (generatedUrl) {
+      form.setFieldValue(['notification_channels', channelIndex, 'apprise_url'], generatedUrl);
+    }
+  };
+
   return (
-    <Form<AppSettings>
+    <Form<AppSettingsFormValues>
       form={form}
       layout="vertical"
       initialValues={defaultSettings}
-      onFinish={(values) => updateMutation.mutate(values)}
+      onFinish={(values) => updateMutation.mutate(buildSettingsPayload(values))}
     >
       <div className="page-stack">
         <Card
@@ -340,7 +588,7 @@ export function SettingsPage() {
             <Alert
               type="info"
               showIcon
-              message="通知由 Apprise 统一下发，支持 Telegram、Discord、飞书、邮件、Webhook 等多种目标。测试通知只会发送到已保存且处于启用状态的渠道。"
+              message="通知底层仍由 Apprise 统一下发。这里把企业微信、Bark、Telegram、钉钉做成了友好表单；更复杂的参数仍可切回自定义 Apprise URL。测试通知只会发送到已保存且处于启用状态的渠道。"
             />
 
             <Row gutter={[16, 0]}>
@@ -396,11 +644,16 @@ export function SettingsPage() {
                         </Col>
                         <Col xs={24} md={10}>
                           <Form.Item
-                            name={[field.name, 'apprise_url']}
-                            label="Apprise URL"
-                            rules={[{ required: true, message: '请输入 Apprise URL' }]}
+                            name={[field.name, 'channel_type']}
+                            label="渠道类型"
+                            rules={[{ required: true, message: '请选择渠道类型' }]}
                           >
-                            <Input placeholder="例如 apprise://..." />
+                            <Select
+                              options={notificationChannelTypeOptions}
+                              onChange={(value: NotificationChannelType) =>
+                                handleNotificationChannelTypeChange(field.name, value)
+                              }
+                            />
                           </Form.Item>
                         </Col>
                         <Col xs={24} md={4}>
@@ -409,6 +662,175 @@ export function SettingsPage() {
                           </Form.Item>
                         </Col>
                       </Row>
+                      <Form.Item noStyle shouldUpdate>
+                        {() => {
+                          const channel =
+                            (form.getFieldValue(['notification_channels', field.name]) as NotificationChannelFormValue | undefined) ??
+                            createNotificationChannel();
+                          const generatedUrl = buildNotificationChannelAppriseUrl(channel);
+
+                          if (channel.channel_type === 'wecombot') {
+                            return (
+                              <Row gutter={[16, 0]}>
+                                <Col xs={24} md={12}>
+                                  <Form.Item
+                                    name={[field.name, 'wecombot_key']}
+                                    label="Webhook Key"
+                                    extra="把企业微信群机器人地址里 `key=` 后面的值填进来即可。"
+                                    rules={[{ required: true, message: '请输入企业微信机器人 key' }]}
+                                  >
+                                    <Input placeholder="例如：xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={12}>
+                                  <Form.Item label="生成的 Apprise URL">
+                                    <Input readOnly value={generatedUrl} placeholder="填写完成后会自动生成" />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            );
+                          }
+
+                          if (channel.channel_type === 'bark') {
+                            return (
+                              <Row gutter={[16, 0]}>
+                                <Col xs={24} md={8}>
+                                  <Form.Item
+                                    name={[field.name, 'bark_host']}
+                                    label="Bark 服务器"
+                                    extra="默认官方云 `api.day.app`，自建 Bark Server 可改成自己的域名或 `主机:端口`。"
+                                    rules={[{ required: true, message: '请输入 Bark 服务器地址' }]}
+                                  >
+                                    <Input placeholder={BARK_DEFAULT_HOST} />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={8}>
+                                  <Form.Item
+                                    name={[field.name, 'bark_targets']}
+                                    label="Device Key"
+                                    extra="支持多个，使用逗号分隔。"
+                                    rules={[{ required: true, message: '请输入至少一个 Bark Device Key' }]}
+                                  >
+                                    <Input placeholder="例如：abc123def456" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={4}>
+                                  <Form.Item
+                                    name={[field.name, 'bark_use_https']}
+                                    label="使用 HTTPS"
+                                    valuePropName="checked"
+                                    extra="官方云建议开启。"
+                                  >
+                                    <Switch checkedChildren="HTTPS" unCheckedChildren="HTTP" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={4}>
+                                  <Form.Item name={[field.name, 'bark_group']} label="分组">
+                                    <Input placeholder="可选" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={8}>
+                                  <Form.Item name={[field.name, 'bark_sound']} label="提示音">
+                                    <Input placeholder="例如：minuet" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={16}>
+                                  <Form.Item label="生成的 Apprise URL">
+                                    <Input readOnly value={generatedUrl} placeholder="填写完成后会自动生成" />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            );
+                          }
+
+                          if (channel.channel_type === 'telegram') {
+                            return (
+                              <Row gutter={[16, 0]}>
+                                <Col xs={24} md={8}>
+                                  <Form.Item
+                                    name={[field.name, 'telegram_bot_token']}
+                                    label="Bot Token"
+                                    extra="从 BotFather 创建机器人后获取。"
+                                    rules={[{ required: true, message: '请输入 Telegram Bot Token' }]}
+                                  >
+                                    <Input placeholder="例如：123456789:AA..." />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={8}>
+                                  <Form.Item
+                                    name={[field.name, 'telegram_targets']}
+                                    label="Chat ID / 用户名"
+                                    extra="支持多个，使用逗号分隔；可填 `-100...`、`@channel_name`。"
+                                    rules={[{ required: true, message: '请输入至少一个 Telegram Chat ID 或用户名' }]}
+                                  >
+                                    <Input placeholder="例如：-1001234567890 或 @ops_channel" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={8}>
+                                  <Form.Item label="生成的 Apprise URL">
+                                    <Input readOnly value={generatedUrl} placeholder="填写完成后会自动生成" />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            );
+                          }
+
+                          if (channel.channel_type === 'dingtalk') {
+                            return (
+                              <Row gutter={[16, 0]}>
+                                <Col xs={24} md={8}>
+                                  <Form.Item
+                                    name={[field.name, 'dingtalk_token']}
+                                    label="Access Token"
+                                    extra="钉钉群机器人 Webhook 里的 access_token。"
+                                    rules={[{ required: true, message: '请输入钉钉机器人 access token' }]}
+                                  >
+                                    <Input placeholder="例如：xxxxxxxxxxxxxxxx" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={8}>
+                                  <Form.Item
+                                    name={[field.name, 'dingtalk_secret']}
+                                    label="加签 Secret"
+                                    extra="如果机器人开启了加签，这里填写 secret；未开启可留空。"
+                                  >
+                                    <Input placeholder="例如：SECxxxxxxxxxxxxxxxx" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={8}>
+                                  <Form.Item
+                                    name={[field.name, 'dingtalk_targets']}
+                                    label="@手机号"
+                                    extra="可选。支持多个，使用逗号分隔。"
+                                  >
+                                    <Input placeholder="例如：13800138000, 13900139000" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24}>
+                                  <Form.Item label="生成的 Apprise URL">
+                                    <Input readOnly value={generatedUrl} placeholder="填写完成后会自动生成" />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            );
+                          }
+
+                          return (
+                            <Row gutter={[16, 0]}>
+                              <Col xs={24}>
+                                <Form.Item
+                                  name={[field.name, 'apprise_url']}
+                                  label="Apprise URL"
+                                  extra="高级参数、暂未内置的渠道类型，直接填写原始 Apprise URL。"
+                                  rules={[{ required: true, message: '请输入 Apprise URL' }]}
+                                >
+                                  <Input placeholder="例如：apprise://..." />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          );
+                        }}
+                      </Form.Item>
                     </Card>
                   ))}
 
