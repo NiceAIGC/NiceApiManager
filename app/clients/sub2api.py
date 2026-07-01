@@ -283,21 +283,31 @@ class Sub2APIClient:
 
     def _decode_response(self, response: httpx.Response) -> dict[str, Any]:
         """Normalize Sub2API success/error handling."""
+        payload: object | None = None
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise Sub2APIClientError(f"Sub2API request failed with HTTP {response.status_code}.") from exc
-
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise Sub2APIClientError("Sub2API response is not valid JSON.") from exc
+            message = _extract_error_message(payload)
+            raise Sub2APIClientError(
+                f"Sub2API request failed with HTTP {response.status_code}: {message}"
+                if message
+                else f"Sub2API request failed with HTTP {response.status_code}."
+            ) from exc
 
         if not isinstance(payload, dict):
             raise Sub2APIClientError("Sub2API response is not a JSON object.")
 
         if payload.get("success") is False:
             raise Sub2APIClientError(_first_text(payload, "message", "error") or "Sub2API request reported failure.")
+
+        code = payload.get("code")
+        if code not in (None, 0, "0"):
+            raise Sub2APIClientError(_extract_error_message(payload) or "Sub2API request reported failure.")
 
         error_payload = payload.get("error")
         if error_payload:
@@ -329,6 +339,20 @@ def _extract_user_id(payload: object) -> int | None:
         parsed = _coerce_int(value)
         if parsed is not None and parsed > 0:
             return parsed
+    return None
+
+
+def _extract_error_message(payload: object) -> str | None:
+    """Read common error message fields from Sub2API responses."""
+    if isinstance(payload, dict):
+        message = _first_text(payload, "message", "detail", "error_description")
+        if message:
+            return message
+        error_payload = payload.get("error")
+        if isinstance(error_payload, dict):
+            return _first_text(error_payload, "message", "detail", "localized_message")
+        if isinstance(error_payload, str) and error_payload.strip():
+            return error_payload.strip()
     return None
 
 

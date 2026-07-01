@@ -87,7 +87,7 @@ def create_instance(db: Session, payload: InstanceCreate) -> Instance:
     instance = Instance(
         name=payload.name.strip(),
         base_url=normalize_base_url(payload.base_url),
-        program_type="newapi" if payload.program_type == "auto" else payload.program_type,
+        program_type=payload.program_type,
         username=username,
         password=password,
         remote_user_id=payload.remote_user_id,
@@ -120,7 +120,7 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
             Instance(
                 name=payload.name.strip(),
                 base_url=normalize_base_url(payload.base_url),
-                program_type="newapi" if payload.program_type == "auto" else payload.program_type,
+                program_type=payload.program_type,
                 username=username,
                 password=password,
                 remote_user_id=payload.remote_user_id,

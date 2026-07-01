@@ -34,7 +34,8 @@ def _sqlite_write_context():
 
 def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestResponse:
     """Validate login and read-only endpoints for one configured instance."""
-    if instance.program_type == "sub2api":
+    if instance.program_type in {"auto", "sub2api"} and _should_use_sub2api(db, instance):
+        instance.program_type = "sub2api"
         return _test_sub2api_connectivity(db, instance)
 
     try:
@@ -97,7 +98,8 @@ def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestR
 
 def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "manual") -> SyncRun:
     """Run a full read-only sync for one instance and persist the latest snapshot."""
-    if instance.program_type == "sub2api":
+    if instance.program_type in {"auto", "sub2api"} and _should_use_sub2api(db, instance):
+        instance.program_type = "sub2api"
         return _sync_single_sub2api_instance(db, instance, trigger_type=trigger_type)
 
     instance_id = instance.id
@@ -308,6 +310,39 @@ def _test_sub2api_connectivity(db: Session, instance: Instance) -> InstanceTestR
         group_count=len(group_data),
         pricing_model_count=len(pricing_payload.get("data") or []),
     )
+
+
+def _should_use_sub2api(db: Session, instance: Instance) -> bool:
+    """Return whether the instance should be handled by the Sub2API client."""
+    if instance.program_type == "sub2api":
+        return True
+    if instance.program_type != "auto":
+        return False
+
+    runtime_settings = get_runtime_app_settings(db)
+    newapi_client = NewAPIClient(
+        base_url=instance.base_url,
+        program_type="newapi",
+        timeout=runtime_settings.request_timeout,
+        verify=runtime_settings.sync_verify_ssl,
+        proxy=resolve_socks5_proxy_url(
+            proxy_mode=instance.proxy_mode,
+            custom_proxy_url=instance.socks5_proxy_url,
+            shared_proxy_url=runtime_settings.shared_socks5_proxy_url,
+        ),
+    )
+    try:
+        newapi_client.get_status()
+        return False
+    except NewAPIClientError:
+        pass
+
+    sub2api_client = _build_sub2api_client(instance, runtime_settings)
+    try:
+        _ensure_sub2api_session(db, instance, sub2api_client)
+    except Sub2APIClientError:
+        return False
+    return True
 
 
 def _sync_single_sub2api_instance(db: Session, instance: Instance, trigger_type: str = "manual") -> SyncRun:
@@ -555,21 +590,13 @@ def _ensure_sub2api_session(
     instance: Instance,
     client: Sub2APIClient,
 ) -> Sub2APISessionData:
-    """Reuse a cached Sub2API bearer token, otherwise authenticate again."""
-    if instance.access_token:
-        token_session = client.get_current_user(instance.access_token)
-        return Sub2APISessionData(
-            remote_user_id=token_session.remote_user_id,
-            access_token=instance.access_token,
-            refresh_token=None,
-            expires_at=None,
-        )
-
+    """Authenticate a Sub2API account, preferring username/password over token auth."""
     cached_session = db.scalar(
         select(InstanceSession).where(InstanceSession.instance_id == instance.id)
     )
+    has_password_auth = bool(instance.username and instance.password)
 
-    if cached_session and cached_session.access_token and _session_is_still_usable(cached_session):
+    if has_password_auth and cached_session and cached_session.access_token and _session_is_still_usable(cached_session):
         try:
             token_session = client.get_current_user(cached_session.access_token)
             return Sub2APISessionData(
@@ -581,7 +608,15 @@ def _ensure_sub2api_session(
         except Sub2APIClientError:
             logger.info("Cached Sub2API token for instance %s expired remotely, relogging in.", instance.id)
 
-    if not instance.username or not instance.password:
+    if not has_password_auth:
+        if instance.access_token:
+            token_session = client.get_current_user(instance.access_token)
+            return Sub2APISessionData(
+                remote_user_id=token_session.remote_user_id,
+                access_token=instance.access_token,
+                refresh_token=None,
+                expires_at=None,
+            )
         raise Sub2APIClientError("请填写 Sub2API 账密，或填写访问密钥/JWT。")
 
     session_data = client.login(instance.username, instance.password)

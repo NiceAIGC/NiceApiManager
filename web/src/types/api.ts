@@ -74,7 +74,7 @@ export interface Instance {
   id: number;
   name: string;
   base_url: string;
-  program_type: 'newapi' | 'rixapi' | 'shellapi' | 'sub2api';
+  program_type: 'auto' | 'newapi' | 'rixapi' | 'shellapi' | 'sub2api';
   username: string;
   proxy_mode: 'direct' | 'global' | 'custom';
   socks5_proxy_url?: string | null;
