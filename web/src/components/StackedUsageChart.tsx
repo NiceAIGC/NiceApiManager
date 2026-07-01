@@ -19,6 +19,8 @@ const CHART_COLORS = [
   '#8c8c8c',
 ];
 
+const LEGEND_VISIBLE_COUNT = 12;
+
 interface StackedUsageChartProps {
   title: string;
   subtitle?: string;
@@ -47,6 +49,10 @@ export function StackedUsageChart({ title, subtitle, points, series }: StackedUs
     () => points.reduce((currentMax, item) => Math.max(currentMax, item.used_display_amount), 0),
     [points],
   );
+
+  const visibleLegendItems = rankedSeries.slice(0, LEGEND_VISIBLE_COUNT);
+  const collapsedLegendItems = rankedSeries.slice(LEGEND_VISIBLE_COUNT);
+  const collapsedTotal = collapsedLegendItems.reduce((sum, item) => sum + item.total_used_display_amount, 0);
 
   const tickValues = useMemo(() => {
     if (maxValue <= 0) {
@@ -80,21 +86,58 @@ export function StackedUsageChart({ title, subtitle, points, series }: StackedUs
         </div>
       </div>
 
-      <Space size={[8, 8]} wrap className="stacked-usage-chart-legend">
-        {rankedSeries.map((item) => (
-          <Tag
-            key={item.key}
-            bordered={false}
-            style={{
-              marginInlineEnd: 0,
-              color: colorMap.get(item.key),
-              backgroundColor: `${colorMap.get(item.key)}1a`,
-            }}
-          >
-            {item.instance_name} {formatMoney(item.total_used_display_amount)}
-          </Tag>
+      <div className="stacked-usage-chart-legend">
+        {visibleLegendItems.map((item, index) => (
+          <div key={item.key} className="stacked-usage-chart-legend-item">
+            <span className="stacked-usage-chart-legend-rank">{index + 1}</span>
+            <span
+              className="stacked-usage-chart-legend-dot"
+              style={{ backgroundColor: colorMap.get(item.key) ?? CHART_COLORS[0] }}
+            />
+            <Text ellipsis={{ tooltip: item.instance_name }} className="stacked-usage-chart-legend-name">
+              {item.instance_name}
+            </Text>
+            <Text strong className="stacked-usage-chart-legend-value">
+              {formatMoney(item.total_used_display_amount)}
+            </Text>
+          </div>
         ))}
-      </Space>
+        {collapsedLegendItems.length > 0 ? (
+          <Tooltip
+            title={
+              <div className="stacked-usage-chart-tooltip">
+                <div className="stacked-usage-chart-tooltip-title">其余实例</div>
+                <List
+                  size="small"
+                  dataSource={collapsedLegendItems}
+                  renderItem={(item) => (
+                    <List.Item key={item.key}>
+                      <div className="stacked-usage-chart-tooltip-row">
+                        <span
+                          className="stacked-usage-chart-tooltip-dot"
+                          style={{ backgroundColor: colorMap.get(item.key) ?? CHART_COLORS[0] }}
+                        />
+                        <span>{item.instance_name}</span>
+                        <span>{formatMoney(item.total_used_display_amount)}</span>
+                        <span />
+                      </div>
+                    </List.Item>
+                  )}
+                />
+              </div>
+            }
+          >
+            <div className="stacked-usage-chart-legend-item stacked-usage-chart-legend-more">
+              <span className="stacked-usage-chart-legend-rank">+</span>
+              <span className="stacked-usage-chart-legend-dot stacked-usage-chart-legend-dot-more" />
+              <Text className="stacked-usage-chart-legend-name">其余 {collapsedLegendItems.length} 个</Text>
+              <Text strong className="stacked-usage-chart-legend-value">
+                {formatMoney(collapsedTotal)}
+              </Text>
+            </div>
+          </Tooltip>
+        ) : null}
+      </div>
 
       <div className="stacked-usage-chart-layout">
         <div className="stacked-usage-chart-axis">

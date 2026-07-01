@@ -146,8 +146,113 @@ function buildLinePath(points: Array<{ x: number; y: number }>) {
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
 }
 
+interface InstanceUsageLineChartProps {
+  title: string;
+  caption: string;
+  points: Instance['last_7d_usage'];
+  valueKey: 'used_display_amount' | 'request_count';
+  color: string;
+  formatValue: (value: number) => string;
+}
+
+function InstanceUsageLineChart({ title, caption, points, valueKey, color, formatValue }: InstanceUsageLineChartProps) {
+  const width = 520;
+  const height = 210;
+  const padding = 34;
+  const values = points.map((item) => item[valueKey]);
+  const chartPoints = buildChartPoints(values, width, height, padding);
+  const path = buildLinePath(chartPoints);
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const peak = Math.max(...values, 0);
+  const hasData = values.some((value) => value > 0);
+  const step = points.length > 1 ? (width - padding * 2) / (points.length - 1) : 0;
+
+  return (
+    <div className="instance-expanded-line-card">
+      <div className="instance-expanded-line-card-header">
+        <Space direction="vertical" size={2}>
+          <Text strong>{title}</Text>
+          <Text type="secondary">{caption}</Text>
+        </Space>
+        <Tag bordered={false} style={{ color, backgroundColor: `${color}1a`, marginInlineEnd: 0 }}>
+          合计 {formatValue(total)}
+        </Tag>
+      </div>
+      <div className="instance-expanded-line-metrics">
+        <div>
+          <Text type="secondary">峰值</Text>
+          <strong>{formatValue(peak)}</strong>
+        </div>
+        <div>
+          <Text type="secondary">日均</Text>
+          <strong>{formatValue(total / Math.max(points.length, 1))}</strong>
+        </div>
+      </div>
+      <div className="instance-expanded-line-plot">
+        <svg viewBox={`0 0 ${width} ${height}`} className="instance-expanded-chart-svg" role="img">
+          {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
+            <line
+              key={ratio}
+              x1={padding}
+              x2={width - padding}
+              y1={padding + ratio * (height - padding * 2)}
+              y2={padding + ratio * (height - padding * 2)}
+              className="instance-expanded-chart-grid"
+            />
+          ))}
+          <path d={path} className="instance-expanded-chart-line" style={{ stroke: color }} />
+          {points.map((point, index) => {
+            const chartPoint = chartPoints[index];
+            const x = padding + index * step;
+            return (
+              <g key={`${point.date}-${index}`}>
+                <line x1={x} x2={x} y1={padding} y2={height - padding} className="instance-expanded-chart-day-line" />
+                <circle
+                  cx={chartPoint.x}
+                  cy={chartPoint.y}
+                  r={4}
+                  className="instance-expanded-chart-dot"
+                  style={{ stroke: color }}
+                />
+                <text x={x} y={height - 8} textAnchor="middle" className="instance-expanded-chart-label">
+                  {point.label}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+        <div className="instance-expanded-chart-hover-layer">
+          {points.map((point, index) => {
+            const chartPoint = chartPoints[index];
+            const targetWidth = points.length > 1 ? Math.max((step / width) * 100, 9) : 100;
+            return (
+              <Tooltip
+                key={`${point.date}-${index}`}
+                title={
+                  <div className="instance-expanded-chart-tooltip">
+                    <div className="instance-expanded-chart-tooltip-title">{point.date || point.label}</div>
+                    <div>{title}：{formatValue(point[valueKey])}</div>
+                  </div>
+                }
+              >
+                <span
+                  className="instance-expanded-chart-hover-target"
+                  style={{
+                    left: `${(chartPoint.x / width) * 100}%`,
+                    width: `${targetWidth}%`,
+                  }}
+                />
+              </Tooltip>
+            );
+          })}
+        </div>
+        {!hasData ? <div className="instance-expanded-chart-empty">暂无近 7 天数据</div> : null}
+      </div>
+    </div>
+  );
+}
+
 function InstanceUsageSparkline({ points }: { points: Instance['last_7d_usage'] }) {
-  const hasData = points.some((item) => item.used_display_amount > 0 || item.request_count > 0);
   const normalizedPoints = points.length
     ? points
     : Array.from({ length: 7 }, (_, index) => ({
@@ -156,37 +261,18 @@ function InstanceUsageSparkline({ points }: { points: Instance['last_7d_usage'] 
         used_display_amount: 0,
         request_count: 0,
       }));
-  const width = 760;
-  const height = 220;
-  const padding = 34;
   const usedValues = normalizedPoints.map((item) => item.used_display_amount);
   const requestValues = normalizedPoints.map((item) => item.request_count);
   const totalUsed = usedValues.reduce((sum, value) => sum + value, 0);
   const totalRequests = requestValues.reduce((sum, value) => sum + value, 0);
-  const peakUsed = Math.max(...usedValues, 0);
-  const peakRequests = Math.max(...requestValues, 0);
   const avgUsed = totalUsed / Math.max(normalizedPoints.length, 1);
-  const usedPoints = buildChartPoints(usedValues, width, height, padding);
-  const requestPoints = buildChartPoints(requestValues, width, height, padding);
-  const usedPath = buildLinePath(usedPoints);
-  const requestPath = buildLinePath(requestPoints);
 
   return (
     <div className="instance-expanded-chart">
       <div className="instance-expanded-chart-header">
         <Space direction="vertical" size={2}>
           <Text strong>近 7 天用量趋势</Text>
-          <Text type="secondary">余额消耗与调用次数按天汇总，悬浮任意日期查看明细。</Text>
-        </Space>
-        <Space size={12} wrap>
-          <span className="instance-expanded-chart-legend-item">
-            <span className="instance-expanded-chart-legend-dot instance-expanded-chart-legend-used" />
-            余额消耗
-          </span>
-          <span className="instance-expanded-chart-legend-item">
-            <span className="instance-expanded-chart-legend-dot instance-expanded-chart-legend-requests" />
-            调用次数
-          </span>
+          <Text type="secondary">左侧展示额度消耗，右侧展示请求次数；悬浮任意日期查看对应指标。</Text>
         </Space>
       </div>
       <div className="instance-expanded-chart-metrics">
@@ -204,63 +290,26 @@ function InstanceUsageSparkline({ points }: { points: Instance['last_7d_usage'] 
         </div>
         <div>
           <Text type="secondary">峰值调用</Text>
-          <div className="instance-expanded-chart-metric-value">{formatNumber(peakRequests)}</div>
+          <div className="instance-expanded-chart-metric-value">{formatNumber(Math.max(...requestValues, 0))}</div>
         </div>
       </div>
-      <div className="instance-expanded-chart-plot">
-        <svg viewBox={`0 0 ${width} ${height}`} className="instance-expanded-chart-svg" role="img">
-          {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
-            <line
-              key={ratio}
-              x1={padding}
-              x2={width - padding}
-              y1={padding + ratio * (height - padding * 2)}
-              y2={padding + ratio * (height - padding * 2)}
-              className="instance-expanded-chart-grid"
-            />
-          ))}
-          <path d={usedPath} className="instance-expanded-chart-line instance-expanded-chart-line-used" />
-          <path d={requestPath} className="instance-expanded-chart-line instance-expanded-chart-line-requests" />
-          {normalizedPoints.map((point, index) => {
-            const x = padding + index * ((width - padding * 2) / Math.max(normalizedPoints.length - 1, 1));
-            const usedPoint = usedPoints[index];
-            const requestPoint = requestPoints[index];
-            return (
-              <g key={`${point.date}-${index}`}>
-                <line x1={x} x2={x} y1={padding} y2={height - padding} className="instance-expanded-chart-day-line" />
-                <circle cx={usedPoint.x} cy={usedPoint.y} r={4} className="instance-expanded-chart-dot-used" />
-                <circle cx={requestPoint.x} cy={requestPoint.y} r={4} className="instance-expanded-chart-dot-requests" />
-                <text x={x} y={height - 8} textAnchor="middle" className="instance-expanded-chart-label">
-                  {point.label}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-        <div className="instance-expanded-chart-hover-layer">
-          {normalizedPoints.map((point, index) => {
-            const left = normalizedPoints.length > 1 ? (index / (normalizedPoints.length - 1)) * 100 : 50;
-            return (
-              <Tooltip
-                key={`${point.date}-${index}`}
-                title={
-                  <div className="instance-expanded-chart-tooltip">
-                    <div className="instance-expanded-chart-tooltip-title">{point.date || point.label}</div>
-                    <div>余额消耗：{formatMoney(point.used_display_amount)}</div>
-                    <div>调用次数：{formatNumber(point.request_count)}</div>
-                  </div>
-                }
-              >
-                <span className="instance-expanded-chart-hover-target" style={{ left: `${left}%` }} />
-              </Tooltip>
-            );
-          })}
-        </div>
-        {!hasData ? <div className="instance-expanded-chart-empty">暂无近 7 天用量数据</div> : null}
-      </div>
-      <div className="instance-expanded-chart-scale">
-        <Text type="secondary">最高消耗 {formatMoney(peakUsed)}</Text>
-        <Text type="secondary">最高调用 {formatNumber(peakRequests)}</Text>
+      <div className="instance-expanded-chart-grid-layout">
+        <InstanceUsageLineChart
+          title="额度消耗"
+          caption="按日统计 display quota 消耗"
+          points={normalizedPoints}
+          valueKey="used_display_amount"
+          color="#16a34a"
+          formatValue={formatMoney}
+        />
+        <InstanceUsageLineChart
+          title="请求次数"
+          caption="按日统计调用总次数"
+          points={normalizedPoints}
+          valueKey="request_count"
+          color="#2563eb"
+          formatValue={formatNumber}
+        />
       </div>
     </div>
   );
@@ -583,7 +632,6 @@ export function InstancesPage() {
         dataIndex: 'priority',
         key: 'priority',
         width: 76,
-        defaultSortOrder: 'descend',
         sorter: (left, right) => left.priority - right.priority,
         render: (value: number) => <Rate className="instance-priority-rate" disabled count={5} value={value} />,
       },
@@ -631,6 +679,7 @@ export function InstancesPage() {
         dataIndex: 'last_7d_display_used_amount',
         key: 'last_7d_display_used_amount',
         width: 98,
+        defaultSortOrder: 'descend',
         sorter: (left, right) => left.last_7d_display_used_amount - right.last_7d_display_used_amount,
         render: (value: number) => formatMoney(value),
       },
