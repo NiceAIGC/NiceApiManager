@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
   Divider,
   Form,
   Input,
@@ -909,28 +910,8 @@ export function SettingsPage() {
                           </Form.Item>
                         </Col>
                         <Col xs={24} md={4}>
-                          <Form.Item name={[field.name, 'resolve_threshold']} label="恢复阈值">
-                            <InputNumber style={{ width: '100%' }} min={0.01} />
-                          </Form.Item>
-                        </Col>
-                        <Col xs={24} md={4}>
                           <Form.Item name={[field.name, 'enabled']} label="启用" valuePropName="checked">
                             <Switch checkedChildren="启用" unCheckedChildren="停用" />
-                          </Form.Item>
-                        </Col>
-                        <Col xs={24} md={8}>
-                          <Form.Item name={[field.name, 'instance_ids']} label="指定实例">
-                            <Select
-                              mode="multiple"
-                              allowClear
-                              placeholder="不选表示匹配全部实例"
-                              options={instanceOptions}
-                            />
-                          </Form.Item>
-                        </Col>
-                        <Col xs={24} md={8}>
-                          <Form.Item name={[field.name, 'tags']} label="标签筛选">
-                            <Select mode="multiple" allowClear placeholder="按标签匹配实例" options={tagOptions} />
                           </Form.Item>
                         </Col>
                         <Col xs={24} md={8}>
@@ -943,29 +924,64 @@ export function SettingsPage() {
                             />
                           </Form.Item>
                         </Col>
-                        <Col xs={24} md={8}>
-                          <Form.Item
-                            name={[field.name, 'min_consecutive_checks']}
-                            label="连续命中次数"
-                            extra="同一实例连续多少次检查都低于阈值后才告警。"
-                          >
-                            <InputNumber style={{ width: '100%' }} min={1} max={10} precision={0} />
-                          </Form.Item>
-                        </Col>
-                        <Col xs={24} md={8}>
-                          <Form.Item name={[field.name, 'repeat_interval_minutes']} label="重复提醒间隔（分钟）">
-                            <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} />
-                          </Form.Item>
-                        </Col>
-                        <Col xs={24} md={4}>
-                          <Form.Item name={[field.name, 'include_disabled']} label="包含停用实例" valuePropName="checked">
-                            <Switch checkedChildren="包含" unCheckedChildren="排除" />
-                          </Form.Item>
-                        </Col>
-                        <Col xs={24} md={4}>
-                          <Form.Item name={[field.name, 'notify_on_recovery']} label="恢复通知" valuePropName="checked">
-                            <Switch checkedChildren="通知" unCheckedChildren="静默" />
-                          </Form.Item>
+                        <Col xs={24}>
+                          <Collapse
+                            ghost
+                            items={[
+                              {
+                                key: 'advanced',
+                                label: '高级匹配与去重',
+                                children: (
+                                  <Row gutter={[16, 0]}>
+                                    <Col xs={24} md={8}>
+                                      <Form.Item name={[field.name, 'resolve_threshold']} label="恢复阈值">
+                                        <InputNumber style={{ width: '100%' }} min={0.01} />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={8}>
+                                      <Form.Item name={[field.name, 'instance_ids']} label="指定实例">
+                                        <Select
+                                          mode="multiple"
+                                          allowClear
+                                          placeholder="不选表示匹配全部实例"
+                                          options={instanceOptions}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={8}>
+                                      <Form.Item name={[field.name, 'tags']} label="标签筛选">
+                                        <Select mode="multiple" allowClear placeholder="按标签匹配实例" options={tagOptions} />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={8}>
+                                      <Form.Item
+                                        name={[field.name, 'min_consecutive_checks']}
+                                        label="连续命中次数"
+                                        extra="同一实例连续多少次检查都低于阈值后才告警。"
+                                      >
+                                        <InputNumber style={{ width: '100%' }} min={1} max={10} precision={0} />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={8}>
+                                      <Form.Item name={[field.name, 'repeat_interval_minutes']} label="重复提醒间隔（分钟）">
+                                        <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={4}>
+                                      <Form.Item name={[field.name, 'include_disabled']} label="包含停用实例" valuePropName="checked">
+                                        <Switch checkedChildren="包含" unCheckedChildren="排除" />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={4}>
+                                      <Form.Item name={[field.name, 'notify_on_recovery']} label="恢复通知" valuePropName="checked">
+                                        <Switch checkedChildren="通知" unCheckedChildren="静默" />
+                                      </Form.Item>
+                                    </Col>
+                                  </Row>
+                                ),
+                              },
+                            ]}
+                          />
                         </Col>
                       </Row>
                     </Card>

@@ -29,6 +29,7 @@ const { Text } = Typography;
 function buildEmptyItem(defaultProxyMode: InstanceCreatePayload['proxy_mode']): InstanceCreatePayload {
   return {
     name: '',
+    remark: '',
     base_url: 'https://',
     program_type: 'auto',
     username: '',
@@ -72,6 +73,7 @@ export function InstanceBatchModal({
         items: (initialItems ?? []).map((item) => ({
           id: item.id,
           name: item.name,
+          remark: item.remark ?? '',
           base_url: item.base_url,
           program_type: item.program_type,
           username: item.username,
@@ -195,6 +197,9 @@ export function InstanceBatchModal({
                       rules={[{ required: true, message: '请输入实例名称' }]}
                     >
                       <Input placeholder="例如：gac 主站" />
+                    </Form.Item>
+                    <Form.Item name={[field.name, 'remark']} label="备注">
+                      <Input placeholder="例如：主力 / 备用 / 仅 Claude Code" maxLength={255} />
                     </Form.Item>
                     <Form.Item
                       name={[field.name, 'base_url']}

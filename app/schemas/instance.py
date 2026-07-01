@@ -14,6 +14,7 @@ class InstanceCreate(BaseModel):
     """Payload for creating a configured NewAPI instance."""
 
     name: str
+    remark: str | None = Field(default=None, max_length=255)
     base_url: str
     program_type: ProgramType = "auto"
     username: str = ""
@@ -36,7 +37,7 @@ class InstanceCreate(BaseModel):
         access_token = (self.access_token or "").strip()
         has_password_auth = bool(username and password)
         has_token_auth = self.remote_user_id is not None and bool(access_token)
-        has_sub2api_token_auth = self.program_type == "sub2api" and bool(access_token)
+        has_sub2api_token_auth = self.program_type in {"auto", "sub2api"} and bool(access_token)
 
         if not has_password_auth and not has_token_auth and not has_sub2api_token_auth:
             raise ValueError("请填写用户名和密码，或填写远端用户 ID 和访问密钥。")
@@ -51,6 +52,7 @@ class InstanceUpdate(BaseModel):
     """Payload for updating an existing configured NewAPI instance."""
 
     name: str
+    remark: str | None = Field(default=None, max_length=255)
     base_url: str
     program_type: ProgramType = "auto"
     username: str = ""
@@ -73,6 +75,15 @@ class InstanceUpdate(BaseModel):
         return self
 
 
+class InstanceDailyUsagePoint(BaseModel):
+    """Daily usage point shown in expanded instance details."""
+
+    date: str
+    label: str
+    used_display_amount: float
+    request_count: int
+
+
 class InstanceResponse(BaseModel):
     """Instance list/detail shape used by the API."""
 
@@ -80,6 +91,7 @@ class InstanceResponse(BaseModel):
 
     id: int
     name: str
+    remark: str | None = None
     base_url: str
     program_type: ProgramType
     username: str
@@ -98,6 +110,7 @@ class InstanceResponse(BaseModel):
     today_request_count: int = 0
     last_7d_display_used_amount: float = 0
     last_7d_request_count: int = 0
+    last_7d_usage: list[InstanceDailyUsagePoint] = Field(default_factory=list)
     last_sync_at: datetime | None = None
     last_health_status: str
     last_health_error: str | None = None

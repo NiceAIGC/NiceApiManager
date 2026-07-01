@@ -1,4 +1,4 @@
-import { App, Button, Col, Descriptions, Form, Input, InputNumber, Modal, Rate, Row, Select, Space, Switch, Typography } from 'antd';
+import { App, Button, Col, Collapse, Descriptions, Form, Input, InputNumber, Modal, Rate, Row, Segmented, Select, Space, Switch, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 
 import { getErrorMessage } from '../api/client';
@@ -20,6 +20,11 @@ interface InstanceCreateModalProps {
 }
 
 const { Text } = Typography;
+type AuthMode = 'password' | 'token';
+
+interface InstanceFormValues extends InstanceCreatePayload {
+  auth_mode?: AuthMode;
+}
 
 export function InstanceCreateModal({
   open,
@@ -33,9 +38,10 @@ export function InstanceCreateModal({
   onSubmit,
 }: InstanceCreateModalProps) {
   const { message, modal } = App.useApp();
-  const [form] = Form.useForm<InstanceCreatePayload | InstanceUpdatePayload>();
+  const [form] = Form.useForm<InstanceFormValues | (InstanceUpdatePayload & { auth_mode?: AuthMode })>();
   const [testingProxy, setTestingProxy] = useState(false);
   const proxyMode = Form.useWatch('proxy_mode', form) ?? initialValues?.proxy_mode ?? 'direct';
+  const authMode = Form.useWatch('auth_mode', form) ?? inferAuthMode(initialValues);
 
   useEffect(() => {
     if (open) {
@@ -43,7 +49,9 @@ export function InstanceCreateModal({
         enabled: initialValues?.enabled ?? true,
         base_url: initialValues?.base_url ?? 'https://',
         name: initialValues?.name ?? '',
+        remark: initialValues?.remark ?? '',
         program_type: initialValues?.program_type ?? 'auto',
+        auth_mode: inferAuthMode(initialValues),
         username: initialValues?.username ?? '',
         password: '',
         remote_user_id: initialValues?.remote_user_id ?? undefined,
@@ -60,11 +68,6 @@ export function InstanceCreateModal({
       form.resetFields();
     }
   }, [defaultProxyMode, form, initialValues, open]);
-
-  const accessTokenExtra =
-    mode === 'edit' && initialValues?.has_access_token
-      ? '留空则保持现有访问密钥。'
-      : '与远端用户 ID 配合使用；账密和 ID+密钥二选一即可。';
 
   const handleProxyTest = async () => {
     await form.validateFields(proxyMode === 'custom' ? ['base_url', 'proxy_mode', 'socks5_proxy_url'] : ['base_url', 'proxy_mode']);
@@ -122,7 +125,17 @@ export function InstanceCreateModal({
       <Form
         form={form}
         layout="vertical"
-        onFinish={(values) => onSubmit(normalizeInstancePayload(values))}
+        onFinish={(values) => {
+          const normalized = normalizeInstancePayload(values);
+          if (values.auth_mode === 'password') {
+            normalized.remote_user_id = undefined;
+            normalized.access_token = '';
+          } else {
+            normalized.username = '';
+            normalized.password = '';
+          }
+          onSubmit(normalized);
+        }}
       >
         <Row gutter={16}>
           <Col xs={24} md={12}>
@@ -132,6 +145,11 @@ export function InstanceCreateModal({
               rules={[{ required: true, message: '请输入实例名称' }]}
             >
               <Input placeholder="例如：gac 主站" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="remark" label="备注">
+              <Input placeholder="例如：主力 / 备用 / 仅 Claude Code" maxLength={255} />
             </Form.Item>
           </Col>
           <Col xs={24} md={12}>
@@ -169,66 +187,53 @@ export function InstanceCreateModal({
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={12}>
-            <Form.Item
-              name="billing_mode"
-              label="计费方式"
-              rules={[{ required: true, message: '请选择计费方式' }]}
-              extra="默认预付费；后付费站点只统计周期内已用额度，不展示余额。"
-            >
-              <Select
+          <Col xs={24}>
+            <Form.Item name="auth_mode" label="认证方式" rules={[{ required: true, message: '请选择认证方式' }]}>
+              <Segmented
                 options={[
-                  { label: '预付费', value: 'prepaid' },
-                  { label: '后付费', value: 'postpaid' },
+                  { label: '账密登录', value: 'password' },
+                  { label: '访问密钥', value: 'token' },
                 ]}
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={12}>
-            <Form.Item
-              name="quota_per_unit"
-              label="余额倍率"
-              extra="留空则使用远端识别值；Sub2API 未填写时默认 1.0。"
-            >
-              <InputNumber style={{ width: '100%' }} min={0.000001} precision={6} placeholder="例如：1.0" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item
-              name="username"
-              label="用户名 / 邮箱"
-              extra="使用账密登录时填写。与远端用户 ID + 访问密钥二选一即可。"
-            >
-              <Input placeholder="远端站点用户名或邮箱" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item
-              name="password"
-              label="密码"
-              extra={mode === 'create' ? '使用账密登录时填写。' : '留空则保持现有密码。'}
-            >
-              <Input.Password placeholder={mode === 'create' ? '远端站点密码' : '留空则保持现有密码'} />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item
-              name="remote_user_id"
-              label="远端用户 ID"
-              extra="使用 Access Token / 管理密钥时填写。"
-            >
-              <InputNumber style={{ width: '100%' }} min={1} precision={0} placeholder="例如：11766" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item
-              name="access_token"
-              label="访问密钥"
-              extra={accessTokenExtra}
-            >
-              <Input.Password placeholder={mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥'} />
-            </Form.Item>
-          </Col>
+          {authMode === 'password' ? (
+            <>
+              <Col xs={24} md={12}>
+                <Form.Item name="username" label="用户名 / 邮箱" rules={[{ required: true, message: '请输入用户名或邮箱' }]}>
+                  <Input placeholder="远端站点用户名或邮箱" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={12}>
+                <Form.Item
+                  name="password"
+                  label="密码"
+                  rules={mode === 'create' ? [{ required: true, message: '请输入密码' }] : undefined}
+                  extra={mode === 'edit' ? '留空则保持现有密码。' : undefined}
+                >
+                  <Input.Password placeholder={mode === 'create' ? '远端站点密码' : '留空则保持现有密码'} />
+                </Form.Item>
+              </Col>
+            </>
+          ) : (
+            <>
+              <Col xs={24} md={12}>
+                <Form.Item name="remote_user_id" label="远端用户 ID" extra="NewAPI/RixAPI/ShellAPI 的 Access Token 模式通常需要填写。">
+                  <InputNumber style={{ width: '100%' }} min={1} precision={0} placeholder="例如：11766" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={12}>
+                <Form.Item
+                  name="access_token"
+                  label="访问密钥"
+                  rules={mode === 'create' ? [{ required: true, message: '请输入访问密钥' }] : undefined}
+                  extra={mode === 'edit' && initialValues?.has_access_token ? '留空则保持现有访问密钥。' : undefined}
+                >
+                  <Input.Password placeholder={mode === 'create' ? 'Access Token / JWT' : '留空则保持现有访问密钥'} />
+                </Form.Item>
+              </Col>
+            </>
+          )}
           <Col xs={24} md={12}>
             <Form.Item
               name="priority"
@@ -248,6 +253,45 @@ export function InstanceCreateModal({
             >
               <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} addonAfter="分钟" />
             </Form.Item>
+          </Col>
+          <Col xs={24}>
+            <Collapse
+              ghost
+              items={[
+                {
+                  key: 'advanced',
+                  label: '高级设置',
+                  children: (
+                    <Row gutter={16}>
+                      <Col xs={24} md={12}>
+                        <Form.Item
+                          name="billing_mode"
+                          label="计费方式"
+                          rules={[{ required: true, message: '请选择计费方式' }]}
+                          extra="后付费站点只统计周期内已用额度，不展示余额。"
+                        >
+                          <Select
+                            options={[
+                              { label: '预付费', value: 'prepaid' },
+                              { label: '后付费', value: 'postpaid' },
+                            ]}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={12}>
+                        <Form.Item
+                          name="quota_per_unit"
+                          label="余额倍率"
+                          extra="留空则使用远端识别值；Sub2API 未填写时默认 1.0。"
+                        >
+                          <InputNumber style={{ width: '100%' }} min={0.000001} precision={6} placeholder="例如：1.0" />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  ),
+                },
+              ]}
+            />
           </Col>
           <Col xs={24} md={12}>
             <Form.Item
@@ -311,4 +355,11 @@ export function InstanceCreateModal({
       </Form>
     </Modal>
   );
+}
+
+function inferAuthMode(initialValues?: Instance | null): AuthMode {
+  if (initialValues?.has_access_token && !initialValues.username) {
+    return 'token';
+  }
+  return 'password';
 }

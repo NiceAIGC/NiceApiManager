@@ -60,7 +60,7 @@ def _validate_instance_auth(
     """Ensure each instance keeps at least one complete authentication method."""
     has_password_auth = bool(username and password)
     has_token_auth = remote_user_id is not None and bool(access_token)
-    has_sub2api_token_auth = program_type == "sub2api" and bool(access_token)
+    has_sub2api_token_auth = program_type in {"auto", "sub2api"} and bool(access_token)
     if has_password_auth or has_token_auth or has_sub2api_token_auth:
         return
 
@@ -86,6 +86,7 @@ def create_instance(db: Session, payload: InstanceCreate) -> Instance:
 
     instance = Instance(
         name=payload.name.strip(),
+        remark=_normalize_optional_text(payload.remark) or None,
         base_url=normalize_base_url(payload.base_url),
         program_type=payload.program_type,
         username=username,
@@ -119,6 +120,7 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
         instances.append(
             Instance(
                 name=payload.name.strip(),
+                remark=_normalize_optional_text(payload.remark) or None,
                 base_url=normalize_base_url(payload.base_url),
                 program_type=payload.program_type,
                 username=username,
@@ -189,6 +191,7 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
     )
 
     instance.name = payload.name.strip()
+    instance.remark = _normalize_optional_text(payload.remark) or None
     instance.base_url = new_base_url
     instance.program_type = new_program_type
     instance.username = new_username
@@ -270,6 +273,7 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         )
 
         instance.name = payload.name.strip()
+        instance.remark = _normalize_optional_text(payload.remark) or None
         instance.base_url = new_base_url
         instance.program_type = new_program_type
         instance.username = new_username
@@ -452,12 +456,26 @@ def _instance_to_response(
             DailyUsageStat.usage_date <= day_start_utc.date(),
         )
     ).all()
-    last_7d_display_used_amount = sum(row.used_display_amount for row in last_7d_stats)
-    last_7d_request_count = sum(row.request_count for row in last_7d_stats)
+    stats_by_date = {row.usage_date: row for row in last_7d_stats}
+    last_7d_usage = []
+    for offset in range(7):
+        usage_date = last_7d_start + timedelta(days=offset)
+        daily_stat = stats_by_date.get(usage_date)
+        last_7d_usage.append(
+            {
+                "date": usage_date.isoformat(),
+                "label": usage_date.strftime("%m-%d"),
+                "used_display_amount": daily_stat.used_display_amount if daily_stat else 0.0,
+                "request_count": daily_stat.request_count if daily_stat else 0,
+            }
+        )
+    last_7d_display_used_amount = sum(item["used_display_amount"] for item in last_7d_usage)
+    last_7d_request_count = sum(item["request_count"] for item in last_7d_usage)
 
     return InstanceResponse.model_validate(instance).model_copy(
         update={
             "tags": instance.tags_json or [],
+            "remark": instance.remark,
             "program_type": instance.program_type,
             "billing_mode": instance.billing_mode,
             "quota_per_unit": instance.quota_per_unit,
@@ -487,6 +505,7 @@ def _instance_to_response(
             ),
             "last_7d_display_used_amount": last_7d_display_used_amount,
             "last_7d_request_count": last_7d_request_count,
+            "last_7d_usage": last_7d_usage,
             "remote_user_id": instance.session.remote_user_id if instance.session else instance.remote_user_id,
             "has_access_token": bool(instance.access_token),
             "proxy_mode": instance.proxy_mode,

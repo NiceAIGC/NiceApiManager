@@ -748,6 +748,57 @@ a {
   margin-inline-end: 1px !important;
 }
 
+.instance-expanded-chart {
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.instance-expanded-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.instance-expanded-chart-svg {
+  display: block;
+  width: 100%;
+  height: 150px;
+}
+
+.instance-expanded-chart-grid,
+.instance-expanded-chart-day-line {
+  stroke: #e5e7eb;
+  stroke-width: 1;
+}
+
+.instance-expanded-chart-day-line {
+  stroke-dasharray: 3 5;
+}
+
+.instance-expanded-chart-line {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.instance-expanded-chart-line-used {
+  stroke: #16a34a;
+}
+
+.instance-expanded-chart-line-requests {
+  stroke: #2563eb;
+}
+
+.instance-expanded-chart-label {
+  fill: #64748b;
+  font-size: 11px;
+}
+
 .instance-link {
   color: #1677ff;
   word-break: break-all;

@@ -131,6 +131,76 @@ function renderCompactTags(tags: string[]) {
   );
 }
 
+function buildLinePath(values: number[], width: number, height: number, padding: number) {
+  const maxValue = Math.max(...values, 0);
+  const step = values.length > 1 ? (width - padding * 2) / (values.length - 1) : 0;
+  return values
+    .map((value, index) => {
+      const x = padding + index * step;
+      const y = maxValue > 0 ? padding + (1 - value / maxValue) * (height - padding * 2) : height - padding;
+      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(' ');
+}
+
+function InstanceUsageSparkline({ points }: { points: Instance['last_7d_usage'] }) {
+  const normalizedPoints = points.length
+    ? points
+    : Array.from({ length: 7 }, (_, index) => ({
+        date: '',
+        label: `D${index + 1}`,
+        used_display_amount: 0,
+        request_count: 0,
+      }));
+  const width = 560;
+  const height = 150;
+  const padding = 20;
+  const usedValues = normalizedPoints.map((item) => item.used_display_amount);
+  const requestValues = normalizedPoints.map((item) => item.request_count);
+  const totalUsed = usedValues.reduce((sum, value) => sum + value, 0);
+  const totalRequests = requestValues.reduce((sum, value) => sum + value, 0);
+  const usedPath = buildLinePath(usedValues, width, height, padding);
+  const requestPath = buildLinePath(requestValues, width, height, padding);
+
+  return (
+    <div className="instance-expanded-chart">
+      <div className="instance-expanded-chart-header">
+        <Text strong>近 7 天趋势</Text>
+        <Space size={8}>
+          <Tag color="green">消耗 {formatMoney(totalUsed)}</Tag>
+          <Tag color="blue">请求 {formatNumber(totalRequests)}</Tag>
+        </Space>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="instance-expanded-chart-svg" role="img">
+        {[0.25, 0.5, 0.75].map((ratio) => (
+          <line
+            key={ratio}
+            x1={padding}
+            x2={width - padding}
+            y1={padding + ratio * (height - padding * 2)}
+            y2={padding + ratio * (height - padding * 2)}
+            className="instance-expanded-chart-grid"
+          />
+        ))}
+        <path d={usedPath} className="instance-expanded-chart-line instance-expanded-chart-line-used" />
+        <path d={requestPath} className="instance-expanded-chart-line instance-expanded-chart-line-requests" />
+        {normalizedPoints.map((point, index) => {
+          const x = padding + index * ((width - padding * 2) / Math.max(normalizedPoints.length - 1, 1));
+          return (
+            <g key={`${point.date}-${index}`}>
+              <line x1={x} x2={x} y1={padding} y2={height - padding} className="instance-expanded-chart-day-line" />
+              <text x={x} y={height - 4} textAnchor="middle" className="instance-expanded-chart-label">
+                {point.label}
+              </text>
+              <title>{`${point.date || point.label} / 消耗 ${formatMoney(point.used_display_amount)} / 请求 ${formatNumber(point.request_count)}`}</title>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 export function InstancesPage() {
   const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
@@ -141,7 +211,7 @@ export function InstancesPage() {
   const [search, setSearch] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [billingMode, setBillingMode] = useState<'prepaid' | 'postpaid' | undefined>(undefined);
-  const [enabled, setEnabled] = useState<boolean | undefined>(undefined);
+  const [enabled, setEnabled] = useState<boolean | undefined>(true);
   const [healthStatus, setHealthStatus] = useState<string | undefined>(undefined);
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [syncProgress, setSyncProgress] = useState<SyncProgressState>(INITIAL_SYNC_PROGRESS);
@@ -194,7 +264,7 @@ export function InstancesPage() {
     setSearch('');
     setSelectedTags([]);
     setBillingMode(undefined);
-    setEnabled(undefined);
+    setEnabled(true);
     setHealthStatus(undefined);
     setSelectedRowKeys([]);
     setCurrentPage(1);
@@ -516,6 +586,15 @@ export function InstancesPage() {
         render: (value?: string | null) => formatDateTime(value),
       },
       {
+        title: '备注',
+        dataIndex: 'remark',
+        key: 'remark',
+        width: 120,
+        render: (value?: string | null) => (
+          value ? <Text ellipsis={{ tooltip: value }} style={{ maxWidth: 104 }}>{value}</Text> : <Text type="secondary">-</Text>
+        ),
+      },
+      {
         title: '操作',
         key: 'actions',
         fixed: 'right',
@@ -532,6 +611,7 @@ export function InstancesPage() {
                   instanceId: record.id,
                   payload: {
                     name: record.name,
+                    remark: record.remark,
                     base_url: record.base_url,
                     program_type: record.program_type,
                     username: record.username,
@@ -721,11 +801,17 @@ export function InstancesPage() {
 
               return (
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <InstanceUsageSparkline points={record.last_7d_usage ?? []} />
                   <Descriptions
                     size="small"
                     bordered
                     column={2}
                     items={[
+                      {
+                        key: 'remark',
+                        label: '备注',
+                        children: record.remark || '-',
+                      },
                       {
                         key: 'base_url',
                         label: '实例地址',

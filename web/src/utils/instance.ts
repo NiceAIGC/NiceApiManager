@@ -20,6 +20,7 @@ export function normalizeInstancePayload<T extends InstanceCreatePayload | Insta
   return {
     ...payload,
     name: payload.name.trim(),
+    remark: payload.remark?.trim(),
     base_url: normalizeBaseUrl(payload.base_url),
     username: payload.username.trim(),
     socks5_proxy_url: payload.socks5_proxy_url?.trim(),

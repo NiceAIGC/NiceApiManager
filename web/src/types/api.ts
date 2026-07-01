@@ -73,6 +73,7 @@ export interface DashboardTrendQuery extends InstanceQuery {
 export interface Instance {
   id: number;
   name: string;
+  remark?: string | null;
   base_url: string;
   program_type: 'auto' | 'newapi' | 'rixapi' | 'shellapi' | 'sub2api';
   username: string;
@@ -93,6 +94,7 @@ export interface Instance {
   today_request_count: number;
   last_7d_display_used_amount: number;
   last_7d_request_count: number;
+  last_7d_usage: InstanceDailyUsagePoint[];
   last_sync_at?: string | null;
   last_health_status: string;
   last_health_error?: string | null;
@@ -110,6 +112,7 @@ export interface InstanceListResponse {
 
 export interface InstanceCreatePayload {
   name: string;
+  remark?: string | null;
   base_url: string;
   program_type: 'auto' | 'newapi' | 'rixapi' | 'shellapi' | 'sub2api';
   username: string;
@@ -128,6 +131,7 @@ export interface InstanceCreatePayload {
 
 export interface InstanceUpdatePayload {
   name: string;
+  remark?: string | null;
   base_url: string;
   program_type: 'auto' | 'newapi' | 'rixapi' | 'shellapi' | 'sub2api';
   username: string;
@@ -297,6 +301,13 @@ export interface InstanceQuery {
   billing_mode?: 'prepaid' | 'postpaid';
   enabled?: boolean;
   health_status?: string;
+}
+
+export interface InstanceDailyUsagePoint {
+  date: string;
+  label: string;
+  used_display_amount: number;
+  request_count: number;
 }
 
 export interface AppSettings {

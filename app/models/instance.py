@@ -28,6 +28,7 @@ class Instance(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    remark: Mapped[str | None] = mapped_column(String(255), nullable=True)
     base_url: Mapped[str] = mapped_column(String(255))
     program_type: Mapped[str] = mapped_column(String(16), default="newapi", nullable=False)
     username: Mapped[str] = mapped_column(String(100), default="", nullable=False)

@@ -1,19 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="NiceApiManager">
-  <defs>
-    <linearGradient id="bg" x1="8%" y1="6%" x2="94%" y2="92%">
-      <stop offset="0%" stop-color="#0f766e" />
-      <stop offset="48%" stop-color="#2563eb" />
-      <stop offset="100%" stop-color="#312e81" />
-    </linearGradient>
-    <linearGradient id="line" x1="14%" y1="16%" x2="86%" y2="84%">
-      <stop offset="0%" stop-color="#ecfeff" />
-      <stop offset="100%" stop-color="#bfdbfe" />
-    </linearGradient>
-  </defs>
-  <rect x="5" y="5" width="54" height="54" rx="14" fill="url(#bg)" />
-  <path d="M19 22h8l5 10-5 10h-8l5-10z" fill="none" stroke="url(#line)" stroke-width="4.2" stroke-linejoin="round" />
-  <path d="M45 22h-8l-5 10 5 10h8l-5-10z" fill="none" stroke="url(#line)" stroke-width="4.2" stroke-linejoin="round" />
-  <path d="M28 48 36 16" stroke="#a7f3d0" stroke-width="4.2" stroke-linecap="round" />
-  <circle cx="47" cy="17" r="4.5" fill="#facc15" />
-  <circle cx="17" cy="47" r="3.5" fill="#67e8f9" />
+  <rect width="64" height="64" rx="14" fill="#1677ff"/>
+  <path d="M18 22h8l6 10-6 10h-8l6-10-6-10z" fill="none" stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M46 22h-8l-6 10 6 10h8l-6-10 6-10z" fill="none" stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M28 49l8-34" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
 </svg>
