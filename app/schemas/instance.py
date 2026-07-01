@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-ProgramType = Literal["newapi", "rixapi", "shellapi"]
+ProgramType = Literal["auto", "newapi", "rixapi", "shellapi", "sub2api"]
 ProxyMode = Literal["direct", "global", "custom"]
 
 
@@ -15,7 +15,7 @@ class InstanceCreate(BaseModel):
 
     name: str
     base_url: str
-    program_type: ProgramType = "newapi"
+    program_type: ProgramType = "auto"
     username: str = ""
     password: str | None = None
     remote_user_id: int | None = None
@@ -24,6 +24,7 @@ class InstanceCreate(BaseModel):
     socks5_proxy_url: str | None = None
     enabled: bool = True
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
+    quota_per_unit: float | None = Field(default=None, gt=0)
     priority: int = Field(default=3, ge=1, le=5)
     sync_interval_minutes: int | None = Field(default=None, ge=5, le=10080)
     tags: list[str] = Field(default_factory=list)
@@ -35,8 +36,9 @@ class InstanceCreate(BaseModel):
         access_token = (self.access_token or "").strip()
         has_password_auth = bool(username and password)
         has_token_auth = self.remote_user_id is not None and bool(access_token)
+        has_sub2api_token_auth = self.program_type == "sub2api" and bool(access_token)
 
-        if not has_password_auth and not has_token_auth:
+        if not has_password_auth and not has_token_auth and not has_sub2api_token_auth:
             raise ValueError("请填写用户名和密码，或填写远端用户 ID 和访问密钥。")
 
         if self.proxy_mode == "custom" and not (self.socks5_proxy_url or "").strip():
@@ -50,7 +52,7 @@ class InstanceUpdate(BaseModel):
 
     name: str
     base_url: str
-    program_type: ProgramType = "newapi"
+    program_type: ProgramType = "auto"
     username: str = ""
     password: str | None = None
     remote_user_id: int | None = None
@@ -59,6 +61,7 @@ class InstanceUpdate(BaseModel):
     socks5_proxy_url: str | None = None
     enabled: bool = True
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
+    quota_per_unit: float | None = Field(default=None, gt=0)
     priority: int = Field(default=3, ge=1, le=5)
     sync_interval_minutes: int = Field(ge=5, le=10080)
     tags: list[str] = Field(default_factory=list)
@@ -93,6 +96,8 @@ class InstanceResponse(BaseModel):
     latest_display_used_quota: float | None = None
     latest_request_count: int | None = None
     today_request_count: int = 0
+    last_7d_display_used_amount: float = 0
+    last_7d_request_count: int = 0
     last_sync_at: datetime | None = None
     last_health_status: str
     last_health_error: str | None = None

@@ -14,6 +14,7 @@ from app.core.auth import is_authenticated_request
 from app.core.config import get_settings
 from app.core.database import SessionLocal, prepare_database_directory
 from app.core.logging import configure_logging
+from app.core.migrations import run_startup_migrations
 from app.core.scheduler import build_scheduler
 from app.core.time import utcnow
 from app.models import SyncRun
@@ -30,6 +31,7 @@ frontend_assets_dir = frontend_dist_dir / "assets"
 async def lifespan(app: FastAPI):
     """Prepare process-level resources before serving requests."""
     prepare_database_directory()
+    run_startup_migrations()
     # Convert orphaned running rows from previous crashes into a terminal state.
     with SessionLocal() as db:
         db.execute(

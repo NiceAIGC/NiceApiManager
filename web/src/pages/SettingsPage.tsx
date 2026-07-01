@@ -143,6 +143,7 @@ const defaultSettings: AppSettingsFormValues = {
   sync_history_lookback_days: 30,
   default_sync_interval_minutes: 120,
   shared_socks5_proxy_url: '',
+  default_instance_proxy_mode: 'direct',
   notification_enabled: false,
   notification_check_interval_minutes: 5,
   notification_channels: [],
@@ -546,6 +547,21 @@ export function SettingsPage() {
                 extra="实例选择“公用 SOCKS5”时统一走这里；留空则仍按直连处理。支持 `用户名:密码@主机:端口`，会自动补 `socks5://`。"
               >
                 <Input placeholder="例如：user:password@127.0.0.1:1080" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item
+                name="default_instance_proxy_mode"
+                label="新增实例默认代理"
+                extra="选择公用 SOCKS5 后，新建实例默认走上面的公用代理；仍可在实例表单里改回直连或自定义。"
+                rules={[{ required: true, message: '请选择新增实例默认代理' }]}
+              >
+                <Select
+                  options={[
+                    { label: '本地直连', value: 'direct' },
+                    { label: '公用 SOCKS5', value: 'global' },
+                  ]}
+                />
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>

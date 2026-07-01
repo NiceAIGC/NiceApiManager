@@ -25,6 +25,7 @@ class AppSetting(Base):
     sync_history_lookback_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     default_sync_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     shared_socks5_proxy_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    default_instance_proxy_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     notification_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     notification_check_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notification_channels_json: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)

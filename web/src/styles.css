@@ -113,6 +113,10 @@ a {
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 
+.section-card .ant-card-body {
+  padding: 18px;
+}
+
 .stat-card {
   height: 100%;
   border: 1px solid #e5e7eb;
@@ -151,7 +155,7 @@ a {
 .page-stack {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
 }
 
 .dashboard-filter-grid {
@@ -608,12 +612,13 @@ a {
 
 .quota-badge {
   display: inline-flex;
-  min-width: 88px;
+  min-width: 76px;
   justify-content: center;
-  padding: 4px 10px;
+  padding: 2px 7px;
   border-radius: 999px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  font-size: 12px;
 }
 
 .quota-badge-high {
@@ -689,6 +694,58 @@ a {
   display: inline-flex;
   flex-wrap: nowrap;
   white-space: nowrap;
+  align-items: center;
+}
+
+.instances-compact-table .ant-table {
+  font-size: 12px;
+}
+
+.instances-compact-table .ant-table-thead > tr > th,
+.instances-compact-table .ant-table-tbody > tr > td {
+  padding: 4px 6px !important;
+}
+
+.instances-compact-table .ant-table-tbody > tr > td {
+  line-height: 1.25;
+}
+
+.instances-compact-table .ant-table-row-expand-icon-cell {
+  width: 32px;
+  min-width: 32px;
+}
+
+.instances-compact-table .ant-table-selection-column {
+  width: 36px;
+  min-width: 36px;
+}
+
+.instances-compact-table .ant-tag {
+  margin-inline-end: 0;
+  padding-inline: 5px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.instances-compact-table .ant-btn-sm {
+  height: 24px;
+  padding: 0 7px;
+  font-size: 12px;
+}
+
+.instance-name-cell {
+  max-width: 190px;
+}
+
+.instance-priority-rate {
+  color: #f59e0b;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.instance-priority-rate .ant-rate-star {
+  margin-inline-end: 1px !important;
 }
 
 .instance-link {

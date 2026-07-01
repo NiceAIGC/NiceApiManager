@@ -53,10 +53,14 @@ export function getBillingModeTagColor(value?: string | null): string {
 
 export function formatProgramType(value?: string | null): string {
   switch (value) {
+    case 'auto':
+      return '自动识别';
     case 'rixapi':
       return 'RixAPI';
     case 'shellapi':
       return 'ShellAPI';
+    case 'sub2api':
+      return 'Sub2API';
     default:
       return 'NewAPI';
   }

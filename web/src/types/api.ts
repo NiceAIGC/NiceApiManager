@@ -74,7 +74,7 @@ export interface Instance {
   id: number;
   name: string;
   base_url: string;
-  program_type: 'newapi' | 'rixapi' | 'shellapi';
+  program_type: 'newapi' | 'rixapi' | 'shellapi' | 'sub2api';
   username: string;
   proxy_mode: 'direct' | 'global' | 'custom';
   socks5_proxy_url?: string | null;
@@ -91,6 +91,8 @@ export interface Instance {
   latest_display_used_quota?: number | null;
   latest_request_count?: number | null;
   today_request_count: number;
+  last_7d_display_used_amount: number;
+  last_7d_request_count: number;
   last_sync_at?: string | null;
   last_health_status: string;
   last_health_error?: string | null;
@@ -109,7 +111,7 @@ export interface InstanceListResponse {
 export interface InstanceCreatePayload {
   name: string;
   base_url: string;
-  program_type: 'newapi' | 'rixapi' | 'shellapi';
+  program_type: 'auto' | 'newapi' | 'rixapi' | 'shellapi' | 'sub2api';
   username: string;
   password?: string;
   remote_user_id?: number | null;
@@ -118,6 +120,7 @@ export interface InstanceCreatePayload {
   socks5_proxy_url?: string;
   enabled: boolean;
   billing_mode: 'prepaid' | 'postpaid';
+  quota_per_unit?: number | null;
   priority: number;
   sync_interval_minutes?: number;
   tags: string[];
@@ -126,7 +129,7 @@ export interface InstanceCreatePayload {
 export interface InstanceUpdatePayload {
   name: string;
   base_url: string;
-  program_type: 'newapi' | 'rixapi' | 'shellapi';
+  program_type: 'auto' | 'newapi' | 'rixapi' | 'shellapi' | 'sub2api';
   username: string;
   password?: string;
   remote_user_id?: number | null;
@@ -135,6 +138,7 @@ export interface InstanceUpdatePayload {
   socks5_proxy_url?: string;
   enabled: boolean;
   billing_mode: 'prepaid' | 'postpaid';
+  quota_per_unit?: number | null;
   priority: number;
   sync_interval_minutes: number;
   tags: string[];
@@ -147,7 +151,7 @@ export interface BatchInstanceUpdatePayload extends InstanceUpdatePayload {
 export interface InstanceTestResponse {
   success: boolean;
   instance_id: number;
-  program_type: 'newapi' | 'rixapi' | 'shellapi';
+  program_type: 'newapi' | 'rixapi' | 'shellapi' | 'sub2api';
   remote_user_id: number;
   remote_username: string;
   remote_group?: string | null;
@@ -173,7 +177,7 @@ export interface ProxyConnectivityTestResponse {
   base_url: string;
   proxy_mode: 'direct' | 'global' | 'custom';
   resolved_proxy_url?: string | null;
-  detected_program_type: 'newapi' | 'rixapi' | 'shellapi';
+  detected_program_type: 'newapi' | 'rixapi' | 'shellapi' | 'sub2api';
   quota_per_unit?: number | null;
 }
 
@@ -303,6 +307,7 @@ export interface AppSettings {
   sync_history_lookback_days: number;
   default_sync_interval_minutes: number;
   shared_socks5_proxy_url?: string | null;
+  default_instance_proxy_mode: 'direct' | 'global';
   notification_enabled: boolean;
   notification_check_interval_minutes: number;
   notification_channels: NotificationChannelConfig[];

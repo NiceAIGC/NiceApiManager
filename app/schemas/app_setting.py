@@ -9,6 +9,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+ProxyMode = str
+
+
 def _new_config_id(prefix: str) -> str:
     """Create stable-looking identifiers for dynamic notification configs."""
     return f"{prefix}_{uuid4().hex[:10]}"
@@ -271,6 +274,7 @@ class AppSettingsResponse(BaseModel):
     sync_history_lookback_days: int = Field(ge=1, le=365)
     default_sync_interval_minutes: int = Field(ge=5, le=10080)
     shared_socks5_proxy_url: str | None = None
+    default_instance_proxy_mode: ProxyMode = Field(default="direct", pattern="^(direct|global)$")
     notification_enabled: bool = False
     notification_check_interval_minutes: int = Field(default=5, ge=1, le=1440)
     notification_channels: list[NotificationChannelConfig] = Field(default_factory=list)
@@ -299,6 +303,7 @@ class AppSettingsUpdateRequest(BaseModel):
     sync_history_lookback_days: int = Field(ge=1, le=365)
     default_sync_interval_minutes: int = Field(ge=5, le=10080)
     shared_socks5_proxy_url: str | None = None
+    default_instance_proxy_mode: ProxyMode = Field(default="direct", pattern="^(direct|global)$")
     notification_enabled: bool = False
     notification_check_interval_minutes: int = Field(default=5, ge=1, le=1440)
     notification_channels: list[NotificationChannelConfig] = Field(default_factory=list)

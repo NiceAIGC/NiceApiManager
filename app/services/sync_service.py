@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.clients.newapi import NewAPIClient, NewAPIClientError, NewAPISessionData, detect_program_type
+from app.clients.sub2api import Sub2APIClient, Sub2APIClientError, Sub2APISessionData
 from app.core.database import SessionLocal, is_sqlite_locked_error, sqlite_write_lock
 from app.core.time import utcnow
 from app.models import DailyUsageStat, GroupRatio, Instance, InstanceSession, PricingModel, SyncRun, UserSnapshot
@@ -33,6 +34,9 @@ def _sqlite_write_context():
 
 def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestResponse:
     """Validate login and read-only endpoints for one configured instance."""
+    if instance.program_type == "sub2api":
+        return _test_sub2api_connectivity(db, instance)
+
     try:
         runtime_settings = get_runtime_app_settings(db)
         client, status_data = _prepare_instance_client(instance, runtime_settings)
@@ -64,7 +68,7 @@ def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestR
 
     instance.last_health_status = "healthy"
     instance.last_health_error = None
-    instance.quota_per_unit = _extract_quota_per_unit(status_data)
+    instance.quota_per_unit = _extract_quota_per_unit(status_data) or instance.quota_per_unit
     with _sqlite_write_context():
         db.commit()
 
@@ -93,6 +97,9 @@ def test_instance_connectivity(db: Session, instance: Instance) -> InstanceTestR
 
 def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "manual") -> SyncRun:
     """Run a full read-only sync for one instance and persist the latest snapshot."""
+    if instance.program_type == "sub2api":
+        return _sync_single_sub2api_instance(db, instance, trigger_type=trigger_type)
+
     instance_id = instance.id
 
     sync_run = SyncRun(
@@ -128,7 +135,7 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
 
         snapshot_at = utcnow()
         with _sqlite_write_context():
-            instance.quota_per_unit = _extract_quota_per_unit(status_data)
+            instance.quota_per_unit = _extract_quota_per_unit(status_data) or instance.quota_per_unit
             _persist_user_snapshot(db, instance_id, user_data, snapshot_at)
             _replace_group_ratios(db, instance_id, group_data, snapshot_at)
             _replace_pricing_models(db, instance_id, pricing_payload, snapshot_at)
@@ -186,6 +193,7 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
             if instance is not None:
                 instance.last_health_status = "unhealthy"
                 instance.last_health_error = str(exc)
+                _disable_after_consecutive_scheduled_failures(db, instance, sync_run.trigger_type)
             db.commit()
 
         if isinstance(exc, NewAPIClientError):
@@ -254,6 +262,149 @@ def sync_all_instances(db: Session, instance_ids: list[int] | None = None) -> Bu
     )
 
 
+def _test_sub2api_connectivity(db: Session, instance: Instance) -> InstanceTestResponse:
+    """Validate login/token auth and read-only Sub2API endpoints for one configured instance."""
+    try:
+        runtime_settings = get_runtime_app_settings(db)
+        client = _build_sub2api_client(instance, runtime_settings)
+        session_data = _ensure_sub2api_session(db, instance, client)
+        user_data = client.get_user_self(session_data)
+        group_data = client.get_user_groups(session_data)
+        pricing_payload = client.get_pricing(session_data)
+    except Sub2APIClientError as exc:
+        instance.last_health_status = "unhealthy"
+        instance.last_health_error = str(exc)
+        with _sqlite_write_context():
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    instance.last_health_status = "healthy"
+    instance.last_health_error = None
+    instance.quota_per_unit = instance.quota_per_unit or 1.0
+    with _sqlite_write_context():
+        db.commit()
+
+    return InstanceTestResponse(
+        success=True,
+        instance_id=instance.id,
+        program_type=instance.program_type,
+        remote_user_id=session_data.remote_user_id,
+        remote_username=user_data.get("username") or instance.username,
+        remote_group=user_data.get("group"),
+        billing_mode=instance.billing_mode,
+        quota=int(user_data.get("quota", 0)),
+        used_quota=int(user_data.get("used_quota", 0)),
+        display_quota=(
+            None
+            if uses_postpaid_billing(instance)
+            else quota_to_display_amount(int(user_data.get("quota", 0)), instance.quota_per_unit)
+        ),
+        display_used_quota=quota_to_display_amount(int(user_data.get("used_quota", 0)), instance.quota_per_unit),
+        quota_per_unit=instance.quota_per_unit,
+        request_count=int(user_data.get("request_count", 0)),
+        group_count=len(group_data),
+        pricing_model_count=len(pricing_payload.get("data") or []),
+    )
+
+
+def _sync_single_sub2api_instance(db: Session, instance: Instance, trigger_type: str = "manual") -> SyncRun:
+    """Run a full read-only sync for one Sub2API instance and persist the latest snapshot."""
+    instance_id = instance.id
+
+    sync_run = SyncRun(
+        instance_id=instance_id,
+        trigger_type=trigger_type,
+        status="running",
+        started_at=utcnow(),
+    )
+    db.add(sync_run)
+    with _sqlite_write_context():
+        db.commit()
+    db.refresh(sync_run)
+
+    try:
+        runtime_settings = get_runtime_app_settings(db)
+        client = _build_sub2api_client(instance, runtime_settings)
+        session_data = _ensure_sub2api_session(db, instance, client)
+        user_data = client.get_user_self(session_data)
+        group_data = client.get_user_groups(session_data)
+        pricing_payload = client.get_pricing(session_data)
+
+        snapshot_at = utcnow()
+        with _sqlite_write_context():
+            instance.quota_per_unit = instance.quota_per_unit or 1.0
+            _persist_user_snapshot(db, instance_id, user_data, snapshot_at)
+            _replace_group_ratios(db, instance_id, group_data, snapshot_at)
+            _replace_pricing_models(db, instance_id, pricing_payload, snapshot_at)
+            history_source, history_warning = _sync_recent_sub2api_daily_usage(
+                db,
+                instance=instance,
+                client=client,
+                session_data=session_data,
+                synced_at=snapshot_at,
+                runtime_settings=runtime_settings,
+            )
+
+            finished_at = utcnow()
+            duration_ms = int((finished_at - sync_run.started_at).total_seconds() * 1000)
+            summary = {
+                "group_count": len(group_data),
+                "pricing_model_count": len(pricing_payload.get("data") or []),
+                "quota": int(user_data.get("quota", 0)),
+                "used_quota": int(user_data.get("used_quota", 0)),
+                "request_count": int(user_data.get("request_count", 0)),
+                "history_days": runtime_settings.sync_history_lookback_days,
+                "history_source": history_source,
+            }
+            if history_warning:
+                summary["history_warning"] = history_warning
+
+            sync_run = db.get(SyncRun, sync_run.id)
+            instance = db.get(Instance, instance_id)
+            sync_run.status = "success"
+            sync_run.finished_at = finished_at
+            sync_run.duration_ms = duration_ms
+            sync_run.error_message = None
+            sync_run.summary_json = summary
+            instance.last_sync_at = finished_at
+            instance.last_health_status = "healthy"
+            instance.last_health_error = None
+            db.commit()
+        db.refresh(sync_run)
+        return sync_run
+
+    except Exception as exc:
+        logger.exception("Sub2API sync failed for instance %s", instance_id)
+        db.rollback()
+
+        finished_at = utcnow()
+        with _sqlite_write_context():
+            sync_run = db.get(SyncRun, sync_run.id)
+            instance = db.get(Instance, instance_id)
+            if sync_run is not None:
+                sync_run.status = "failed"
+                sync_run.finished_at = finished_at
+                sync_run.duration_ms = int((finished_at - sync_run.started_at).total_seconds() * 1000)
+                sync_run.error_message = str(exc)
+                sync_run.summary_json = None
+            if instance is not None:
+                instance.last_health_status = "unhealthy"
+                instance.last_health_error = str(exc)
+                _disable_after_consecutive_scheduled_failures(db, instance, sync_run.trigger_type)
+            db.commit()
+
+        if isinstance(exc, Sub2APIClientError):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=str(exc),
+            ) from exc
+
+        raise
+
+
 def _sync_instance_in_worker(
     instance_id: int,
     instance_name: str,
@@ -296,6 +447,27 @@ def _sync_instance_in_worker(
                 status="failed",
                 error_message="本地数据库正忙，请稍后重试。" if is_sqlite_locked_error(exc) else str(exc),
             )
+
+
+def _disable_after_consecutive_scheduled_failures(db: Session, instance: Instance, current_trigger_type: str) -> None:
+    """Disable an instance after its latest five scheduled sync attempts all failed."""
+    if current_trigger_type != "scheduled" or not instance.enabled:
+        return
+
+    recent_runs = db.scalars(
+        select(SyncRun)
+        .where(
+            SyncRun.instance_id == instance.id,
+            SyncRun.trigger_type == "scheduled",
+        )
+        .order_by(SyncRun.started_at.desc())
+        .limit(5)
+    ).all()
+    if len(recent_runs) < 5:
+        return
+    if all(run.status == "failed" for run in recent_runs):
+        instance.enabled = False
+        instance.last_health_error = f"{instance.last_health_error or ''}（最近 5 次定时同步均失败，已自动禁用）".strip()
 
 
 def _ensure_session(
@@ -355,6 +527,89 @@ def _ensure_session(
             remote_user_id=concurrent_session.remote_user_id,
             cookie_value=concurrent_session.cookie_value,
             access_token=concurrent_session.access_token,
+            expires_at=concurrent_session.expires_at,
+        )
+
+    return session_data
+
+
+def _build_sub2api_client(
+    instance: Instance,
+    runtime_settings: RuntimeAppSettings,
+) -> Sub2APIClient:
+    """Build a Sub2API client with the instance proxy and TLS settings."""
+    return Sub2APIClient(
+        base_url=instance.base_url,
+        timeout=runtime_settings.request_timeout,
+        verify=runtime_settings.sync_verify_ssl,
+        proxy=resolve_socks5_proxy_url(
+            proxy_mode=instance.proxy_mode,
+            custom_proxy_url=instance.socks5_proxy_url,
+            shared_proxy_url=runtime_settings.shared_socks5_proxy_url,
+        ),
+    )
+
+
+def _ensure_sub2api_session(
+    db: Session,
+    instance: Instance,
+    client: Sub2APIClient,
+) -> Sub2APISessionData:
+    """Reuse a cached Sub2API bearer token, otherwise authenticate again."""
+    if instance.access_token:
+        token_session = client.get_current_user(instance.access_token)
+        return Sub2APISessionData(
+            remote_user_id=token_session.remote_user_id,
+            access_token=instance.access_token,
+            refresh_token=None,
+            expires_at=None,
+        )
+
+    cached_session = db.scalar(
+        select(InstanceSession).where(InstanceSession.instance_id == instance.id)
+    )
+
+    if cached_session and cached_session.access_token and _session_is_still_usable(cached_session):
+        try:
+            token_session = client.get_current_user(cached_session.access_token)
+            return Sub2APISessionData(
+                remote_user_id=token_session.remote_user_id,
+                access_token=cached_session.access_token,
+                refresh_token=None,
+                expires_at=cached_session.expires_at,
+            )
+        except Sub2APIClientError:
+            logger.info("Cached Sub2API token for instance %s expired remotely, relogging in.", instance.id)
+
+    if not instance.username or not instance.password:
+        raise Sub2APIClientError("请填写 Sub2API 账密，或填写访问密钥/JWT。")
+
+    session_data = client.login(instance.username, instance.password)
+
+    if cached_session is None:
+        cached_session = InstanceSession(instance_id=instance.id)
+        db.add(cached_session)
+
+    cached_session.remote_user_id = session_data.remote_user_id
+    cached_session.cookie_value = ""
+    cached_session.access_token = session_data.access_token
+    cached_session.expires_at = session_data.expires_at
+
+    try:
+        with _sqlite_write_context():
+            db.commit()
+    except IntegrityError:
+        db.rollback()
+        concurrent_session = db.scalar(
+            select(InstanceSession).where(InstanceSession.instance_id == instance.id)
+        )
+        if concurrent_session is None or not concurrent_session.access_token:
+            raise
+
+        return Sub2APISessionData(
+            remote_user_id=concurrent_session.remote_user_id,
+            access_token=concurrent_session.access_token,
+            refresh_token=None,
             expires_at=concurrent_session.expires_at,
         )
 
@@ -561,6 +816,84 @@ def _sync_recent_daily_usage(
         )
         history_source = "data_api_failed"
         history_warning = f"/api/data/self 同步失败，已跳过历史用量刷新：{exc}"
+
+    existing_rows = db.scalars(
+        select(DailyUsageStat).where(
+            DailyUsageStat.instance_id == instance.id,
+            DailyUsageStat.usage_date >= start_date,
+            DailyUsageStat.usage_date <= today_local,
+        )
+    ).all()
+    existing_by_date = {row.usage_date: row for row in existing_rows}
+
+    for usage_date, item in aggregated.items():
+        used_quota = int(item["used_quota"])
+        request_count = int(item["request_count"])
+        used_display_amount = quota_to_display_amount(used_quota, instance.quota_per_unit) or 0.0
+        existing_row = existing_by_date.get(usage_date)
+        if existing_row is None:
+            db.add(
+                DailyUsageStat(
+                    instance_id=instance.id,
+                    usage_date=usage_date,
+                    request_count=request_count,
+                    used_quota=used_quota,
+                    used_display_amount=used_display_amount,
+                    synced_at=synced_at,
+                )
+            )
+            continue
+
+        existing_row.request_count = request_count
+        existing_row.used_quota = used_quota
+        existing_row.used_display_amount = used_display_amount
+        existing_row.synced_at = synced_at
+
+    return history_source, history_warning
+
+
+def _sync_recent_sub2api_daily_usage(
+    db: Session,
+    *,
+    instance: Instance,
+    client: Sub2APIClient,
+    session_data: Sub2APISessionData,
+    synced_at: datetime,
+    runtime_settings: RuntimeAppSettings,
+) -> tuple[str, str | None]:
+    """Refresh recent daily usage totals from Sub2API dashboard trend data."""
+    tzinfo = resolve_timezone(runtime_settings.scheduler_timezone)
+    today_local = synced_at.replace(tzinfo=timezone.utc).astimezone(tzinfo).date()
+    start_date = today_local - timedelta(days=runtime_settings.sync_history_lookback_days - 1)
+    start_at_utc = datetime.combine(start_date, time.min, tzinfo=tzinfo).astimezone(timezone.utc)
+    end_at_utc = datetime.combine(today_local + timedelta(days=1), time.min, tzinfo=tzinfo).astimezone(timezone.utc)
+    aggregated = {
+        current_date: {"request_count": 0, "used_quota": 0}
+        for current_date in _iter_usage_dates(start_date, today_local)
+    }
+
+    history_source = "sub2api_dashboard_trend"
+    history_warning: str | None = None
+
+    try:
+        quota_rows = client.get_daily_usage(
+            session_data,
+            start_timestamp=int(start_at_utc.timestamp()),
+            end_timestamp=int(end_at_utc.timestamp()),
+        )
+        _accumulate_daily_usage_from_quota_rows(
+            aggregated,
+            quota_rows=quota_rows,
+            tzinfo=tzinfo,
+        )
+    except Sub2APIClientError as exc:
+        logger.warning(
+            "Daily usage sync via Sub2API dashboard trend failed for instance %s: %s",
+            instance.id,
+            exc,
+        )
+        history_source = "sub2api_dashboard_trend_failed"
+        history_warning = f"Sub2API 历史用量同步失败，已跳过历史用量刷新：{exc}"
 
     existing_rows = db.scalars(
         select(DailyUsageStat).where(

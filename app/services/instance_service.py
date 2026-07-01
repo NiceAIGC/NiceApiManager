@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import httpx
 
 from fastapi import HTTPException, status
@@ -9,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.clients.newapi import NewAPIClient, NewAPIClientError, detect_program_type
-from app.models import Instance
+from app.models import DailyUsageStat, Instance
 from app.models.user_snapshot import UserSnapshot
 from app.schemas.instance import (
     BatchInstanceDeleteResponse,
@@ -48,11 +50,18 @@ def _normalize_optional_text(value: str | None) -> str:
     return (value or "").strip()
 
 
-def _validate_instance_auth(username: str, password: str, remote_user_id: int | None, access_token: str | None) -> None:
+def _validate_instance_auth(
+    username: str,
+    password: str,
+    remote_user_id: int | None,
+    access_token: str | None,
+    program_type: str = "newapi",
+) -> None:
     """Ensure each instance keeps at least one complete authentication method."""
     has_password_auth = bool(username and password)
     has_token_auth = remote_user_id is not None and bool(access_token)
-    if has_password_auth or has_token_auth:
+    has_sub2api_token_auth = program_type == "sub2api" and bool(access_token)
+    if has_password_auth or has_token_auth or has_sub2api_token_auth:
         return
 
     raise HTTPException(
@@ -73,12 +82,12 @@ def create_instance(db: Session, payload: InstanceCreate) -> Instance:
     username = payload.username.strip()
     password = _normalize_optional_text(payload.password)
     access_token = _normalize_optional_text(payload.access_token) or None
-    _validate_instance_auth(username, password, payload.remote_user_id, access_token)
+    _validate_instance_auth(username, password, payload.remote_user_id, access_token, payload.program_type)
 
     instance = Instance(
         name=payload.name.strip(),
         base_url=normalize_base_url(payload.base_url),
-        program_type=payload.program_type,
+        program_type="newapi" if payload.program_type == "auto" else payload.program_type,
         username=username,
         password=password,
         remote_user_id=payload.remote_user_id,
@@ -87,6 +96,7 @@ def create_instance(db: Session, payload: InstanceCreate) -> Instance:
         socks5_proxy_url=normalize_socks5_proxy_url(payload.socks5_proxy_url),
         enabled=payload.enabled,
         billing_mode=payload.billing_mode,
+        quota_per_unit=payload.quota_per_unit,
         priority=payload.priority,
         sync_interval_minutes=payload.sync_interval_minutes or runtime_settings.default_sync_interval_minutes,
         tags_json=_normalize_tags(payload.tags),
@@ -105,12 +115,12 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
         username = payload.username.strip()
         password = _normalize_optional_text(payload.password)
         access_token = _normalize_optional_text(payload.access_token) or None
-        _validate_instance_auth(username, password, payload.remote_user_id, access_token)
+        _validate_instance_auth(username, password, payload.remote_user_id, access_token, payload.program_type)
         instances.append(
             Instance(
                 name=payload.name.strip(),
                 base_url=normalize_base_url(payload.base_url),
-                program_type=payload.program_type,
+                program_type="newapi" if payload.program_type == "auto" else payload.program_type,
                 username=username,
                 password=password,
                 remote_user_id=payload.remote_user_id,
@@ -119,6 +129,7 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
                 socks5_proxy_url=normalize_socks5_proxy_url(payload.socks5_proxy_url),
                 enabled=payload.enabled,
                 billing_mode=payload.billing_mode,
+                quota_per_unit=payload.quota_per_unit,
                 priority=payload.priority,
                 sync_interval_minutes=payload.sync_interval_minutes or runtime_settings.default_sync_interval_minutes,
                 tags_json=_normalize_tags(payload.tags),
@@ -156,14 +167,14 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
     else:
         new_password = ""
 
-    if new_remote_user_id is not None:
+    if new_remote_user_id is not None or new_program_type == "sub2api":
         new_access_token = instance.access_token
         if payload.access_token not in (None, ""):
             new_access_token = _normalize_optional_text(payload.access_token) or None
     else:
         new_access_token = None
 
-    _validate_instance_auth(new_username, new_password, new_remote_user_id, new_access_token)
+    _validate_instance_auth(new_username, new_password, new_remote_user_id, new_access_token, new_program_type)
     auth_changed = any(
         [
             instance.base_url != new_base_url,
@@ -188,6 +199,7 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
     instance.socks5_proxy_url = new_socks5_proxy_url
     instance.enabled = payload.enabled
     instance.billing_mode = payload.billing_mode
+    instance.quota_per_unit = payload.quota_per_unit
     instance.priority = payload.priority
     instance.sync_interval_minutes = payload.sync_interval_minutes
     instance.tags_json = _normalize_tags(payload.tags)
@@ -236,14 +248,14 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         else:
             new_password = ""
 
-        if new_remote_user_id is not None:
+        if new_remote_user_id is not None or new_program_type == "sub2api":
             new_access_token = instance.access_token
             if payload.access_token not in (None, ""):
                 new_access_token = _normalize_optional_text(payload.access_token) or None
         else:
             new_access_token = None
 
-        _validate_instance_auth(new_username, new_password, new_remote_user_id, new_access_token)
+        _validate_instance_auth(new_username, new_password, new_remote_user_id, new_access_token, new_program_type)
         auth_changed = any(
             [
                 instance.base_url != new_base_url,
@@ -268,6 +280,7 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         instance.socks5_proxy_url = new_socks5_proxy_url
         instance.enabled = payload.enabled
         instance.billing_mode = payload.billing_mode
+        instance.quota_per_unit = payload.quota_per_unit
         instance.priority = payload.priority
         instance.sync_interval_minutes = payload.sync_interval_minutes
         instance.tags_json = _normalize_tags(payload.tags)
@@ -431,6 +444,16 @@ def _instance_to_response(
         .order_by(UserSnapshot.snapshot_at.desc())
         .limit(1)
     ).first()
+    last_7d_start = day_start_utc.date() - timedelta(days=6)
+    last_7d_stats = db.scalars(
+        select(DailyUsageStat).where(
+            DailyUsageStat.instance_id == instance.id,
+            DailyUsageStat.usage_date >= last_7d_start,
+            DailyUsageStat.usage_date <= day_start_utc.date(),
+        )
+    ).all()
+    last_7d_display_used_amount = sum(row.used_display_amount for row in last_7d_stats)
+    last_7d_request_count = sum(row.request_count for row in last_7d_stats)
 
     return InstanceResponse.model_validate(instance).model_copy(
         update={
@@ -462,6 +485,8 @@ def _instance_to_response(
                 day_start_utc,
                 scheduler_timezone,
             ),
+            "last_7d_display_used_amount": last_7d_display_used_amount,
+            "last_7d_request_count": last_7d_request_count,
             "remote_user_id": instance.session.remote_user_id if instance.session else instance.remote_user_id,
             "has_access_token": bool(instance.access_token),
             "proxy_mode": instance.proxy_mode,

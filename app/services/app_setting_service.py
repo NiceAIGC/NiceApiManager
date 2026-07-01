@@ -28,6 +28,7 @@ DEFAULT_SYNC_MAX_WORKERS = 5
 DEFAULT_SYNC_HISTORY_LOOKBACK_DAYS = 30
 DEFAULT_SYNC_INTERVAL_MINUTES = 120
 DEFAULT_NOTIFICATION_CHECK_INTERVAL_MINUTES = 5
+DEFAULT_INSTANCE_PROXY_MODE = "direct"
 _CHANNEL_LIST_ADAPTER = TypeAdapter(list[NotificationChannelConfig])
 _RULE_SET_ADAPTER = TypeAdapter(NotificationRuleSet)
 
@@ -43,6 +44,7 @@ class RuntimeAppSettings:
     sync_history_lookback_days: int
     default_sync_interval_minutes: int
     shared_socks5_proxy_url: str | None
+    default_instance_proxy_mode: str
     notification_enabled: bool
     notification_check_interval_minutes: int
     notification_channels: list[NotificationChannelConfig]
@@ -91,6 +93,7 @@ def get_runtime_app_settings(db: Session) -> RuntimeAppSettings:
             maximum=10080,
         ),
         shared_socks5_proxy_url=normalize_socks5_proxy_url(row.shared_socks5_proxy_url if row else None),
+        default_instance_proxy_mode=_coerce_proxy_mode(row.default_instance_proxy_mode if row else None),
         notification_enabled=bool(row.notification_enabled) if row and row.notification_enabled is not None else False,
         notification_check_interval_minutes=_coerce_int(
             row.notification_check_interval_minutes if row else None,
@@ -115,6 +118,7 @@ def build_app_settings_response(db: Session) -> AppSettingsResponse:
         sync_history_lookback_days=runtime.sync_history_lookback_days,
         default_sync_interval_minutes=runtime.default_sync_interval_minutes,
         shared_socks5_proxy_url=runtime.shared_socks5_proxy_url,
+        default_instance_proxy_mode=runtime.default_instance_proxy_mode,
         notification_enabled=runtime.notification_enabled,
         notification_check_interval_minutes=runtime.notification_check_interval_minutes,
         notification_channels=runtime.notification_channels,
@@ -140,6 +144,7 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
     row.sync_history_lookback_days = payload.sync_history_lookback_days
     row.default_sync_interval_minutes = payload.default_sync_interval_minutes
     row.shared_socks5_proxy_url = normalize_socks5_proxy_url(payload.shared_socks5_proxy_url)
+    row.default_instance_proxy_mode = _coerce_proxy_mode(payload.default_instance_proxy_mode)
     row.notification_enabled = payload.notification_enabled
     row.notification_check_interval_minutes = payload.notification_check_interval_minutes
     row.notification_channels_json = [item.model_dump(mode="json") for item in payload.notification_channels]
@@ -157,6 +162,7 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
         sync_history_lookback_days=row.sync_history_lookback_days,
         default_sync_interval_minutes=row.default_sync_interval_minutes,
         shared_socks5_proxy_url=row.shared_socks5_proxy_url,
+        default_instance_proxy_mode=_coerce_proxy_mode(row.default_instance_proxy_mode),
         notification_enabled=bool(row.notification_enabled),
         notification_check_interval_minutes=row.notification_check_interval_minutes or DEFAULT_NOTIFICATION_CHECK_INTERVAL_MINUTES,
         notification_channels=_parse_notification_channels(row.notification_channels_json),
@@ -252,3 +258,8 @@ def _coerce_float(value: object, *, default: float, minimum: float, maximum: flo
     except (TypeError, ValueError):
         parsed = default
     return max(minimum, min(maximum, parsed))
+
+
+def _coerce_proxy_mode(value: object) -> str:
+    """Return a valid default proxy mode for newly created instances."""
+    return "global" if value == "global" else DEFAULT_INSTANCE_PROXY_MODE

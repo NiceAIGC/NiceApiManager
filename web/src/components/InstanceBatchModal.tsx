@@ -18,6 +18,7 @@ interface InstanceBatchModalProps {
   mode: 'create' | 'edit';
   initialItems?: Instance[];
   defaultSyncIntervalMinutes?: number;
+  defaultProxyMode?: InstanceCreatePayload['proxy_mode'];
   tagOptions?: Array<{ label: string; value: string }>;
   onCancel: () => void;
   onSubmit: (items: Array<InstanceCreatePayload | BatchInstanceUpdatePayload>) => void;
@@ -25,19 +26,20 @@ interface InstanceBatchModalProps {
 
 const { Text } = Typography;
 
-function buildEmptyItem(): InstanceCreatePayload {
+function buildEmptyItem(defaultProxyMode: InstanceCreatePayload['proxy_mode']): InstanceCreatePayload {
   return {
     name: '',
     base_url: 'https://',
-    program_type: 'newapi',
+    program_type: 'auto',
     username: '',
     password: '',
     remote_user_id: undefined,
     access_token: '',
-    proxy_mode: 'direct',
+    proxy_mode: defaultProxyMode,
     socks5_proxy_url: '',
     enabled: true,
     billing_mode: 'prepaid',
+    quota_per_unit: undefined,
     priority: 3,
     sync_interval_minutes: 120,
     tags: [],
@@ -50,6 +52,7 @@ export function InstanceBatchModal({
   mode,
   initialItems,
   defaultSyncIntervalMinutes = 120,
+  defaultProxyMode = 'direct',
   tagOptions,
   onCancel,
   onSubmit,
@@ -79,6 +82,7 @@ export function InstanceBatchModal({
           socks5_proxy_url: item.socks5_proxy_url ?? '',
           enabled: item.enabled,
           billing_mode: item.billing_mode,
+          quota_per_unit: item.quota_per_unit ?? undefined,
           priority: item.priority,
           sync_interval_minutes: item.sync_interval_minutes,
           tags: item.tags,
@@ -90,12 +94,12 @@ export function InstanceBatchModal({
     form.setFieldsValue({
       items: [
         {
-          ...buildEmptyItem(),
+          ...buildEmptyItem(defaultProxyMode),
           sync_interval_minutes: defaultSyncIntervalMinutes,
         },
       ],
     });
-  }, [defaultSyncIntervalMinutes, form, initialItems, mode, open]);
+  }, [defaultProxyMode, defaultSyncIntervalMinutes, form, initialItems, mode, open]);
 
   const handleProxyTest = async (fieldName: number, fieldKey: number) => {
     const proxyMode = form.getFieldValue(['items', fieldName, 'proxy_mode']) as InstanceCreatePayload['proxy_mode'];
@@ -217,9 +221,11 @@ export function InstanceBatchModal({
                     >
                       <Select
                         options={[
+                          { label: '自动识别', value: 'auto' },
                           { label: 'NewAPI', value: 'newapi' },
                           { label: 'RixAPI', value: 'rixapi' },
                           { label: 'ShellAPI', value: 'shellapi' },
+                          { label: 'Sub2API', value: 'sub2api' },
                         ]}
                       />
                     </Form.Item>
@@ -237,10 +243,10 @@ export function InstanceBatchModal({
                     </Form.Item>
                     <Form.Item
                       name={[field.name, 'username']}
-                      label="用户名"
+                      label="用户名 / 邮箱"
                       extra="账密登录时填写。"
                     >
-                      <Input placeholder="远端站点用户名" />
+                      <Input placeholder="远端站点用户名或邮箱" />
                     </Form.Item>
                     <Form.Item
                       name={[field.name, 'password']}
@@ -262,6 +268,13 @@ export function InstanceBatchModal({
                       extra={mode === 'create' ? 'ID + 密钥模式时填写。' : '留空则保持现有访问密钥。'}
                     >
                       <Input.Password placeholder={mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥'} />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'quota_per_unit']}
+                      label="余额倍率"
+                      extra="留空则使用远端识别值；Sub2API 未填写时默认 1.0。"
+                    >
+                      <InputNumber style={{ width: '100%' }} min={0.000001} precision={6} placeholder="例如：1.0" />
                     </Form.Item>
                     <Form.Item
                       name={[field.name, 'priority']}
@@ -357,7 +370,7 @@ export function InstanceBatchModal({
                     icon={<PlusOutlined />}
                     onClick={() =>
                       add({
-                        ...buildEmptyItem(),
+                        ...buildEmptyItem(defaultProxyMode),
                         sync_interval_minutes: defaultSyncIntervalMinutes,
                       })
                     }

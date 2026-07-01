@@ -135,7 +135,7 @@ docker compose logs -f niceapimanager
 ## 数据与升级
 
 - SQLite 数据默认存放在 `./data/niceapimanager.db`
-- 容器启动时会自动执行 `alembic upgrade head`
+- 应用启动时会自动执行 Alembic 数据库迁移到最新版本
 - 重建容器不会删除 `./data` 中的持久化数据
 
 ## MySQL 配置
@@ -151,7 +151,7 @@ NICE_API_MANAGER_DATABASE_URL=mysql+pymysql://niceapi:your-password@mysql:3306/n
 使用 MySQL 时注意：
 
 - 目标 MySQL 数据库需要提前创建，例如 `niceapimanager`
-- 容器启动时仍会自动执行 `alembic upgrade head`
+- 应用启动时仍会自动执行 Alembic 数据库迁移到最新版本
 - 如果 MySQL 和应用在同一个 `docker compose` 网络里，主机名可以直接写 MySQL 服务名，例如 `mysql`
 - 如果 MySQL 在宿主机或外部服务器，请把主机名改成真实地址，并确保容器网络可以访问
 - 使用 MySQL 时，`./data` 这个 SQLite 挂载目录不会再存储业务数据，可以保留，也可以按你的部署习惯移除

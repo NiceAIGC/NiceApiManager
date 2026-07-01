@@ -13,6 +13,7 @@ interface InstanceCreateModalProps {
   mode: 'create' | 'edit';
   initialValues?: Instance | null;
   defaultSyncIntervalMinutes?: number;
+  defaultProxyMode?: InstanceCreatePayload['proxy_mode'];
   tagOptions?: Array<{ label: string; value: string }>;
   onCancel: () => void;
   onSubmit: (values: InstanceCreatePayload | InstanceUpdatePayload) => void;
@@ -26,6 +27,7 @@ export function InstanceCreateModal({
   mode,
   initialValues,
   defaultSyncIntervalMinutes = 120,
+  defaultProxyMode = 'direct',
   tagOptions,
   onCancel,
   onSubmit,
@@ -41,14 +43,15 @@ export function InstanceCreateModal({
         enabled: initialValues?.enabled ?? true,
         base_url: initialValues?.base_url ?? 'https://',
         name: initialValues?.name ?? '',
-        program_type: initialValues?.program_type ?? 'newapi',
+        program_type: initialValues?.program_type ?? 'auto',
         username: initialValues?.username ?? '',
         password: '',
         remote_user_id: initialValues?.remote_user_id ?? undefined,
         access_token: '',
-        proxy_mode: initialValues?.proxy_mode ?? 'direct',
+        proxy_mode: initialValues?.proxy_mode ?? defaultProxyMode,
         socks5_proxy_url: initialValues?.socks5_proxy_url ?? '',
         billing_mode: initialValues?.billing_mode ?? 'prepaid',
+        quota_per_unit: initialValues?.quota_per_unit ?? undefined,
         priority: initialValues?.priority ?? 3,
         sync_interval_minutes: initialValues?.sync_interval_minutes ?? defaultSyncIntervalMinutes,
         tags: initialValues?.tags ?? [],
@@ -56,7 +59,7 @@ export function InstanceCreateModal({
     } else {
       form.resetFields();
     }
-  }, [form, initialValues, open]);
+  }, [defaultProxyMode, form, initialValues, open]);
 
   const accessTokenExtra =
     mode === 'edit' && initialValues?.has_access_token
@@ -136,13 +139,15 @@ export function InstanceCreateModal({
               name="program_type"
               label="程序类型"
               rules={[{ required: true, message: '请选择程序类型' }]}
-              extra="默认按 NewAPI 处理；如站点是二开程序，可切到对应类型。"
+              extra="默认自动识别；识别不到或新增前已知类型时可手动选择。"
             >
               <Select
                 options={[
+                  { label: '自动识别', value: 'auto' },
                   { label: 'NewAPI', value: 'newapi' },
                   { label: 'RixAPI', value: 'rixapi' },
                   { label: 'ShellAPI', value: 'shellapi' },
+                  { label: 'Sub2API', value: 'sub2api' },
                 ]}
               />
             </Form.Item>
@@ -181,11 +186,20 @@ export function InstanceCreateModal({
           </Col>
           <Col xs={24} md={12}>
             <Form.Item
+              name="quota_per_unit"
+              label="余额倍率"
+              extra="留空则使用远端识别值；Sub2API 未填写时默认 1.0。"
+            >
+              <InputNumber style={{ width: '100%' }} min={0.000001} precision={6} placeholder="例如：1.0" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
               name="username"
-              label="用户名"
+              label="用户名 / 邮箱"
               extra="使用账密登录时填写。与远端用户 ID + 访问密钥二选一即可。"
             >
-              <Input placeholder="远端站点用户名" />
+              <Input placeholder="远端站点用户名或邮箱" />
             </Form.Item>
           </Col>
           <Col xs={24} md={12}>

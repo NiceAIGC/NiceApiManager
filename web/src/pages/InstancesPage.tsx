@@ -6,11 +6,11 @@ import {
   Descriptions,
   Empty,
   Input,
-  Modal,
   Rate,
   Row,
   Select,
   Space,
+  Switch,
   Table,
   Tag,
   Typography,
@@ -21,7 +21,6 @@ import {
   EditOutlined,
   PlusOutlined,
   ReloadOutlined,
-  SafetyCertificateOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -33,7 +32,6 @@ import {
   deleteInstancesBatch,
   fetchInstances,
   syncInstance,
-  testInstance,
   updateInstance,
   updateInstancesBatch,
 } from '../api/instances';
@@ -48,7 +46,6 @@ import type {
   Instance,
   InstanceCreatePayload,
   InstanceQuery,
-  InstanceTestResponse,
   InstanceUpdatePayload,
 } from '../types/api';
 import { getErrorMessage } from '../api/client';
@@ -147,7 +144,6 @@ export function InstancesPage() {
   const [enabled, setEnabled] = useState<boolean | undefined>(undefined);
   const [healthStatus, setHealthStatus] = useState<string | undefined>(undefined);
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
-  const [testResult, setTestResult] = useState<InstanceTestResponse | null>(null);
   const [syncProgress, setSyncProgress] = useState<SyncProgressState>(INITIAL_SYNC_PROGRESS);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
@@ -280,18 +276,6 @@ export function InstancesPage() {
       setSelectedRowKeys([]);
       await refreshAllData();
       message.success(`批量删除完成，共删除 ${result.count} 个实例`);
-    },
-    onError: (error) => {
-      message.error(getErrorMessage(error));
-    },
-  });
-
-  const testMutation = useMutation({
-    mutationFn: (instanceId: number) => testInstance(instanceId),
-    onSuccess: async (result) => {
-      setTestResult(result);
-      await refreshAllData();
-      message.success('实例连通性测试成功');
     },
     onError: (error) => {
       message.error(getErrorMessage(error));
@@ -463,21 +447,21 @@ export function InstancesPage() {
         title: '优先级',
         dataIndex: 'priority',
         key: 'priority',
-        width: 150,
+        width: 76,
         defaultSortOrder: 'descend',
         sorter: (left, right) => left.priority - right.priority,
-        render: (value: number) => <Rate disabled count={5} value={value} />,
+        render: (value: number) => <Rate className="instance-priority-rate" disabled count={5} value={value} />,
       },
       {
         title: '实例',
         dataIndex: 'name',
         key: 'name',
         fixed: 'left',
-        width: 240,
+        width: 210,
         sorter: (left, right) => left.name.localeCompare(right.name),
         render: (value: string, record) => (
-          <Space direction="vertical" size={4}>
-            <Text strong>{value}</Text>
+          <Space direction="vertical" size={2} className="instance-name-cell">
+            <Text strong ellipsis={{ tooltip: value }}>{value}</Text>
             <Space size={[4, 4]} wrap>
               <StatusTag value={record.last_health_status} />
               <Tag color={getBillingModeTagColor(record.billing_mode)}>{formatBillingMode(record.billing_mode)}</Tag>
@@ -490,7 +474,7 @@ export function InstancesPage() {
         title: '当前余额',
         dataIndex: 'latest_display_quota',
         key: 'latest_display_quota',
-        width: 120,
+        width: 104,
         sorter: (left, right) => (left.latest_display_quota ?? -1) - (right.latest_display_quota ?? -1),
         render: (value: number | null | undefined, record) =>
           record.billing_mode === 'postpaid' ? (
@@ -503,15 +487,31 @@ export function InstancesPage() {
         title: '今日请求',
         dataIndex: 'today_request_count',
         key: 'today_request_count',
-        width: 110,
+        width: 92,
         sorter: (left, right) => left.today_request_count - right.today_request_count,
+        render: (value: number) => formatNumber(value),
+      },
+      {
+        title: '7日消耗',
+        dataIndex: 'last_7d_display_used_amount',
+        key: 'last_7d_display_used_amount',
+        width: 98,
+        sorter: (left, right) => left.last_7d_display_used_amount - right.last_7d_display_used_amount,
+        render: (value: number) => formatMoney(value),
+      },
+      {
+        title: '7日请求',
+        dataIndex: 'last_7d_request_count',
+        key: 'last_7d_request_count',
+        width: 92,
+        sorter: (left, right) => left.last_7d_request_count - right.last_7d_request_count,
         render: (value: number) => formatNumber(value),
       },
       {
         title: '最近同步',
         dataIndex: 'last_sync_at',
         key: 'last_sync_at',
-        width: 180,
+        width: 148,
         sorter: (left, right) => new Date(left.last_sync_at ?? 0).getTime() - new Date(right.last_sync_at ?? 0).getTime(),
         render: (value?: string | null) => formatDateTime(value),
       },
@@ -519,19 +519,38 @@ export function InstancesPage() {
         title: '操作',
         key: 'actions',
         fixed: 'right',
-        width: 220,
+        width: 178,
         render: (_: unknown, record: Instance) => (
-          <Space size={6}>
+          <Space size={4} className="instance-action-row">
+            <Switch
+              size="small"
+              checked={record.enabled}
+              loading={updateMutation.isPending && updateMutation.variables?.instanceId === record.id}
+              onClick={(checked, event) => {
+                event.stopPropagation();
+                updateMutation.mutate({
+                  instanceId: record.id,
+                  payload: {
+                    name: record.name,
+                    base_url: record.base_url,
+                    program_type: record.program_type,
+                    username: record.username,
+                    remote_user_id: record.remote_user_id,
+                    access_token: '',
+                    proxy_mode: record.proxy_mode,
+                    socks5_proxy_url: record.socks5_proxy_url ?? '',
+                    enabled: checked,
+                    billing_mode: record.billing_mode,
+                    quota_per_unit: record.quota_per_unit,
+                    priority: record.priority,
+                    sync_interval_minutes: record.sync_interval_minutes,
+                    tags: record.tags,
+                  },
+                });
+              }}
+            />
             <Button size="small" icon={<EditOutlined />} onClick={() => setEditingInstance(record)}>
               编辑
-            </Button>
-            <Button
-              size="small"
-              icon={<SafetyCertificateOutlined />}
-              loading={testMutation.isPending && testMutation.variables === record.id}
-              onClick={() => testMutation.mutate(record.id)}
-            >
-              测试
             </Button>
             <Button
               size="small"
@@ -546,7 +565,7 @@ export function InstancesPage() {
         ),
       },
     ],
-    [syncMutation, testMutation],
+    [syncMutation, updateMutation],
   );
 
   const pagination: TablePaginationConfig = {
@@ -669,6 +688,7 @@ export function InstancesPage() {
         </div>
 
         <Table
+          className="instances-compact-table"
           rowKey="id"
           size="small"
           sticky={{ offsetHeader: 80 }}
@@ -781,7 +801,7 @@ export function InstancesPage() {
               );
             },
           }}
-          scroll={{ x: 1600, y: 560 }}
+          scroll={{ x: 1120 }}
         />
       </Card>
 
@@ -790,6 +810,7 @@ export function InstancesPage() {
         loading={createMutation.isPending}
         mode="create"
         defaultSyncIntervalMinutes={appSettingsData?.default_sync_interval_minutes ?? 120}
+        defaultProxyMode={appSettingsData?.default_instance_proxy_mode ?? 'direct'}
         tagOptions={tagOptions}
         onCancel={() => setCreateOpen(false)}
         onSubmit={(values) => createMutation.mutate(values as InstanceCreatePayload)}
@@ -800,6 +821,7 @@ export function InstancesPage() {
         loading={batchCreateMutation.isPending}
         mode="create"
         defaultSyncIntervalMinutes={appSettingsData?.default_sync_interval_minutes ?? 120}
+        defaultProxyMode={appSettingsData?.default_instance_proxy_mode ?? 'direct'}
         tagOptions={tagOptions}
         onCancel={() => setBatchCreateOpen(false)}
         onSubmit={(items) => batchCreateMutation.mutate(items as InstanceCreatePayload[])}
@@ -833,36 +855,6 @@ export function InstancesPage() {
         onCancel={() => setBatchEditOpen(false)}
         onSubmit={(items) => batchUpdateMutation.mutate(items as BatchInstanceUpdatePayload[])}
       />
-
-      <Modal
-        title="测试结果"
-        open={Boolean(testResult)}
-        onCancel={() => setTestResult(null)}
-        footer={null}
-        destroyOnHidden
-      >
-        {testResult ? (
-          <Descriptions bordered size="small" column={1}>
-            <Descriptions.Item label="程序类型">{formatProgramType(testResult.program_type)}</Descriptions.Item>
-            <Descriptions.Item label="远端用户 ID">{testResult.remote_user_id}</Descriptions.Item>
-            <Descriptions.Item label="远端用户名">{testResult.remote_username}</Descriptions.Item>
-            <Descriptions.Item label="远端分组">{testResult.remote_group || '-'}</Descriptions.Item>
-            <Descriptions.Item label="计费方式">{formatBillingMode(testResult.billing_mode)}</Descriptions.Item>
-            {testResult.billing_mode === 'prepaid' ? (
-              <Descriptions.Item label="内部额度">{formatNumber(testResult.quota)}</Descriptions.Item>
-            ) : null}
-            <Descriptions.Item label="内部已用额度">{formatNumber(testResult.used_quota)}</Descriptions.Item>
-            {testResult.billing_mode === 'prepaid' ? (
-              <Descriptions.Item label="显示余额">{formatMoney(testResult.display_quota)}</Descriptions.Item>
-            ) : null}
-            <Descriptions.Item label="周期已用额度">{formatMoney(testResult.display_used_quota)}</Descriptions.Item>
-            <Descriptions.Item label="quota_per_unit">{formatNumber(testResult.quota_per_unit)}</Descriptions.Item>
-            <Descriptions.Item label="请求数">{testResult.request_count}</Descriptions.Item>
-            <Descriptions.Item label="分组数量">{testResult.group_count}</Descriptions.Item>
-            <Descriptions.Item label="定价模型数量">{testResult.pricing_model_count}</Descriptions.Item>
-          </Descriptions>
-        ) : null}
-      </Modal>
 
       <SyncProgressModal
         open={syncProgress.open}
