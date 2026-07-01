@@ -6,6 +6,7 @@ import { GroupsPage } from '../pages/GroupsPage';
 import { InstancesPage } from '../pages/InstancesPage';
 import { LoginPage } from '../pages/LoginPage';
 import { LogsPage } from '../pages/LogsPage';
+import { NotificationsPage } from '../pages/NotificationsPage';
 import { PricingPage } from '../pages/PricingPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { SyncRunsPage } from '../pages/SyncRunsPage';
@@ -46,6 +47,10 @@ export const router = createBrowserRouter([
           {
             path: 'logs',
             element: <LogsPage />,
+          },
+          {
+            path: 'notifications',
+            element: <NotificationsPage />,
           },
           {
             path: 'sync-runs',

@@ -142,6 +142,10 @@ def _evaluate_low_balance_rules(db: Session, *, instances: list[Instance], now) 
     runtime_settings = get_runtime_app_settings(db)
     for rule in runtime_settings.notification_rules.low_balance_rules:
         state_map = _load_rule_states(db, rule_type="low_balance", rule_id=rule.id)
+        if not rule.enabled:
+            _delete_stale_rule_states(db, state_map, set())
+            continue
+
         seen_target_keys: set[str] = set()
         channels = _resolve_channels(runtime_settings.notification_channels, selected_channel_ids=rule.channel_ids)
 
@@ -315,6 +319,10 @@ def _evaluate_connectivity_failure_rules(
     runtime_settings = get_runtime_app_settings(db)
     for rule in runtime_settings.notification_rules.connectivity_failure_rules:
         state_map = _load_rule_states(db, rule_type="connectivity_failure", rule_id=rule.id)
+        if not rule.enabled:
+            _delete_stale_rule_states(db, state_map, set())
+            continue
+
         seen_target_keys: set[str] = set()
         channels = _resolve_channels(runtime_settings.notification_channels, selected_channel_ids=rule.channel_ids)
 
@@ -331,7 +339,7 @@ def _evaluate_connectivity_failure_rules(
                 target_key=target_key,
             )
             item = connectivity.get(instance.id, _ConnectivitySummary(streak=0, last_status=None, last_error=None))
-            is_active = rule.enabled and item.streak >= rule.consecutive_failures
+            is_active = item.streak >= rule.consecutive_failures
             is_resolved = item.streak == 0 and item.last_status == "success"
             title = f"【连续连接失败】{instance.name}"
             body = (

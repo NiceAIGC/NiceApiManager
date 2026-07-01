@@ -1,6 +1,7 @@
 import {
   DashboardOutlined,
   DatabaseOutlined,
+  BellOutlined,
   LineChartOutlined,
   LogoutOutlined,
   MenuOutlined,
@@ -46,6 +47,11 @@ const menuItems = [
     key: '/logs',
     icon: <ReloadOutlined />,
     label: '日志记录',
+  },
+  {
+    key: '/notifications',
+    icon: <BellOutlined />,
+    label: '告警通知',
   },
   {
     key: '/settings',
@@ -147,7 +153,6 @@ export function AppLayout() {
               <Typography.Title level={4} className="app-header-title">
                 {pageTitle}
               </Typography.Title>
-              <Text type="secondary">前后端一体部署的中转站管理台</Text>
             </Space>
           </Space>
           <Space>
