@@ -19,12 +19,12 @@ export function normalizeBaseUrl(value: string): string {
 export function normalizeInstancePayload<T extends InstanceCreatePayload | InstanceUpdatePayload>(payload: T): T {
   return {
     ...payload,
-    name: payload.name.trim(),
+    name: payload.name?.trim() ?? '',
     remark: payload.remark?.trim(),
-    base_url: normalizeBaseUrl(payload.base_url),
-    username: payload.username.trim(),
+    base_url: normalizeBaseUrl(payload.base_url ?? ''),
+    username: payload.username?.trim() ?? '',
     socks5_proxy_url: payload.socks5_proxy_url?.trim(),
     access_token: payload.access_token?.trim(),
-    tags: Array.from(new Set(payload.tags.map((item) => item.trim()).filter(Boolean))),
+    tags: Array.from(new Set((payload.tags ?? []).map((item) => item.trim()).filter(Boolean))),
   };
 }
