@@ -23,9 +23,10 @@ import {
   PlusOutlined,
   ReloadOutlined,
   SyncOutlined,
+  UpOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
   createInstance,
@@ -148,17 +149,35 @@ function buildLinePath(points: Array<{ x: number; y: number }>) {
 
 interface InstanceUsageLineChartProps {
   title: string;
-  caption: string;
   points: Instance['last_7d_usage'];
   valueKey: 'used_display_amount' | 'request_count';
   color: string;
   formatValue: (value: number) => string;
 }
 
-function InstanceUsageLineChart({ title, caption, points, valueKey, color, formatValue }: InstanceUsageLineChartProps) {
-  const width = 520;
-  const height = 210;
-  const padding = 34;
+function InstanceUsageLineChart({ title, points, valueKey, color, formatValue }: InstanceUsageLineChartProps) {
+  const plotRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(520);
+  const height = 150;
+  const padding = 28;
+
+  useLayoutEffect(() => {
+    const node = plotRef.current;
+    if (!node) {
+      return;
+    }
+    const update = () => {
+      const measured = node.clientWidth;
+      if (measured > 0) {
+        setWidth(measured);
+      }
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   const values = points.map((item) => item[valueKey]);
   const chartPoints = buildChartPoints(values, width, height, padding);
   const path = buildLinePath(chartPoints);
@@ -170,26 +189,20 @@ function InstanceUsageLineChart({ title, caption, points, valueKey, color, forma
   return (
     <div className="instance-expanded-line-card">
       <div className="instance-expanded-line-card-header">
-        <Space direction="vertical" size={2}>
-          <Text strong>{title}</Text>
-          <Text type="secondary">{caption}</Text>
-        </Space>
-        <Tag bordered={false} style={{ color, backgroundColor: `${color}1a`, marginInlineEnd: 0 }}>
-          合计 {formatValue(total)}
-        </Tag>
+        <Text strong>{title}</Text>
+        <span className="instance-expanded-line-stats">
+          <span>合计 <strong style={{ color }}>{formatValue(total)}</strong></span>
+          <span>峰值 <strong>{formatValue(peak)}</strong></span>
+          <span>日均 <strong>{formatValue(total / Math.max(points.length, 1))}</strong></span>
+        </span>
       </div>
-      <div className="instance-expanded-line-metrics">
-        <div>
-          <Text type="secondary">峰值</Text>
-          <strong>{formatValue(peak)}</strong>
-        </div>
-        <div>
-          <Text type="secondary">日均</Text>
-          <strong>{formatValue(total / Math.max(points.length, 1))}</strong>
-        </div>
-      </div>
-      <div className="instance-expanded-line-plot">
-        <svg viewBox={`0 0 ${width} ${height}`} className="instance-expanded-chart-svg" role="img">
+      <div className="instance-expanded-line-plot" ref={plotRef}>
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          className="instance-expanded-chart-svg"
+          role="img"
+        >
           {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
             <line
               key={ratio}
@@ -213,6 +226,7 @@ function InstanceUsageLineChart({ title, caption, points, valueKey, color, forma
                   r={4}
                   className="instance-expanded-chart-dot"
                   style={{ stroke: color }}
+                  vectorEffect="non-scaling-stroke"
                 />
                 <text x={x} y={height - 8} textAnchor="middle" className="instance-expanded-chart-label">
                   {point.label}
@@ -270,33 +284,17 @@ function InstanceUsageSparkline({ points }: { points: Instance['last_7d_usage'] 
   return (
     <div className="instance-expanded-chart">
       <div className="instance-expanded-chart-header">
-        <Space direction="vertical" size={2}>
-          <Text strong>近 7 天用量趋势</Text>
-          <Text type="secondary">左侧展示额度消耗，右侧展示请求次数；悬浮任意日期查看对应指标。</Text>
-        </Space>
-      </div>
-      <div className="instance-expanded-chart-metrics">
-        <div>
-          <Text type="secondary">7 日消耗</Text>
-          <div className="instance-expanded-chart-metric-value">{formatMoney(totalUsed)}</div>
-        </div>
-        <div>
-          <Text type="secondary">日均消耗</Text>
-          <div className="instance-expanded-chart-metric-value">{formatMoney(avgUsed)}</div>
-        </div>
-        <div>
-          <Text type="secondary">7 日调用</Text>
-          <div className="instance-expanded-chart-metric-value">{formatNumber(totalRequests)}</div>
-        </div>
-        <div>
-          <Text type="secondary">峰值调用</Text>
-          <div className="instance-expanded-chart-metric-value">{formatNumber(Math.max(...requestValues, 0))}</div>
+        <Text strong>近 7 天用量趋势</Text>
+        <div className="instance-expanded-chart-metrics">
+          <span>7 日消耗 <strong>{formatMoney(totalUsed)}</strong></span>
+          <span>日均消耗 <strong>{formatMoney(avgUsed)}</strong></span>
+          <span>7 日调用 <strong>{formatNumber(totalRequests)}</strong></span>
+          <span>峰值调用 <strong>{formatNumber(Math.max(...requestValues, 0))}</strong></span>
         </div>
       </div>
       <div className="instance-expanded-chart-grid-layout">
         <InstanceUsageLineChart
           title="额度消耗"
-          caption="按日统计 display quota 消耗"
           points={normalizedPoints}
           valueKey="used_display_amount"
           color="#16a34a"
@@ -304,7 +302,6 @@ function InstanceUsageSparkline({ points }: { points: Instance['last_7d_usage'] 
         />
         <InstanceUsageLineChart
           title="请求次数"
-          caption="按日统计调用总次数"
           points={normalizedPoints}
           valueKey="request_count"
           color="#2563eb"
@@ -331,6 +328,7 @@ export function InstancesPage() {
   const [syncProgress, setSyncProgress] = useState<SyncProgressState>(INITIAL_SYNC_PROGRESS);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
+  const [expandedRowKeys, setExpandedRowKeys] = useState<number[]>([]);
 
   const filters = useMemo<InstanceQuery>(
     () => ({
@@ -904,6 +902,8 @@ export function InstancesPage() {
           }}
           expandable={{
             expandRowByClick: true,
+            expandedRowKeys,
+            onExpandedRowsChange: (keys) => setExpandedRowKeys(keys.map((item) => Number(item))),
             expandedRowRender: (record) => {
               const proxyMeta = formatProxyMode(record);
               const proxyDetail =
@@ -921,11 +921,6 @@ export function InstancesPage() {
                     column={2}
                     items={[
                       {
-                        key: 'remark',
-                        label: '备注',
-                        children: record.remark || '-',
-                      },
-                      {
                         key: 'base_url',
                         label: '实例地址',
                         children: (
@@ -933,6 +928,11 @@ export function InstancesPage() {
                             {record.base_url}
                           </Link>
                         ),
+                      },
+                      {
+                        key: 'remark',
+                        label: '备注',
+                        children: record.remark || '-',
                       },
                       {
                         key: 'auth',
@@ -997,6 +997,40 @@ export function InstancesPage() {
                     ]}
                   />
                   <InstanceUsageSparkline points={record.last_7d_usage ?? []} />
+                  <div className="instance-expanded-actions">
+                    <Button
+                      size="small"
+                      icon={<EditOutlined />}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditingInstance(record);
+                      }}
+                    >
+                      编辑
+                    </Button>
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<SyncOutlined />}
+                      loading={syncMutation.isPending && syncMutation.variables === record.id}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        syncMutation.mutate(record.id);
+                      }}
+                    >
+                      同步
+                    </Button>
+                    <Button
+                      size="small"
+                      icon={<UpOutlined />}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setExpandedRowKeys((keys) => keys.filter((key) => key !== record.id));
+                      }}
+                    >
+                      收起
+                    </Button>
+                  </div>
                 </Space>
               );
             },
