@@ -158,6 +158,30 @@ a {
   gap: 18px;
 }
 
+.notification-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.rule-scope-hint {
+  display: block;
+  margin: -4px 0 8px;
+  line-height: 1.6;
+}
+
+.notification-guide-drawer .guide-steps {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  line-height: 1.75;
+}
+
+.notification-guide-drawer .guide-steps > li {
+  margin-bottom: 2px;
+}
+
 .dashboard-filter-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

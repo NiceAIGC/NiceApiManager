@@ -1,4 +1,4 @@
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -8,6 +8,7 @@ import {
   Col,
   Collapse,
   Divider,
+  Drawer,
   Form,
   Input,
   InputNumber,
@@ -15,9 +16,10 @@ import {
   Select,
   Space,
   Switch,
+  Tag,
   Typography,
 } from 'antd';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { getErrorMessage } from '../api/client';
 import { fetchInstances } from '../api/instances';
@@ -366,10 +368,149 @@ function buildSettingsPayload(values: NotificationSettingsFormValues, current?: 
   };
 }
 
+const guideStep = (text: string) => <li>{text}</li>;
+
+const guideItems = [
+  {
+    key: 'recipes',
+    label: '① 常用配方（先看这里）',
+    children: (
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <div>
+          <Paragraph strong style={{ marginBottom: 6 }}>
+            <Tag color="orange">场景 A</Tag>某标签下「任意一个」实例余额过低就告警
+          </Paragraph>
+          <ol className="guide-steps">
+            {guideStep('到「实例余额规则」，新增或编辑一条规则。')}
+            {guideStep('展开卡片里的「高级匹配与去重」，在「标签筛选」里选中目标标签（如 core）。')}
+            {guideStep('把「触发阈值」设为想要的余额下限，例如 50。')}
+            {guideStep('保存。此后该标签下任何一个预付费实例余额 ≤ 50 都会单独告警。')}
+          </ol>
+          <Text type="secondary">要点：这类规则逐个实例判断，命中一个报一个，互不影响。</Text>
+        </div>
+        <div>
+          <Paragraph strong style={{ marginBottom: 6 }}>
+            <Tag color="geekblue">场景 B</Tag>几个实例「合计」余额过低才告警
+          </Paragraph>
+          <ol className="guide-steps">
+            {guideStep('到「聚合余额规则」，新增一条规则。')}
+            {guideStep('在「实例列表」里勾选要合并统计的实例，或用「标签筛选」按标签圈一批。')}
+            {guideStep('把「总余额阈值」设为合计下限，例如 100。')}
+            {guideStep('保存。此后这批实例余额相加 ≤ 100 才会告警（单个再低也不单独报）。')}
+          </ol>
+          <Text type="secondary">要点：这类规则把范围内余额求和后整体判断，只发一条聚合告警。</Text>
+        </div>
+      </Space>
+    ),
+  },
+  {
+    key: 'overview',
+    label: '② 系统总览：告警怎么触发的',
+    children: (
+      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        <Paragraph style={{ marginBottom: 0 }}>
+          开启「启用通知巡检」后，后台按「通知巡检间隔」定时把每条<Text strong>启用</Text>的规则跑一遍：
+        </Paragraph>
+        <ul className="guide-steps">
+          <li>命中阈值 → 视为「告警中」，向该规则的渠道推送一条告警（可要求连续命中多次才发，见去重）。</li>
+          <li>持续命中 → 按「重复提醒间隔」周期性再次提醒，不会每次巡检都刷屏。</li>
+          <li>恢复到「恢复阈值」以上 → 状态转为正常，若开了「恢复通知」会再发一条恢复消息。</li>
+        </ul>
+        <Text type="secondary">关闭巡检后不会自动检查，但仍可用右上角「发送测试通知」验证渠道连通性。</Text>
+      </Space>
+    ),
+  },
+  {
+    key: 'channels',
+    label: '③ 通知渠道',
+    children: (
+      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        <Paragraph style={{ marginBottom: 0 }}>
+          内置企业微信机器人、Bark、Telegram Bot、钉钉机器人的友好表单，填好会自动生成 Apprise URL；更冷门的渠道选「自定义 Apprise URL」直接填原始地址。
+        </Paragraph>
+        <ul className="guide-steps">
+          <li>渠道需「启用」才会真正投递。</li>
+          <li>规则里的「通知渠道」<Text strong>留空</Text>＝发送到全部已启用渠道；也可指定只发某几个。</li>
+          <li>先点「发送测试通知」确认能收到，再配规则。</li>
+        </ul>
+      </Space>
+    ),
+  },
+  {
+    key: 'scope',
+    label: '④ 作用范围与匹配逻辑',
+    children: (
+      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        <Paragraph style={{ marginBottom: 0 }}>每条规则用「指定实例 / 标签筛选」圈定作用范围：</Paragraph>
+        <ul className="guide-steps">
+          <li>都不填 → 匹配<Text strong>全部</Text>实例。</li>
+          <li>只填标签 → 命中带任一标签的实例。</li>
+          <li>只填实例 → 命中所选实例。</li>
+          <li>两者都填 → 取<Text strong>并集</Text>（满足其一即命中）。</li>
+          <li>「包含停用实例」默认关闭，即停用实例不参与判断。</li>
+        </ul>
+        <Text type="secondary">余额类规则只对「预付费」实例生效，后付费实例会自动跳过。</Text>
+      </Space>
+    ),
+  },
+  {
+    key: 'threshold',
+    label: '⑤ 阈值、去重与恢复',
+    children: (
+      <ul className="guide-steps">
+        <li>
+          <Text strong>触发阈值</Text>：余额 ≤ 它就算命中（聚合规则是合计 ≤ 它）。
+        </li>
+        <li>
+          <Text strong>恢复阈值</Text>：余额回到 ≥ 它才算恢复；必须大于触发阈值。留空默认取触发阈值的 1.2 倍，用这个「缓冲带」避免在阈值附近反复告警/恢复。
+        </li>
+        <li>
+          <Text strong>连续命中次数</Text>：连续多少次巡检都低于阈值才首次告警，用来过滤抖动。
+        </li>
+        <li>
+          <Text strong>重复提醒间隔</Text>：已告警且仍未恢复时，每隔多少分钟再提醒一次。
+        </li>
+        <li>
+          <Text strong>级别</Text>：严重 / 预警，仅影响通知的类型标识与图标。
+        </li>
+        <li>
+          <Text strong>恢复通知</Text>：开启后余额回升会补发一条恢复消息。
+        </li>
+      </ul>
+    ),
+  },
+  {
+    key: 'connectivity',
+    label: '⑥ 连接失败规则',
+    children: (
+      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        <Paragraph style={{ marginBottom: 0 }}>
+          当某实例<Text strong>连续</Text>同步失败达到设定次数时告警，用于发现掉线、令牌失效、代理不通等问题。范围与恢复逻辑同上，最近一次同步成功即视为恢复。
+        </Paragraph>
+      </Space>
+    ),
+  },
+  {
+    key: 'troubleshoot',
+    label: '⑦ 没收到告警？排查清单',
+    children: (
+      <ul className="guide-steps">
+        <li>「启用通知巡检」是否已开启并保存。</li>
+        <li>渠道是否「启用」，测试通知能否收到。</li>
+        <li>规则是否「启用」，作用范围是否真的覆盖到目标实例。</li>
+        <li>余额类规则：目标是否为预付费实例、是否已同步出余额（余额为空会跳过）。</li>
+        <li>是否设了较大的「连续命中次数」或「重复提醒间隔」导致延迟。</li>
+        <li>刚触发过、仍在重复间隔内，属正常抑制，可到「通知日志」页核对投递记录。</li>
+      </ul>
+    ),
+  },
+];
+
 export function NotificationsPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<NotificationSettingsFormValues>();
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['app-settings'],
@@ -478,13 +619,18 @@ export function NotificationsPage() {
     >
       <div className="page-stack">
         <Card className="section-card" loading={isLoading}>
-          <Space direction="vertical" size={4}>
-            <Typography.Title level={4} style={{ margin: 0 }}>
-              告警通知
-            </Typography.Title>
-            <Text type="secondary">配置通知渠道、余额告警和连接失败告警；规则保存后会由后台巡检定时执行。</Text>
-            {data?.updated_at ? <Text type="secondary">最近更新：{formatDateTime(data.updated_at)}</Text> : null}
-          </Space>
+          <div className="notification-header">
+            <Space direction="vertical" size={4}>
+              <Typography.Title level={4} style={{ margin: 0 }}>
+                告警通知
+              </Typography.Title>
+              <Text type="secondary">配置通知渠道、余额告警和连接失败告警；规则保存后会由后台巡检定时执行。</Text>
+              {data?.updated_at ? <Text type="secondary">最近更新：{formatDateTime(data.updated_at)}</Text> : null}
+            </Space>
+            <Button icon={<QuestionCircleOutlined />} onClick={() => setGuideOpen(true)}>
+              使用说明
+            </Button>
+          </div>
         </Card>
 
         <Card
@@ -759,6 +905,9 @@ export function NotificationsPage() {
             </Form.List>
 
             <Divider orientation="left">实例余额规则</Divider>
+            <Text type="secondary" className="rule-scope-hint">
+              逐个实例判断：作用范围内<Text strong>任意一个</Text>预付费实例余额 ≤ 触发阈值就单独告警。想「某标签下任意一个余额过低就提醒」时，在下方展开「高级匹配与去重」里填标签筛选即可。
+            </Text>
             <Form.List name={['notification_rules', 'low_balance_rules']}>
               {(fields, { add, remove }) => (
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -895,6 +1044,9 @@ export function NotificationsPage() {
             </Form.List>
 
             <Divider orientation="left">聚合余额规则</Divider>
+            <Text type="secondary" className="rule-scope-hint">
+              合并统计：把作用范围内所有预付费实例余额<Text strong>加起来</Text>，总额 ≤ 总余额阈值才告警。适合「几个实例合计余额过低就提醒」，可按实例或标签圈定范围。
+            </Text>
             <Form.List name={['notification_rules', 'aggregate_balance_rules']}>
               {(fields, { add, remove }) => (
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -1147,6 +1299,28 @@ export function NotificationsPage() {
           保存告警通知
         </Button>
       </div>
+
+      <Drawer
+        title="告警通知使用说明"
+        placement="right"
+        width={Math.min(560, typeof window !== 'undefined' ? window.innerWidth : 560)}
+        open={guideOpen}
+        onClose={() => setGuideOpen(false)}
+        className="notification-guide-drawer"
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Alert
+            type="success"
+            showIcon
+            message="你想要的两种告警都已内置"
+            description="「某标签下任意一个实例余额过低」用实例余额规则 + 标签筛选；「几个实例合计余额过低」用聚合余额规则。下面每一节都有对应配方。"
+          />
+          <Collapse accordion defaultActiveKey="recipes" items={guideItems} />
+          <Text type="secondary">
+            配置改动保存后才生效；发送历史可在「通知日志」页查看每条告警的投递结果。
+          </Text>
+        </Space>
+      </Drawer>
     </Form>
   );
 }
