@@ -15,6 +15,7 @@ interface InstanceCreateModalProps {
   defaultSyncIntervalMinutes?: number;
   defaultProxyMode?: InstanceCreatePayload['proxy_mode'];
   tagOptions?: Array<{ label: string; value: string }>;
+  notificationChannelOptions?: Array<{ label: string; value: string }>;
   onCancel: () => void;
   onSubmit: (values: InstanceCreatePayload | InstanceUpdatePayload) => void;
 }
@@ -34,6 +35,7 @@ export function InstanceCreateModal({
   defaultSyncIntervalMinutes = 120,
   defaultProxyMode = 'direct',
   tagOptions,
+  notificationChannelOptions = [],
   onCancel,
   onSubmit,
 }: InstanceCreateModalProps) {
@@ -63,6 +65,9 @@ export function InstanceCreateModal({
         priority: initialValues?.priority ?? 3,
         sync_interval_minutes: initialValues?.sync_interval_minutes ?? defaultSyncIntervalMinutes,
         tags: initialValues?.tags ?? [],
+        balance_alert_enabled: initialValues?.balance_alert_enabled ?? false,
+        balance_alert_threshold: initialValues?.balance_alert_threshold ?? undefined,
+        notification_channel_ids: initialValues?.notification_channel_ids ?? [],
       });
     } else {
       form.resetFields();
@@ -254,6 +259,42 @@ export function InstanceCreateModal({
               <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} addonAfter="分钟" />
             </Form.Item>
           </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="balance_alert_enabled"
+              label="余额告警通知"
+              valuePropName="checked"
+              extra={mode === 'create' ? '新建默认关闭；开启后余额低于阈值时直接通知。' : '快捷规则；高级匹配请到“告警通知”统一管理。'}
+            >
+              <Switch checkedChildren="已开启" unCheckedChildren="未开启" />
+            </Form.Item>
+          </Col>
+          <Form.Item noStyle shouldUpdate={(prev, next) => prev.balance_alert_enabled !== next.balance_alert_enabled}>
+            {() =>
+              form.getFieldValue('balance_alert_enabled') ? (
+                <>
+                  <Col xs={24} md={12}>
+                    <Form.Item
+                      name="balance_alert_threshold"
+                      label="余额告警阈值"
+                      extra="留空使用全局默认值。"
+                    >
+                      <InputNumber style={{ width: '100%' }} min={0.01} placeholder="使用全局默认值" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24}>
+                    <Form.Item
+                      name="notification_channel_ids"
+                      label="发送渠道"
+                      extra="留空走默认通知渠道；可选择多个实例专属渠道。"
+                    >
+                      <Select mode="multiple" allowClear options={notificationChannelOptions} placeholder="默认通知渠道" />
+                    </Form.Item>
+                  </Col>
+                </>
+              ) : null
+            }
+          </Form.Item>
           <Col xs={24}>
             <Collapse
               ghost

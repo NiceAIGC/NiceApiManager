@@ -285,12 +285,14 @@ class NewAPIClient:
 
         normalized: dict[str, Any] = {}
         for group_name, row in payload.items():
-            if not isinstance(row, dict):
+            if isinstance(row, dict):
+                normalized[str(group_name)] = {
+                    "desc": row.get("desc") or row.get("Description"),
+                    "ratio": row.get("ratio", row.get("GroupRatio", 0)),
+                }
                 continue
-            normalized[str(group_name)] = {
-                "desc": row.get("desc") or row.get("Description"),
-                "ratio": row.get("ratio", row.get("GroupRatio", 0)),
-            }
+            if isinstance(row, (int, float)):
+                normalized[str(group_name)] = {"desc": None, "ratio": row}
         return normalized
 
     def _normalize_pricing_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -299,9 +301,13 @@ class NewAPIClient:
 
         if isinstance(data_section, list):
             return {
-                "data": data_section,
+                "data": [
+                    self._normalize_newapi_model_row(row)
+                    for row in data_section
+                    if isinstance(row, dict)
+                ],
                 "vendors": list(payload.get("vendors") or []),
-                "group_data": {},
+                "group_data": self._normalize_group_payload(payload.get("group_ratio") or {}),
             }
 
         if isinstance(data_section, dict) and "model_info" in data_section:
@@ -319,6 +325,19 @@ class NewAPIClient:
             return self._normalize_shell_pricing_payload(data_section)
 
         return {"data": [], "vendors": [], "group_data": {}}
+
+    @staticmethod
+    def _normalize_newapi_model_row(row: dict[str, Any]) -> dict[str, Any]:
+        """Preserve modern NewAPI pricing fields in one stable row shape."""
+        normalized = dict(row)
+        normalized["completion_ratio"] = row.get("completion_ratio", row.get("model_completion_ratio", 0))
+        normalized["enable_groups"] = list(row.get("enable_groups") or [])
+        normalized["supported_endpoint_types"] = list(row.get("supported_endpoint_types") or [])
+        normalized["cache_ratio"] = row.get("cache_ratio")
+        normalized["create_cache_ratio"] = row.get("create_cache_ratio")
+        normalized["billing_mode"] = row.get("billing_mode")
+        return normalized
+
 
     def _normalize_rix_model_row(self, row: dict[str, Any]) -> dict[str, Any]:
         """Flatten one RixAPI pricing row into the stored pricing schema."""

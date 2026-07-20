@@ -28,6 +28,7 @@ DEFAULT_SYNC_MAX_WORKERS = 5
 DEFAULT_SYNC_HISTORY_LOOKBACK_DAYS = 30
 DEFAULT_SYNC_INTERVAL_MINUTES = 120
 DEFAULT_NOTIFICATION_CHECK_INTERVAL_MINUTES = 5
+DEFAULT_BALANCE_ALERT_THRESHOLD = 50.0
 DEFAULT_INSTANCE_PROXY_MODE = "direct"
 _CHANNEL_LIST_ADAPTER = TypeAdapter(list[NotificationChannelConfig])
 _RULE_SET_ADAPTER = TypeAdapter(NotificationRuleSet)
@@ -46,6 +47,8 @@ class RuntimeAppSettings:
     shared_socks5_proxy_url: str | None
     default_instance_proxy_mode: str
     notification_enabled: bool
+    default_balance_alert_threshold: float
+    default_notification_channel_id: str | None
     notification_check_interval_minutes: int
     notification_channels: list[NotificationChannelConfig]
     notification_rules: NotificationRuleSet
@@ -95,6 +98,16 @@ def get_runtime_app_settings(db: Session) -> RuntimeAppSettings:
         shared_socks5_proxy_url=normalize_socks5_proxy_url(row.shared_socks5_proxy_url if row else None),
         default_instance_proxy_mode=_coerce_proxy_mode(row.default_instance_proxy_mode if row else None),
         notification_enabled=bool(row.notification_enabled) if row and row.notification_enabled is not None else False,
+        default_balance_alert_threshold=_coerce_float(
+            row.default_balance_alert_threshold if row else None,
+            default=DEFAULT_BALANCE_ALERT_THRESHOLD,
+            minimum=0.01,
+            maximum=1_000_000_000.0,
+        ),
+        default_notification_channel_id=_resolve_default_notification_channel_id(
+            notification_channels,
+            row.default_notification_channel_id if row else None,
+        ),
         notification_check_interval_minutes=_coerce_int(
             row.notification_check_interval_minutes if row else None,
             default=DEFAULT_NOTIFICATION_CHECK_INTERVAL_MINUTES,
@@ -120,6 +133,8 @@ def build_app_settings_response(db: Session) -> AppSettingsResponse:
         shared_socks5_proxy_url=runtime.shared_socks5_proxy_url,
         default_instance_proxy_mode=runtime.default_instance_proxy_mode,
         notification_enabled=runtime.notification_enabled,
+        default_balance_alert_threshold=runtime.default_balance_alert_threshold,
+        default_notification_channel_id=runtime.default_notification_channel_id,
         notification_check_interval_minutes=runtime.notification_check_interval_minutes,
         notification_channels=runtime.notification_channels,
         notification_rules=runtime.notification_rules,
@@ -146,6 +161,8 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
     row.shared_socks5_proxy_url = normalize_socks5_proxy_url(payload.shared_socks5_proxy_url)
     row.default_instance_proxy_mode = _coerce_proxy_mode(payload.default_instance_proxy_mode)
     row.notification_enabled = payload.notification_enabled
+    row.default_balance_alert_threshold = payload.default_balance_alert_threshold
+    row.default_notification_channel_id = payload.default_notification_channel_id
     row.notification_check_interval_minutes = payload.notification_check_interval_minutes
     row.notification_channels_json = [item.model_dump(mode="json") for item in payload.notification_channels]
     row.notification_rules_json = payload.notification_rules.model_dump(mode="json")
@@ -164,6 +181,11 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
         shared_socks5_proxy_url=row.shared_socks5_proxy_url,
         default_instance_proxy_mode=_coerce_proxy_mode(row.default_instance_proxy_mode),
         notification_enabled=bool(row.notification_enabled),
+        default_balance_alert_threshold=row.default_balance_alert_threshold or DEFAULT_BALANCE_ALERT_THRESHOLD,
+        default_notification_channel_id=_resolve_default_notification_channel_id(
+            _parse_notification_channels(row.notification_channels_json),
+            row.default_notification_channel_id,
+        ),
         notification_check_interval_minutes=row.notification_check_interval_minutes or DEFAULT_NOTIFICATION_CHECK_INTERVAL_MINUTES,
         notification_channels=_parse_notification_channels(row.notification_channels_json),
         notification_rules=_parse_notification_rules(row.notification_rules_json),
@@ -209,9 +231,30 @@ def _parse_notification_rules(value: object) -> NotificationRuleSet:
         return build_default_notification_rules()
 
 
+def _resolve_default_notification_channel_id(
+    channels: list[NotificationChannelConfig],
+    configured_channel_id: str | None,
+) -> str | None:
+    """Use the configured default, then fall back to the first enabled channel."""
+    enabled_channel_ids = {item.id for item in channels if item.enabled}
+    if configured_channel_id in enabled_channel_ids:
+        return configured_channel_id
+    return next((item.id for item in channels if item.enabled), None)
+
+
 def _validate_notification_channel_references(payload: AppSettingsUpdateRequest) -> None:
     """Ensure each rule references channels that exist in the same payload."""
     channel_ids = {item.id for item in payload.notification_channels}
+    if payload.default_notification_channel_id is not None:
+        default_channel = next(
+            (item for item in payload.notification_channels if item.id == payload.default_notification_channel_id),
+            None,
+        )
+        if default_channel is None or not default_channel.enabled:
+            payload.default_notification_channel_id = next(
+                (item.id for item in payload.notification_channels if item.enabled),
+                None,
+            )
     for rule in payload.notification_rules.low_balance_rules:
         _assert_rule_channel_ids(rule.channel_ids, channel_ids, rule.name)
     for rule in payload.notification_rules.aggregate_balance_rules:
@@ -238,6 +281,8 @@ def _purge_removed_notification_states(db: Session, rules: NotificationRuleSet) 
     }
 
     for state in db.scalars(select(NotificationRuleState)).all():
+        if state.rule_type == "instance_balance":
+            continue
         if (state.rule_type, state.rule_id) not in active_rule_keys:
             db.delete(state)
 

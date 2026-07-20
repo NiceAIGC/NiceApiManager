@@ -24,6 +24,9 @@ class InstanceCreate(BaseModel):
     proxy_mode: ProxyMode = "direct"
     socks5_proxy_url: str | None = None
     enabled: bool = True
+    balance_alert_enabled: bool = False
+    balance_alert_threshold: float | None = Field(default=None, gt=0, le=1000000000)
+    notification_channel_ids: list[str] = Field(default_factory=list)
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     quota_per_unit: float | None = Field(default=None, gt=0)
     priority: int = Field(default=3, ge=1, le=5)
@@ -62,6 +65,9 @@ class InstanceUpdate(BaseModel):
     proxy_mode: ProxyMode = "direct"
     socks5_proxy_url: str | None = None
     enabled: bool = True
+    balance_alert_enabled: bool = False
+    balance_alert_threshold: float | None = Field(default=None, gt=0, le=1000000000)
+    notification_channel_ids: list[str] = Field(default_factory=list)
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     quota_per_unit: float | None = Field(default=None, gt=0)
     priority: int = Field(default=3, ge=1, le=5)
@@ -97,6 +103,11 @@ class InstanceResponse(BaseModel):
     username: str
     proxy_mode: ProxyMode
     enabled: bool
+    auto_disabled: bool = False
+    balance_alert_enabled: bool = False
+    balance_alert_threshold: float | None = None
+    effective_balance_alert_threshold: float | None = None
+    notification_channel_ids: list[str] = Field(default_factory=list)
     billing_mode: Literal["prepaid", "postpaid"]
     priority: int
     tags: list[str] = Field(default_factory=list)
@@ -106,6 +117,7 @@ class InstanceResponse(BaseModel):
     latest_used_quota: int | None = None
     latest_display_quota: float | None = None
     latest_display_used_quota: float | None = None
+    total_display_used_quota: float = 0
     latest_request_count: int | None = None
     today_request_count: int = 0
     last_7d_display_used_amount: float = 0

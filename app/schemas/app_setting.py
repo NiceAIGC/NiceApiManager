@@ -276,6 +276,8 @@ class AppSettingsResponse(BaseModel):
     shared_socks5_proxy_url: str | None = None
     default_instance_proxy_mode: ProxyMode = Field(default="direct", pattern="^(direct|global)$")
     notification_enabled: bool = False
+    default_balance_alert_threshold: float = Field(default=50, gt=0, le=1000000000)
+    default_notification_channel_id: str | None = Field(default=None, max_length=64)
     notification_check_interval_minutes: int = Field(default=5, ge=1, le=1440)
     notification_channels: list[NotificationChannelConfig] = Field(default_factory=list)
     notification_rules: NotificationRuleSet = Field(default_factory=build_default_notification_rules)
@@ -305,6 +307,8 @@ class AppSettingsUpdateRequest(BaseModel):
     shared_socks5_proxy_url: str | None = None
     default_instance_proxy_mode: ProxyMode = Field(default="direct", pattern="^(direct|global)$")
     notification_enabled: bool = False
+    default_balance_alert_threshold: float = Field(default=50, gt=0, le=1000000000)
+    default_notification_channel_id: str | None = Field(default=None, max_length=64)
     notification_check_interval_minutes: int = Field(default=5, ge=1, le=1440)
     notification_channels: list[NotificationChannelConfig] = Field(default_factory=list)
     notification_rules: NotificationRuleSet = Field(default_factory=build_default_notification_rules)

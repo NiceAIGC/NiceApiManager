@@ -20,6 +20,7 @@ interface InstanceBatchModalProps {
   defaultSyncIntervalMinutes?: number;
   defaultProxyMode?: InstanceCreatePayload['proxy_mode'];
   tagOptions?: Array<{ label: string; value: string }>;
+  notificationChannelOptions?: Array<{ label: string; value: string }>;
   onCancel: () => void;
   onSubmit: (items: Array<InstanceCreatePayload | BatchInstanceUpdatePayload>) => void;
 }
@@ -39,6 +40,9 @@ function buildEmptyItem(defaultProxyMode: InstanceCreatePayload['proxy_mode']): 
     proxy_mode: defaultProxyMode,
     socks5_proxy_url: '',
     enabled: true,
+    balance_alert_enabled: false,
+    balance_alert_threshold: undefined,
+    notification_channel_ids: [],
     billing_mode: 'prepaid',
     quota_per_unit: undefined,
     priority: 3,
@@ -55,6 +59,7 @@ export function InstanceBatchModal({
   defaultSyncIntervalMinutes = 120,
   defaultProxyMode = 'direct',
   tagOptions,
+  notificationChannelOptions = [],
   onCancel,
   onSubmit,
 }: InstanceBatchModalProps) {
@@ -83,6 +88,9 @@ export function InstanceBatchModal({
           proxy_mode: item.proxy_mode,
           socks5_proxy_url: item.socks5_proxy_url ?? '',
           enabled: item.enabled,
+          balance_alert_enabled: item.balance_alert_enabled,
+          balance_alert_threshold: item.balance_alert_threshold ?? undefined,
+          notification_channel_ids: item.notification_channel_ids,
           billing_mode: item.billing_mode,
           quota_per_unit: item.quota_per_unit ?? undefined,
           priority: item.priority,
@@ -364,6 +372,28 @@ export function InstanceBatchModal({
                     </Form.Item>
                     <Form.Item name={[field.name, 'enabled']} label="启用状态" valuePropName="checked">
                       <Switch checkedChildren="启用" unCheckedChildren="停用" />
+                    </Form.Item>
+                    <Form.Item name={[field.name, 'balance_alert_enabled']} label="余额告警" valuePropName="checked">
+                      <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+                    </Form.Item>
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prev, next) =>
+                        prev.items?.[field.name]?.balance_alert_enabled !== next.items?.[field.name]?.balance_alert_enabled
+                      }
+                    >
+                      {() =>
+                        form.getFieldValue(['items', field.name, 'balance_alert_enabled']) ? (
+                          <>
+                            <Form.Item name={[field.name, 'balance_alert_threshold']} label="余额告警阈值" extra="留空使用全局默认值。">
+                              <InputNumber style={{ width: '100%' }} min={0.01} placeholder="全局默认" />
+                            </Form.Item>
+                            <Form.Item name={[field.name, 'notification_channel_ids']} label="告警渠道" extra="留空走默认渠道。">
+                              <Select mode="multiple" allowClear options={notificationChannelOptions} placeholder="默认通知渠道" />
+                            </Form.Item>
+                          </>
+                        ) : null
+                      }
                     </Form.Item>
                   </div>
                 </Card>

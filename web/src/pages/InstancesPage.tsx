@@ -133,6 +133,34 @@ function renderCompactTags(tags: string[]) {
   );
 }
 
+function buildInstanceUpdatePayload(
+  instance: Instance,
+  overrides: Partial<InstanceUpdatePayload> = {},
+): InstanceUpdatePayload {
+  return {
+    name: instance.name,
+    remark: instance.remark,
+    base_url: instance.base_url,
+    program_type: instance.program_type,
+    username: instance.username,
+    remote_user_id: instance.remote_user_id,
+    access_token: '',
+    proxy_mode: instance.proxy_mode,
+    socks5_proxy_url: instance.socks5_proxy_url ?? '',
+    enabled: instance.enabled,
+    balance_alert_enabled: instance.balance_alert_enabled,
+    balance_alert_threshold: instance.balance_alert_threshold,
+    notification_channel_ids: instance.notification_channel_ids,
+    billing_mode: instance.billing_mode,
+    quota_per_unit: instance.quota_per_unit,
+    priority: instance.priority,
+    sync_interval_minutes: instance.sync_interval_minutes,
+    tags: instance.tags,
+    ...overrides,
+  };
+}
+
+
 function buildChartPoints(values: number[], width: number, height: number, padding: number) {
   const maxValue = Math.max(...values, 0);
   const step = values.length > 1 ? (width - padding * 2) / (values.length - 1) : 0;
@@ -501,10 +529,19 @@ export function InstancesPage() {
     [data?.items],
   );
 
+  const notificationChannelOptions = useMemo(
+    () =>
+      (appSettingsData?.notification_channels ?? [])
+        .filter((item) => item.enabled)
+        .map((item) => ({ label: item.name, value: item.id })),
+    [appSettingsData?.notification_channels],
+  );
+
   const summary = useMemo(
     () =>
       (data?.items ?? []).reduce(
         (acc, item) => {
+
           acc.instanceCount += 1;
           if (item.enabled) {
             acc.enabledCount += 1;
@@ -665,6 +702,47 @@ export function InstancesPage() {
           ),
       },
       {
+        title: '总消耗额度',
+        dataIndex: 'total_display_used_quota',
+        key: 'total_display_used_quota',
+        width: 112,
+        sorter: (left, right) => left.total_display_used_quota - right.total_display_used_quota,
+        render: (value: number) => <Text strong>{formatMoney(value)}</Text>,
+      },
+      {
+        title: '余额告警',
+        dataIndex: 'balance_alert_enabled',
+        key: 'balance_alert_enabled',
+        width: 116,
+        render: (value: boolean, record) => (
+          <Tooltip
+            title={
+              value
+                ? `余额 ≤ ${formatMoney(record.effective_balance_alert_threshold)} 时通知${record.notification_channel_ids.length ? '指定渠道' : '默认渠道'}`
+                : '开启后使用全局默认阈值；可在编辑实例中自定义阈值和渠道'
+            }
+          >
+            <Space size={6}>
+              <Switch
+                size="small"
+                checked={value}
+                loading={updateMutation.isPending && updateMutation.variables?.instanceId === record.id}
+                onClick={(checked, event) => {
+                  event.stopPropagation();
+                  updateMutation.mutate({
+                    instanceId: record.id,
+                    payload: buildInstanceUpdatePayload(record, {
+                      balance_alert_enabled: checked,
+                    }),
+                  });
+                }}
+              />
+              {value ? <Text type="secondary">≤ {formatMoney(record.effective_balance_alert_threshold)}</Text> : null}
+            </Space>
+          </Tooltip>
+        ),
+      },
+      {
         title: '今日请求',
         dataIndex: 'today_request_count',
         key: 'today_request_count',
@@ -721,23 +799,7 @@ export function InstancesPage() {
                 event.stopPropagation();
                 updateMutation.mutate({
                   instanceId: record.id,
-                  payload: {
-                    name: record.name,
-                    remark: record.remark,
-                    base_url: record.base_url,
-                    program_type: record.program_type,
-                    username: record.username,
-                    remote_user_id: record.remote_user_id,
-                    access_token: '',
-                    proxy_mode: record.proxy_mode,
-                    socks5_proxy_url: record.socks5_proxy_url ?? '',
-                    enabled: checked,
-                    billing_mode: record.billing_mode,
-                    quota_per_unit: record.quota_per_unit,
-                    priority: record.priority,
-                    sync_interval_minutes: record.sync_interval_minutes,
-                    tags: record.tags,
-                  },
+                  payload: buildInstanceUpdatePayload(record, { enabled: checked }),
                 });
               }}
             />
@@ -950,6 +1012,18 @@ export function InstancesPage() {
                         children: record.has_access_token ? 'Access Token' : formatDateTime(record.session_expires_at),
                       },
                       {
+                        key: 'enabled_source',
+                        label: '启停来源',
+                        children: record.enabled ? '已启用' : record.auto_disabled ? '系统自动禁用（定时同步会继续探测）' : '手动禁用',
+                      },
+                      {
+                        key: 'balance_alert',
+                        label: '余额告警',
+                        children: record.balance_alert_enabled
+                          ? `已开启 / 阈值 ${formatMoney(record.effective_balance_alert_threshold)} / ${record.notification_channel_ids.length ? '指定渠道' : '默认渠道'}`
+                          : '未开启',
+                      },
+                      {
                         key: 'group',
                         label: '当前分组',
                         children: record.latest_group_name || '-',
@@ -1046,6 +1120,7 @@ export function InstancesPage() {
         defaultSyncIntervalMinutes={appSettingsData?.default_sync_interval_minutes ?? 120}
         defaultProxyMode={appSettingsData?.default_instance_proxy_mode ?? 'direct'}
         tagOptions={tagOptions}
+        notificationChannelOptions={notificationChannelOptions}
         onCancel={() => setCreateOpen(false)}
         onSubmit={(values) => createMutation.mutate(values as InstanceCreatePayload)}
       />
@@ -1057,6 +1132,7 @@ export function InstancesPage() {
         defaultSyncIntervalMinutes={appSettingsData?.default_sync_interval_minutes ?? 120}
         defaultProxyMode={appSettingsData?.default_instance_proxy_mode ?? 'direct'}
         tagOptions={tagOptions}
+        notificationChannelOptions={notificationChannelOptions}
         onCancel={() => setBatchCreateOpen(false)}
         onSubmit={(items) => batchCreateMutation.mutate(items as InstanceCreatePayload[])}
       />
@@ -1068,6 +1144,7 @@ export function InstancesPage() {
         initialValues={editingInstance}
         defaultSyncIntervalMinutes={appSettingsData?.default_sync_interval_minutes ?? 120}
         tagOptions={tagOptions}
+        notificationChannelOptions={notificationChannelOptions}
         onCancel={() => setEditingInstance(null)}
         onSubmit={(values) =>
           editingInstance
@@ -1086,6 +1163,7 @@ export function InstancesPage() {
         initialItems={selectedInstances}
         defaultSyncIntervalMinutes={appSettingsData?.default_sync_interval_minutes ?? 120}
         tagOptions={tagOptions}
+        notificationChannelOptions={notificationChannelOptions}
         onCancel={() => setBatchEditOpen(false)}
         onSubmit={(items) => batchUpdateMutation.mutate(items as BatchInstanceUpdatePayload[])}
       />

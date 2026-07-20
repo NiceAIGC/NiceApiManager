@@ -18,6 +18,9 @@ class PricingModelItem(BaseModel):
     model_ratio: float
     model_price: float
     completion_ratio: float
+    cache_ratio: float | None = None
+    create_cache_ratio: float | None = None
+    billing_mode: str | None = None
     enable_groups: list[str]
     supported_endpoint_types: list[str]
     snapshot_at: datetime

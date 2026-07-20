@@ -22,6 +22,7 @@ from app.schemas.sync_run import BulkSyncInstanceResult, BulkSyncResponse
 from app.services.app_setting_service import RuntimeAppSettings, get_runtime_app_settings
 from app.services.proxy_utils import resolve_socks5_proxy_url
 from app.services.snapshot_metrics import quota_to_display_amount, resolve_timezone, uses_postpaid_billing
+from app.services.notification_service import dispatch_instance_health_event
 
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,7 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
                 runtime_settings=runtime_settings,
             )
 
+            was_auto_disabled = instance.auto_disabled
             finished_at = utcnow()
             duration_ms = int((finished_at - sync_run.started_at).total_seconds() * 1000)
             summary = {
@@ -174,6 +176,10 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
             instance.last_sync_at = finished_at
             instance.last_health_status = "healthy"
             instance.last_health_error = None
+            if was_auto_disabled:
+                instance.enabled = True
+                instance.auto_disabled = False
+                dispatch_instance_health_event(db, instance=instance, event_type="recovery")
             db.commit()
         db.refresh(sync_run)
         return sync_run
@@ -383,6 +389,7 @@ def _sync_single_sub2api_instance(db: Session, instance: Instance, trigger_type:
                 runtime_settings=runtime_settings,
             )
 
+            was_auto_disabled = instance.auto_disabled
             finished_at = utcnow()
             duration_ms = int((finished_at - sync_run.started_at).total_seconds() * 1000)
             summary = {
@@ -407,6 +414,10 @@ def _sync_single_sub2api_instance(db: Session, instance: Instance, trigger_type:
             instance.last_sync_at = finished_at
             instance.last_health_status = "healthy"
             instance.last_health_error = None
+            if was_auto_disabled:
+                instance.enabled = True
+                instance.auto_disabled = False
+                dispatch_instance_health_event(db, instance=instance, event_type="recovery")
             db.commit()
         db.refresh(sync_run)
         return sync_run
@@ -485,8 +496,8 @@ def _sync_instance_in_worker(
 
 
 def _disable_after_consecutive_scheduled_failures(db: Session, instance: Instance, current_trigger_type: str) -> None:
-    """Disable an instance after its latest five scheduled sync attempts all failed."""
-    if current_trigger_type != "scheduled" or not instance.enabled:
+    """Disable after five scheduled failures and emit the transition once."""
+    if current_trigger_type != "scheduled" or not instance.enabled or instance.auto_disabled:
         return
 
     recent_runs = db.scalars(
@@ -502,7 +513,14 @@ def _disable_after_consecutive_scheduled_failures(db: Session, instance: Instanc
         return
     if all(run.status == "failed" for run in recent_runs):
         instance.enabled = False
+        instance.auto_disabled = True
         instance.last_health_error = f"{instance.last_health_error or ''}（最近 5 次定时同步均失败，已自动禁用）".strip()
+        dispatch_instance_health_event(
+            db,
+            instance=instance,
+            event_type="alert",
+            error_message=instance.last_health_error,
+        )
 
 
 def _ensure_session(
@@ -785,6 +803,9 @@ def _replace_pricing_models(
                 quota_type=_coerce_int(row.get("quota_type", 0)),
                 model_ratio=_coerce_float(row.get("model_ratio", 0)),
                 model_price=_coerce_float(row.get("model_price", 0)),
+                cache_ratio=_coerce_optional_float(row.get("cache_ratio")),
+                create_cache_ratio=_coerce_optional_float(row.get("create_cache_ratio")),
+                billing_mode=str(row.get("billing_mode") or "") or None,
                 completion_ratio=_coerce_float(row.get("completion_ratio", 0)),
                 enable_groups_json=list(row.get("enable_groups") or []),
                 supported_endpoint_types_json=list(row.get("supported_endpoint_types") or []),
@@ -999,7 +1020,7 @@ def _iter_usage_dates(start_date: date, end_date: date):
 
 
 def run_scheduled_sync_pass() -> None:
-    """Sync enabled instances whose per-instance interval has elapsed."""
+    """Sync enabled instances and keep probing those disabled automatically."""
     with SessionLocal() as db:
         runtime_settings = get_runtime_app_settings(db)
         now = utcnow()
@@ -1012,27 +1033,49 @@ def run_scheduled_sync_pass() -> None:
                 Instance.name,
                 Instance.last_sync_at,
                 Instance.sync_interval_minutes,
+                Instance.auto_disabled,
             )
-            .where(Instance.enabled.is_(True))
+            .where((Instance.enabled.is_(True)) | (Instance.auto_disabled.is_(True)))
             .order_by(Instance.id.asc())
         ).all()
 
-    for instance_id, instance_name, last_sync_at, sync_interval_minutes in instances:
+    for instance_id, instance_name, last_sync_at, sync_interval_minutes, auto_disabled in instances:
         if instance_id in running_instance_ids:
             continue
-
-        interval_minutes = max(sync_interval_minutes or runtime_settings.default_sync_interval_minutes, 5)
-        if last_sync_at is not None and now < last_sync_at + timedelta(minutes=interval_minutes):
+        reference_at = last_sync_at
+        if auto_disabled:
+            with SessionLocal() as probe_db:
+                reference_at = probe_db.scalar(
+                    select(SyncRun.finished_at)
+                    .where(
+                        SyncRun.instance_id == instance_id,
+                        SyncRun.trigger_type == "scheduled",
+                    )
+                    .order_by(SyncRun.started_at.desc(), SyncRun.id.desc())
+                    .limit(1)
+                ) or last_sync_at
+        if reference_at is not None and now < reference_at + timedelta(minutes=interval_minutes):
             continue
 
         result = _sync_instance_in_worker(instance_id, instance_name, trigger_type="scheduled")
         if result.status == "failed":
             logger.warning(
-                "Scheduled sync failed for instance %s (%s): %s",
+                "Scheduled sync failed for instance %s (%s%s): %s",
                 instance_id,
                 instance_name,
+                ", auto-disabled probe" if auto_disabled else "",
                 result.error_message,
             )
+
+
+def _coerce_optional_float(value: object) -> float | None:
+    """Convert optional upstream numeric fields without inventing zero values."""
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _coerce_float(value: object, default: float = 0.0) -> float:

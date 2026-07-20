@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.time import utcnow
-from app.models import Instance, NotificationLog, NotificationRuleState, SyncRun
+from app.models import Instance, NotificationLog, NotificationRuleState, SyncRun, UserSnapshot
 from app.schemas.app_setting import (
     AggregateBalanceNotificationRule,
     BalanceNotificationRule,
@@ -63,6 +63,7 @@ def send_test_notification(db: Session, payload: NotificationTestRequest) -> Not
     channels = _resolve_channels(
         runtime_settings.notification_channels,
         selected_channel_ids=payload.channel_ids,
+        default_channel_id=runtime_settings.default_notification_channel_id,
     )
     if not channels:
         raise ValueError("没有可用的已启用通知渠道，请先保存至少一个启用状态的 Apprise 渠道。")
@@ -95,13 +96,70 @@ def send_test_notification(db: Session, payload: NotificationTestRequest) -> Not
     )
 
 
+def dispatch_instance_health_event(
+    db: Session,
+    *,
+    instance: Instance,
+    event_type: str,
+    error_message: str | None = None,
+) -> bool:
+    """Send one immediate health event through the default notification channel."""
+    runtime_settings = get_runtime_app_settings(db)
+    channels = _resolve_channels(
+        runtime_settings.notification_channels,
+        selected_channel_ids=[],
+        default_channel_id=runtime_settings.default_notification_channel_id,
+    )
+    if not channels:
+        logger.warning("Instance health event skipped because no default notification channel is enabled.")
+        return False
+
+    now = utcnow()
+    if event_type == "recovery":
+        title = f"【站点恢复】{instance.name}"
+        body = (
+            f"实例：{instance.name}\n"
+            f"状态：定时同步已恢复，实例已自动重新启用\n"
+            f"站点：{instance.base_url}\n"
+            f"时间：{now.isoformat()}"
+        )
+        notify_type = "success"
+    else:
+        title = f"【站点异常】{instance.name}"
+        body = (
+            f"实例：{instance.name}\n"
+            f"状态：最近 5 次定时同步均失败，已自动禁用；后续定时任务仍会继续探测\n"
+            f"最近错误：{error_message or instance.last_health_error or '-'}\n"
+            f"站点：{instance.base_url}\n"
+            f"时间：{now.isoformat()}"
+        )
+        notify_type = "failure"
+
+    results = _deliver_message(channels, title=title, body=body, notify_type=notify_type)
+    _create_notification_log(
+        db,
+        context=_NotificationDispatchContext(
+            source_type="instance_health",
+            event_type=event_type,
+            title=title,
+            body=body,
+            notify_type=notify_type,
+            rule_type="instance_health",
+            rule_id="automatic_disable",
+            rule_name="站点异常自动禁用",
+            instance_id=instance.id,
+            target_key=f"instance:{instance.id}",
+        ),
+        results=results,
+    )
+    return _has_successful_delivery(results)
+
+
 def run_notification_monitoring_pass() -> None:
     """Evaluate all configured notification rules on a fixed scheduler tick."""
     with SessionLocal() as db:
         try:
             runtime_settings = get_runtime_app_settings(db)
-            if not runtime_settings.notification_enabled:
-                return
 
             enabled_channels = [item for item in runtime_settings.notification_channels if item.enabled]
             if not enabled_channels:
@@ -120,15 +178,20 @@ def run_notification_monitoring_pass() -> None:
                 db,
                 instance_ids=[item.id for item in instances],
             )
+            balances = _latest_balance_by_instance_id(db, [item.id for item in instances])
+            for instance in instances:
+                instance.latest_display_quota = balances.get(instance.id)
 
-            _evaluate_low_balance_rules(db, instances=instances, now=now)
-            _evaluate_aggregate_balance_rules(db, instances=instances, now=now)
-            _evaluate_connectivity_failure_rules(
-                db,
-                instances=instances,
-                connectivity=connectivity,
-                now=now,
-            )
+            if runtime_settings.notification_enabled:
+                _evaluate_low_balance_rules(db, instances=instances, now=now)
+                _evaluate_aggregate_balance_rules(db, instances=instances, now=now)
+                _evaluate_connectivity_failure_rules(
+                    db,
+                    instances=instances,
+                    connectivity=connectivity,
+                    now=now,
+                )
+            _evaluate_instance_balance_alerts(db, instances=instances, now=now)
 
             mark_notification_scan_completed(db, now)
             db.commit()
@@ -137,9 +200,139 @@ def run_notification_monitoring_pass() -> None:
             logger.exception("Notification monitoring pass failed")
 
 
+def _latest_balance_by_instance_id(db: Session, instance_ids: list[int]) -> dict[int, float]:
+    """Resolve latest prepaid balances from persisted snapshots in display units."""
+    if not instance_ids:
+        return {}
+    snapshots = db.scalars(
+        select(UserSnapshot)
+        .where(UserSnapshot.instance_id.in_(instance_ids))
+        .order_by(UserSnapshot.instance_id.asc(), UserSnapshot.snapshot_at.desc(), UserSnapshot.id.desc())
+    ).all()
+    latest: dict[int, float] = {}
+    instances_by_id = {
+        item.id: item for item in db.scalars(select(Instance).where(Instance.id.in_(instance_ids))).all()
+    }
+    for snapshot in snapshots:
+        if snapshot.instance_id in latest:
+            continue
+        instance = instances_by_id.get(snapshot.instance_id)
+        quota_per_unit = instance.quota_per_unit if instance else None
+        if quota_per_unit and quota_per_unit > 0:
+            latest[snapshot.instance_id] = snapshot.quota / quota_per_unit
+    return latest
+
+
+def _evaluate_instance_balance_alerts(db: Session, *, instances: list[Instance], now) -> None:
+    """Evaluate the one-click low-balance switch configured on each instance."""
+    runtime_settings = get_runtime_app_settings(db)
+    state_map = _load_rule_states(db, rule_type="instance_balance", rule_id="quick")
+    balances = {
+        item.id: item.latest_display_quota
+        for item in instances
+        if getattr(item, "latest_display_quota", None) is not None
+    } or _latest_balance_by_instance_id(db, [item.id for item in instances])
+    seen_target_keys: set[str] = set()
+
+    for instance in instances:
+        if not instance.balance_alert_enabled or instance.billing_mode != "prepaid":
+            continue
+
+        target_key = f"instance:{instance.id}"
+        seen_target_keys.add(target_key)
+        state = state_map.get(target_key) or _create_rule_state(
+            db,
+            rule_type="instance_balance",
+            rule_id="quick",
+            target_key=target_key,
+        )
+        threshold = instance.balance_alert_threshold or runtime_settings.default_balance_alert_threshold
+        balance = balances.get(instance.id)
+        recovery_threshold = round(threshold * 1.2, 2)
+        selected_channel_ids = instance.notification_channel_ids_json or (
+            [runtime_settings.default_notification_channel_id]
+            if runtime_settings.default_notification_channel_id
+            else []
+        )
+        channels = _resolve_channels(
+            runtime_settings.notification_channels,
+            selected_channel_ids=selected_channel_ids,
+            default_channel_id=runtime_settings.default_notification_channel_id,
+        )
+        title = f"【余额预警】{instance.name} 当前 {_format_amount(balance)}"
+        body = (
+            f"来源：实例管理快捷告警\n"
+            f"实例：{instance.name}\n"
+            f"当前余额：{_format_amount(balance)}\n"
+            f"触发阈值：{_format_amount(threshold)}\n"
+            f"恢复阈值：{_format_amount(recovery_threshold)}\n"
+            f"站点：{instance.base_url}\n"
+            f"时间：{now.isoformat()}"
+        )
+        recovery_title = f"【余额恢复】{instance.name}"
+        recovery_body = (
+            f"来源：实例管理快捷告警\n"
+            f"实例：{instance.name}\n"
+            f"当前余额：{_format_amount(balance)}\n"
+            f"恢复阈值：{_format_amount(recovery_threshold)}\n"
+            f"站点：{instance.base_url}\n"
+            f"时间：{now.isoformat()}"
+        )
+        _apply_state_transition(
+            db=db,
+            state=state,
+            is_active=balance is not None and balance <= threshold,
+            is_resolved=balance is not None and balance >= recovery_threshold,
+            current_value=_format_amount(balance),
+            threshold_hits_required=1,
+            repeat_interval_minutes=360,
+            notify_on_recovery=True,
+            alert_channels=channels,
+            alert_title=title,
+            alert_body=body,
+            alert_notify_type="warning",
+            recovery_title=recovery_title,
+            recovery_body=recovery_body,
+            recovery_notify_type="success",
+            now=now,
+            alert_context=_NotificationDispatchContext(
+                source_type="instance",
+                event_type="alert",
+                title=title,
+                body=body,
+                notify_type="warning",
+                rule_type="instance_balance",
+                rule_id="quick",
+                rule_name="实例余额快捷告警",
+                instance_id=instance.id,
+                target_key=target_key,
+            ),
+            recovery_context=_NotificationDispatchContext(
+                source_type="instance",
+                event_type="recovery",
+                title=recovery_title,
+                body=recovery_body,
+                notify_type="success",
+                rule_type="instance_balance",
+                rule_id="quick",
+                rule_name="实例余额快捷告警",
+                instance_id=instance.id,
+                target_key=target_key,
+            ),
+        )
+
+    _delete_stale_rule_states(db, state_map, seen_target_keys)
+
+
 def _evaluate_low_balance_rules(db: Session, *, instances: list[Instance], now) -> None:
     """Evaluate per-instance balance thresholds."""
     runtime_settings = get_runtime_app_settings(db)
+    balances = _latest_balance_by_instance_id(db, [item.id for item in instances])
+    balances = {
+        item.id: item.latest_display_quota
+        for item in instances
+        if getattr(item, "latest_display_quota", None) is not None
+    } or _latest_balance_by_instance_id(db, [item.id for item in instances])
     for rule in runtime_settings.notification_rules.low_balance_rules:
         state_map = _load_rule_states(db, rule_type="low_balance", rule_id=rule.id)
         if not rule.enabled:
@@ -147,7 +340,11 @@ def _evaluate_low_balance_rules(db: Session, *, instances: list[Instance], now) 
             continue
 
         seen_target_keys: set[str] = set()
-        channels = _resolve_channels(runtime_settings.notification_channels, selected_channel_ids=rule.channel_ids)
+        channels = _resolve_channels(
+            runtime_settings.notification_channels,
+            selected_channel_ids=rule.channel_ids,
+            default_channel_id=runtime_settings.default_notification_channel_id,
+        )
 
         for instance in instances:
             if not _instance_matches_rule(instance, rule):
@@ -155,7 +352,7 @@ def _evaluate_low_balance_rules(db: Session, *, instances: list[Instance], now) 
             if instance.billing_mode != "prepaid":
                 continue
 
-            balance = instance.latest_display_quota
+            balance = balances.get(instance.id)
             target_key = f"instance:{instance.id}"
             seen_target_keys.add(target_key)
             state = state_map.get(target_key) or _create_rule_state(
@@ -228,6 +425,12 @@ def _evaluate_low_balance_rules(db: Session, *, instances: list[Instance], now) 
 def _evaluate_aggregate_balance_rules(db: Session, *, instances: list[Instance], now) -> None:
     """Evaluate combined-balance thresholds across selected instance groups."""
     runtime_settings = get_runtime_app_settings(db)
+    balances = _latest_balance_by_instance_id(db, [item.id for item in instances])
+    balances = {
+        item.id: item.latest_display_quota
+        for item in instances
+        if getattr(item, "latest_display_quota", None) is not None
+    } or _latest_balance_by_instance_id(db, [item.id for item in instances])
     for rule in runtime_settings.notification_rules.aggregate_balance_rules:
         state_map = _load_rule_states(db, rule_type="aggregate_balance", rule_id=rule.id)
         if not rule.enabled:
@@ -249,13 +452,17 @@ def _evaluate_aggregate_balance_rules(db: Session, *, instances: list[Instance],
             rule_id=rule.id,
             target_key=target_key,
         )
-        channels = _resolve_channels(runtime_settings.notification_channels, selected_channel_ids=rule.channel_ids)
-        total_balance = sum((item.latest_display_quota or 0) for item in matched_instances)
+        channels = _resolve_channels(
+            runtime_settings.notification_channels,
+            selected_channel_ids=rule.channel_ids,
+            default_channel_id=runtime_settings.default_notification_channel_id,
+        )
+        total_balance = sum((balances.get(item.id) or 0) for item in matched_instances)
         is_active = total_balance <= rule.threshold
         is_resolved = total_balance >= _resolve_threshold(rule)
 
         title = f"【聚合余额{_severity_label(rule.severity)}】{rule.name}"
-        body = _build_aggregate_balance_body(rule, matched_instances, total_balance, now)
+        body = _build_aggregate_balance_body(rule, matched_instances, balances, total_balance, now)
         recovery_title = f"【聚合余额恢复】{rule.name}"
         recovery_body = (
             f"规则：{rule.name}\n"
@@ -324,7 +531,11 @@ def _evaluate_connectivity_failure_rules(
             continue
 
         seen_target_keys: set[str] = set()
-        channels = _resolve_channels(runtime_settings.notification_channels, selected_channel_ids=rule.channel_ids)
+        channels = _resolve_channels(
+            runtime_settings.notification_channels,
+            selected_channel_ids=rule.channel_ids,
+            default_channel_id=runtime_settings.default_notification_channel_id,
+        )
 
         for instance in instances:
             if not _instance_matches_rule(instance, rule):
@@ -499,6 +710,8 @@ def _create_rule_state(db: Session, *, rule_type: str, rule_id: str, target_key:
         rule_type=rule_type,
         rule_id=rule_id,
         target_key=target_key,
+        status="normal",
+        consecutive_hits=0,
     )
     db.add(state)
     return state
@@ -595,12 +808,14 @@ def _resolve_channels(
     channels: list[NotificationChannelConfig],
     *,
     selected_channel_ids: list[str],
+    default_channel_id: str | None = None,
 ) -> list[NotificationChannelConfig]:
-    """Pick enabled channels for one rule. Empty selections mean all enabled channels."""
+    """Pick enabled channels; an empty selection uses the configured default."""
     enabled_channels = [item for item in channels if item.enabled]
-    if not selected_channel_ids:
-        return enabled_channels
-    selected = set(selected_channel_ids)
+    selected_ids = selected_channel_ids or ([default_channel_id] if default_channel_id else [])
+    if not selected_ids:
+        return enabled_channels[:1]
+    selected = set(selected_ids)
     return [item for item in enabled_channels if item.id in selected]
 
 
@@ -663,7 +878,6 @@ def _create_notification_log(
         delivery_status = "success"
     else:
         delivery_status = "failed"
-
     db.add(
         NotificationLog(
             instance_id=context.instance_id,
@@ -729,16 +943,14 @@ def _build_low_balance_body(rule: BalanceNotificationRule, instance: Instance, b
 def _build_aggregate_balance_body(
     rule: AggregateBalanceNotificationRule,
     matched_instances: list[Instance],
+    balances: dict[int, float],
     total_balance: float,
     now,
 ) -> str:
     """Format the aggregate-balance alert body."""
-    ranked = sorted(
-        matched_instances,
-        key=lambda item: item.latest_display_quota or 0,
-    )
+    ranked = sorted(matched_instances, key=lambda item: balances.get(item.id) or 0)
     top_lines = [
-        f"- {item.name}: {_format_amount(item.latest_display_quota)}"
+        f"- {item.name}: {_format_amount(balances.get(item.id))}"
         for item in ranked[:10]
     ] or ["- 无可用预付费实例"]
     return (

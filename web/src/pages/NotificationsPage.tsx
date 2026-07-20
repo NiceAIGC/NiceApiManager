@@ -54,7 +54,7 @@ interface NotificationChannelFormValue extends NotificationChannelConfig {
 
 type NotificationSettingsFormValues = Pick<
   AppSettings,
-  'notification_enabled' | 'notification_check_interval_minutes' | 'notification_rules'
+  'notification_enabled' | 'notification_check_interval_minutes' | 'default_balance_alert_threshold' | 'default_notification_channel_id' | 'notification_rules'
 > & {
   notification_channels: NotificationChannelFormValue[];
 };
@@ -142,6 +142,8 @@ function createConnectivityRule(): ConnectivityFailureNotificationRule {
 const defaultNotificationSettings: NotificationSettingsFormValues = {
   notification_enabled: false,
   notification_check_interval_minutes: 5,
+  default_balance_alert_threshold: 50,
+  default_notification_channel_id: undefined,
   notification_channels: [],
   notification_rules: {
     low_balance_rules: [createBalanceRule('warning'), createBalanceRule('critical')],
@@ -341,6 +343,8 @@ function normalizeSettingsForForm(settings?: AppSettings): NotificationSettingsF
   return {
     notification_enabled: settings.notification_enabled,
     notification_check_interval_minutes: settings.notification_check_interval_minutes,
+    default_balance_alert_threshold: settings.default_balance_alert_threshold,
+    default_notification_channel_id: settings.default_notification_channel_id ?? undefined,
     notification_rules: settings.notification_rules,
     notification_channels: settings.notification_channels.map((item) => inferNotificationChannelFormValue(item)),
   };
@@ -357,6 +361,8 @@ function buildSettingsPayload(values: NotificationSettingsFormValues, current?: 
     shared_socks5_proxy_url: current?.shared_socks5_proxy_url ?? '',
     default_instance_proxy_mode: current?.default_instance_proxy_mode ?? 'direct',
     notification_enabled: values.notification_enabled,
+    default_balance_alert_threshold: values.default_balance_alert_threshold,
+    default_notification_channel_id: values.default_notification_channel_id,
     notification_check_interval_minutes: values.notification_check_interval_minutes,
     notification_rules: values.notification_rules,
     notification_channels: values.notification_channels.map((item) => ({
@@ -429,9 +435,9 @@ const guideItems = [
           内置企业微信机器人、Bark、Telegram Bot、钉钉机器人的友好表单，填好会自动生成 Apprise URL；更冷门的渠道选「自定义 Apprise URL」直接填原始地址。
         </Paragraph>
         <ul className="guide-steps">
-          <li>渠道需「启用」才会真正投递。</li>
-          <li>规则里的「通知渠道」<Text strong>留空</Text>＝发送到全部已启用渠道；也可指定只发某几个。</li>
-          <li>先点「发送测试通知」确认能收到，再配规则。</li>
+          <li>设置一个默认渠道；未显式选择渠道的规则、快捷余额告警和站点异常通知只发送到它。</li>
+          <li>删除或停用默认渠道后，系统自动回退到列表中第一个已启用渠道。</li>
+          <li>先点「发送测试通知」确认默认渠道能收到，再配规则。</li>
         </ul>
       </Space>
     ),
@@ -649,30 +655,48 @@ export function NotificationsPage() {
               message={
                 data?.notification_enabled
                   ? `通知巡检已开启，后台约每 ${data.notification_check_interval_minutes} 分钟检查一次。`
-                  : '通知巡检当前关闭。你仍可保存渠道并手动发送测试通知。'
+                  : '高级规则巡检当前关闭；实例管理中的快捷余额告警仍会执行。'
               }
-              description="企业微信、Bark、Telegram、钉钉提供了友好表单；更复杂的参数可切换到自定义 Apprise URL。规则没有指定渠道时，会发送到全部已启用渠道。"
+              description="此开关控制下方高级规则；实例快捷余额告警独立生效。未指定渠道的规则、快捷告警和站点异常通知只发送到默认渠道。"
             />
 
             <Row gutter={[16, 0]}>
-              <Col xs={24} md={12}>
+              <Col xs={24} md={6}>
                 <Form.Item
                   name="notification_enabled"
                   label="启用通知巡检"
                   valuePropName="checked"
-                  extra="关闭后不会执行余额和连接失败巡检，但测试通知仍可手动发送。"
+                  extra="只控制下方高级余额、聚合和连接失败规则；实例管理快捷告警不受影响。"
                 >
                   <Switch checkedChildren="已启用" unCheckedChildren="已关闭" />
                 </Form.Item>
               </Col>
-              <Col xs={24} md={12}>
+              <Col xs={24} md={6}>
                 <Form.Item
                   name="notification_check_interval_minutes"
                   label="通知巡检间隔（分钟）"
-                  extra="调度器按分钟触发，这里控制真正执行规则检查的间隔。"
                   rules={[{ required: true, message: '请输入通知巡检间隔' }]}
                 >
                   <InputNumber style={{ width: '100%' }} min={1} max={1440} precision={0} addonAfter="分钟" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={6}>
+                <Form.Item
+                  name="default_balance_alert_threshold"
+                  label="快捷余额默认阈值"
+                  extra="实例未单独填写时使用。"
+                  rules={[{ required: true, message: '请输入默认余额阈值' }]}
+                >
+                  <InputNumber style={{ width: '100%' }} min={0.01} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={6}>
+                <Form.Item
+                  name="default_notification_channel_id"
+                  label="默认通知渠道"
+                  extra="留空时自动使用第一个启用渠道。"
+                >
+                  <Select allowClear placeholder="第一个启用渠道" options={channelOptions} />
                 </Form.Item>
               </Col>
             </Row>
@@ -968,7 +992,7 @@ export function NotificationsPage() {
                             <Select
                               mode="multiple"
                               allowClear
-                              placeholder="不选表示发到全部已启用渠道"
+                              placeholder="不选表示发送到默认渠道"
                               options={channelOptions}
                             />
                           </Form.Item>
@@ -1160,7 +1184,7 @@ export function NotificationsPage() {
                             <Select
                               mode="multiple"
                               allowClear
-                              placeholder="不选表示发到全部已启用渠道"
+                              placeholder="不选表示发送到默认渠道"
                               options={channelOptions}
                             />
                           </Form.Item>
@@ -1268,7 +1292,7 @@ export function NotificationsPage() {
                             <Select
                               mode="multiple"
                               allowClear
-                              placeholder="不选表示发到全部已启用渠道"
+                              placeholder="不选表示发送到默认渠道"
                               options={channelOptions}
                             />
                           </Form.Item>

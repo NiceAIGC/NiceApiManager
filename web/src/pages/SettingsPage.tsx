@@ -68,6 +68,8 @@ function buildSettingsPayload(values: RuntimeSettingsFormValues, current?: AppSe
     ...values,
     notification_enabled: current?.notification_enabled ?? false,
     notification_check_interval_minutes: current?.notification_check_interval_minutes ?? 5,
+    default_balance_alert_threshold: current?.default_balance_alert_threshold ?? 50,
+    default_notification_channel_id: current?.default_notification_channel_id,
     notification_channels: current?.notification_channels ?? [],
     notification_rules: current?.notification_rules ?? {
       low_balance_rules: [],

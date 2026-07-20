@@ -1,10 +1,19 @@
-import { Empty, Input, Select, Space, Table, Tag } from 'antd';
+import { DollarOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Alert, Card, Col, Empty, Input, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { fetchInstances } from '../api/instances';
 import { fetchPricingModels } from '../api/pricing';
 import { formatDateTime } from '../utils/format';
+function formatPricingValue(value?: number | null): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return '-';
+  }
+  return Number.parseFloat(value.toFixed(12)).toString();
+}
+
+
 
 export function PricingPage() {
   const [tag, setTag] = useState<string | undefined>(undefined);
@@ -65,8 +74,33 @@ export function PricingPage() {
       .map((tagItem) => ({ label: tagItem, value: tagItem }));
   }, [instanceData]);
 
+  const summary = useMemo(() => {
+    const rows = data?.items ?? [];
+    return {
+      total: data?.total ?? 0,
+      tokenModels: rows.filter((item) => item.quota_type === 0).length,
+      fixedModels: rows.filter((item) => item.quota_type !== 0).length,
+      vendors: new Set(rows.map((item) => item.vendor_name).filter(Boolean)).size,
+    };
+  }, [data]);
+
   return (
     <div className="page-stack">
+      <Card className="section-card ratio-hero-card">
+        <Space direction="vertical" size={4}>
+          <Typography.Title level={4} style={{ margin: 0 }}><DollarOutlined /> 定价模型</Typography.Title>
+          <Typography.Text type="secondary">同时展示倍率计费、固定价格和缓存倍率；数值保留有效小数，避免长浮点噪声。</Typography.Text>
+        </Space>
+      </Card>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={12} lg={6}><Card><Statistic title="模型总数" value={summary.total} /></Card></Col>
+        <Col xs={12} lg={6}><Card><Statistic title="当前页倍率计费" value={summary.tokenModels} /></Card></Col>
+        <Col xs={12} lg={6}><Card><Statistic title="当前页固定计费" value={summary.fixedModels} /></Card></Col>
+        <Col xs={12} lg={6}><Card><Statistic title="当前页供应商" value={summary.vendors} /></Card></Col>
+      </Row>
+
+      <Alert showIcon icon={<InfoCircleOutlined />} type="info" message="倍率计费：输入基础倍率 × 输出/缓存倍率 × 分组倍率；固定计费：按请求价格 × 分组倍率。实际规则以远端站点为准。" />
       <div className="table-toolbar">
         <div className="table-toolbar-left">
           <Select
@@ -154,24 +188,44 @@ export function PricingPage() {
             render: (value?: string | null) => value || '-',
           },
           {
-            title: '计费类型',
+            title: '计费方式',
             dataIndex: 'quota_type',
             key: 'quota_type',
+            width: 108,
+            render: (value: number, record) => (
+              <Tag color={record.billing_mode === 'tiered_expr' ? 'purple' : value === 0 ? 'blue' : 'gold'}>
+                {record.billing_mode === 'tiered_expr' ? '阶梯计费' : value === 0 ? '倍率计费' : '固定价格'}
+              </Tag>
+            ),
           },
           {
-            title: '模型倍率',
-            dataIndex: 'model_ratio',
-            key: 'model_ratio',
+            title: '模型倍率 / 固定价',
+            key: 'base_pricing',
+            width: 160,
+            render: (_: unknown, record) => (
+              <div className="pricing-number-cell">
+                <strong>{formatPricingValue(record.quota_type === 0 ? record.model_ratio : record.model_price)}</strong>
+                <span>{record.quota_type === 0 ? '输入基础倍率' : '每次请求价格'}</span>
+              </div>
+            ),
           },
           {
-            title: '模型价格',
-            dataIndex: 'model_price',
-            key: 'model_price',
-          },
-          {
-            title: '补全倍率',
+            title: '输出倍率',
             dataIndex: 'completion_ratio',
             key: 'completion_ratio',
+            width: 110,
+            render: (value: number) => formatPricingValue(value),
+          },
+          {
+            title: '缓存倍率',
+            key: 'cache_ratios',
+            width: 150,
+            render: (_: unknown, record) => (
+              <div className="pricing-number-cell">
+                <strong>读 {formatPricingValue(record.cache_ratio)}</strong>
+                <span>写 {formatPricingValue(record.create_cache_ratio)}</span>
+              </div>
+            ),
           },
           {
             title: '可用分组',

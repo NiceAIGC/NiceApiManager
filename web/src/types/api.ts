@@ -80,6 +80,11 @@ export interface Instance {
   proxy_mode: 'direct' | 'global' | 'custom';
   socks5_proxy_url?: string | null;
   enabled: boolean;
+  auto_disabled: boolean;
+  balance_alert_enabled: boolean;
+  balance_alert_threshold?: number | null;
+  effective_balance_alert_threshold?: number | null;
+  notification_channel_ids: string[];
   billing_mode: 'prepaid' | 'postpaid';
   priority: number;
   sync_interval_minutes: number;
@@ -91,6 +96,7 @@ export interface Instance {
   latest_display_quota?: number | null;
   latest_display_used_quota?: number | null;
   latest_request_count?: number | null;
+  total_display_used_quota: number;
   today_request_count: number;
   last_7d_display_used_amount: number;
   last_7d_request_count: number;
@@ -122,6 +128,9 @@ export interface InstanceCreatePayload {
   proxy_mode: 'direct' | 'global' | 'custom';
   socks5_proxy_url?: string;
   enabled: boolean;
+  balance_alert_enabled: boolean;
+  balance_alert_threshold?: number | null;
+  notification_channel_ids: string[];
   billing_mode: 'prepaid' | 'postpaid';
   quota_per_unit?: number | null;
   priority: number;
@@ -141,6 +150,9 @@ export interface InstanceUpdatePayload {
   proxy_mode: 'direct' | 'global' | 'custom';
   socks5_proxy_url?: string;
   enabled: boolean;
+  balance_alert_enabled: boolean;
+  balance_alert_threshold?: number | null;
+  notification_channel_ids: string[];
   billing_mode: 'prepaid' | 'postpaid';
   quota_per_unit?: number | null;
   priority: number;
@@ -211,6 +223,9 @@ export interface PricingModelItem {
   model_ratio: number;
   model_price: number;
   completion_ratio: number;
+  cache_ratio?: number | null;
+  create_cache_ratio?: number | null;
+  billing_mode?: string | null;
   enable_groups: string[];
   supported_endpoint_types: string[];
   snapshot_at: string;
@@ -320,6 +335,8 @@ export interface AppSettings {
   shared_socks5_proxy_url?: string | null;
   default_instance_proxy_mode: 'direct' | 'global';
   notification_enabled: boolean;
+  default_balance_alert_threshold: number;
+  default_notification_channel_id?: string | null;
   notification_check_interval_minutes: number;
   notification_channels: NotificationChannelConfig[];
   notification_rules: NotificationRuleSet;

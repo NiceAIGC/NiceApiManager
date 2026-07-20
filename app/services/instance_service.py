@@ -7,7 +7,7 @@ from datetime import timedelta
 import httpx
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.clients.newapi import NewAPIClient, NewAPIClientError, detect_program_type
@@ -101,6 +101,9 @@ def create_instance(db: Session, payload: InstanceCreate) -> Instance:
         priority=payload.priority,
         sync_interval_minutes=payload.sync_interval_minutes or runtime_settings.default_sync_interval_minutes,
         tags_json=_normalize_tags(payload.tags),
+        balance_alert_enabled=payload.balance_alert_enabled,
+        balance_alert_threshold=payload.balance_alert_threshold,
+        notification_channel_ids_json=list(dict.fromkeys(payload.notification_channel_ids)),
     )
     db.add(instance)
     db.commit()
@@ -135,6 +138,9 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
                 priority=payload.priority,
                 sync_interval_minutes=payload.sync_interval_minutes or runtime_settings.default_sync_interval_minutes,
                 tags_json=_normalize_tags(payload.tags),
+                balance_alert_enabled=payload.balance_alert_enabled,
+                balance_alert_threshold=payload.balance_alert_threshold,
+                notification_channel_ids_json=list(dict.fromkeys(payload.notification_channel_ids)),
             )
         )
 
@@ -144,10 +150,17 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
     for instance in instances:
         db.refresh(instance)
 
-    scheduler_timezone = get_runtime_app_settings(db).scheduler_timezone
+    runtime_settings = get_runtime_app_settings(db)
+    scheduler_timezone = runtime_settings.scheduler_timezone
     day_start_utc = current_day_start_utc(scheduler_timezone)
     items = [
-        _instance_to_response(db, instance, day_start_utc=day_start_utc, scheduler_timezone=scheduler_timezone)
+        _instance_to_response(
+            db,
+            instance,
+            day_start_utc=day_start_utc,
+            scheduler_timezone=scheduler_timezone,
+            default_balance_alert_threshold=runtime_settings.default_balance_alert_threshold,
+        )
         for instance in instances
     ]
     return BatchInstanceResponse(count=len(items), items=items)
@@ -190,6 +203,7 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
         ]
     )
 
+    was_enabled = instance.enabled
     instance.name = payload.name.strip()
     instance.remark = _normalize_optional_text(payload.remark) or None
     instance.base_url = new_base_url
@@ -201,6 +215,13 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
     instance.proxy_mode = new_proxy_mode
     instance.socks5_proxy_url = new_socks5_proxy_url
     instance.enabled = payload.enabled
+    if payload.enabled:
+        instance.auto_disabled = False
+    elif was_enabled:
+        instance.auto_disabled = False
+    instance.balance_alert_enabled = payload.balance_alert_enabled
+    instance.balance_alert_threshold = payload.balance_alert_threshold
+    instance.notification_channel_ids_json = list(dict.fromkeys(payload.notification_channel_ids))
     instance.billing_mode = payload.billing_mode
     instance.quota_per_unit = payload.quota_per_unit
     instance.priority = payload.priority
@@ -272,6 +293,7 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
             ]
         )
 
+        was_enabled = instance.enabled
         instance.name = payload.name.strip()
         instance.remark = _normalize_optional_text(payload.remark) or None
         instance.base_url = new_base_url
@@ -283,6 +305,13 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         instance.proxy_mode = new_proxy_mode
         instance.socks5_proxy_url = new_socks5_proxy_url
         instance.enabled = payload.enabled
+        if payload.enabled:
+            instance.auto_disabled = False
+        elif was_enabled:
+            instance.auto_disabled = False
+        instance.balance_alert_enabled = payload.balance_alert_enabled
+        instance.balance_alert_threshold = payload.balance_alert_threshold
+        instance.notification_channel_ids_json = list(dict.fromkeys(payload.notification_channel_ids))
         instance.billing_mode = payload.billing_mode
         instance.quota_per_unit = payload.quota_per_unit
         instance.priority = payload.priority
@@ -299,10 +328,17 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         .where(Instance.id.in_(ids))
         .order_by(Instance.id.asc())
     ).all()
-    scheduler_timezone = get_runtime_app_settings(db).scheduler_timezone
+    runtime_settings = get_runtime_app_settings(db)
+    scheduler_timezone = runtime_settings.scheduler_timezone
     day_start_utc = current_day_start_utc(scheduler_timezone)
     items = [
-        _instance_to_response(db, instance, day_start_utc=day_start_utc, scheduler_timezone=scheduler_timezone)
+        _instance_to_response(
+            db,
+            instance,
+            day_start_utc=day_start_utc,
+            scheduler_timezone=scheduler_timezone,
+            default_balance_alert_threshold=runtime_settings.default_balance_alert_threshold,
+        )
         for instance in refreshed_instances
     ]
     return BatchInstanceResponse(count=len(items), items=items)
@@ -423,11 +459,17 @@ def list_instances(
             health_status=health_status,
         )
     ).all()
-    scheduler_timezone = get_runtime_app_settings(db).scheduler_timezone
+    runtime_settings = get_runtime_app_settings(db)
+    scheduler_timezone = runtime_settings.scheduler_timezone
     day_start_utc = current_day_start_utc(scheduler_timezone)
-
     items = [
-        _instance_to_response(db, instance, day_start_utc=day_start_utc, scheduler_timezone=scheduler_timezone)
+        _instance_to_response(
+            db,
+            instance,
+            day_start_utc=day_start_utc,
+            scheduler_timezone=scheduler_timezone,
+            default_balance_alert_threshold=runtime_settings.default_balance_alert_threshold,
+        )
         for instance in instances
     ]
 
@@ -440,6 +482,7 @@ def _instance_to_response(
     *,
     day_start_utc,
     scheduler_timezone: str,
+    default_balance_alert_threshold: float,
 ) -> InstanceResponse:
     """Convert one ORM instance into the API response shape."""
     latest_snapshot = db.scalars(
@@ -471,12 +514,24 @@ def _instance_to_response(
         )
     last_7d_display_used_amount = sum(item["used_display_amount"] for item in last_7d_usage)
     last_7d_request_count = sum(item["request_count"] for item in last_7d_usage)
+    total_display_used_quota = float(
+        db.scalar(
+            select(func.coalesce(func.sum(DailyUsageStat.used_display_amount), 0.0)).where(
+                DailyUsageStat.instance_id == instance.id
+            )
+        )
+        or 0.0
+    )
 
     return InstanceResponse.model_validate(instance).model_copy(
         update={
             "tags": instance.tags_json or [],
             "remark": instance.remark,
-            "program_type": instance.program_type,
+            "total_display_used_quota": (
+                quota_to_display_amount(latest_snapshot.used_quota, instance.quota_per_unit)
+                if latest_snapshot
+                else total_display_used_quota
+            ) or 0.0,
             "billing_mode": instance.billing_mode,
             "quota_per_unit": instance.quota_per_unit,
             "latest_group_name": latest_snapshot.group_name if latest_snapshot else None,
@@ -496,6 +551,13 @@ def _instance_to_response(
                 instance.quota_per_unit,
             ),
             "latest_request_count": latest_snapshot.request_count if latest_snapshot else None,
+            "auto_disabled": instance.auto_disabled,
+            "balance_alert_enabled": instance.balance_alert_enabled,
+            "balance_alert_threshold": instance.balance_alert_threshold,
+            "effective_balance_alert_threshold": (
+                instance.balance_alert_threshold or default_balance_alert_threshold
+            ),
+            "notification_channel_ids": instance.notification_channel_ids_json or [],
             "today_request_count": today_request_count(
                 db,
                 instance.id,

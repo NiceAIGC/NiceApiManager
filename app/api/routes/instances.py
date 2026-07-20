@@ -75,6 +75,10 @@ def create_instance_route(
             "billing_mode": instance.billing_mode,
             "remote_user_id": instance.remote_user_id,
             "has_access_token": bool(instance.access_token),
+            "auto_disabled": instance.auto_disabled,
+            "balance_alert_enabled": instance.balance_alert_enabled,
+            "balance_alert_threshold": instance.balance_alert_threshold,
+            "notification_channel_ids": instance.notification_channel_ids_json or [],
         }
     )
 
@@ -185,6 +189,10 @@ def update_instance_route(
             "remote_user_id": instance.session.remote_user_id if instance.session else instance.remote_user_id,
             "has_access_token": bool(instance.access_token),
             "session_expires_at": instance.session.expires_at if instance.session else None,
+            "auto_disabled": instance.auto_disabled,
+            "balance_alert_enabled": instance.balance_alert_enabled,
+            "balance_alert_threshold": instance.balance_alert_threshold,
+            "notification_channel_ids": instance.notification_channel_ids_json or [],
         }
     )
 
