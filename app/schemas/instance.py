@@ -120,6 +120,7 @@ class InstanceResponse(BaseModel):
     total_display_used_quota: float = 0
     latest_request_count: int | None = None
     today_request_count: int = 0
+    today_display_used_amount: float = 0
     last_7d_display_used_amount: float = 0
     last_7d_request_count: int = 0
     last_7d_usage: list[InstanceDailyUsagePoint] = Field(default_factory=list)

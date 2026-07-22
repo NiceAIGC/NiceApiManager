@@ -1042,6 +1042,7 @@ def run_scheduled_sync_pass() -> None:
     for instance_id, instance_name, last_sync_at, sync_interval_minutes, auto_disabled in instances:
         if instance_id in running_instance_ids:
             continue
+        interval_minutes = max(sync_interval_minutes or runtime_settings.default_sync_interval_minutes, 5)
         reference_at = last_sync_at
         if auto_disabled:
             with SessionLocal() as probe_db:

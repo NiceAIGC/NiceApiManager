@@ -98,6 +98,7 @@ export interface Instance {
   latest_request_count?: number | null;
   total_display_used_quota: number;
   today_request_count: number;
+  today_display_used_amount: number;
   last_7d_display_used_amount: number;
   last_7d_request_count: number;
   last_7d_usage: InstanceDailyUsagePoint[];

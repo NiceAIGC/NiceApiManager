@@ -710,37 +710,12 @@ export function InstancesPage() {
         render: (value: number) => <Text strong>{formatMoney(value)}</Text>,
       },
       {
-        title: '余额告警',
-        dataIndex: 'balance_alert_enabled',
-        key: 'balance_alert_enabled',
-        width: 116,
-        render: (value: boolean, record) => (
-          <Tooltip
-            title={
-              value
-                ? `余额 ≤ ${formatMoney(record.effective_balance_alert_threshold)} 时通知${record.notification_channel_ids.length ? '指定渠道' : '默认渠道'}`
-                : '开启后使用全局默认阈值；可在编辑实例中自定义阈值和渠道'
-            }
-          >
-            <Space size={6}>
-              <Switch
-                size="small"
-                checked={value}
-                loading={updateMutation.isPending && updateMutation.variables?.instanceId === record.id}
-                onClick={(checked, event) => {
-                  event.stopPropagation();
-                  updateMutation.mutate({
-                    instanceId: record.id,
-                    payload: buildInstanceUpdatePayload(record, {
-                      balance_alert_enabled: checked,
-                    }),
-                  });
-                }}
-              />
-              {value ? <Text type="secondary">≤ {formatMoney(record.effective_balance_alert_threshold)}</Text> : null}
-            </Space>
-          </Tooltip>
-        ),
+        title: '今日消耗额度',
+        dataIndex: 'today_display_used_amount',
+        key: 'today_display_used_amount',
+        width: 112,
+        sorter: (left, right) => left.today_display_used_amount - right.today_display_used_amount,
+        render: (value: number) => formatMoney(value),
       },
       {
         title: '今日请求',
@@ -816,6 +791,40 @@ export function InstancesPage() {
               同步
             </Button>
           </Space>
+        ),
+      },
+      {
+        title: '余额告警',
+        dataIndex: 'balance_alert_enabled',
+        key: 'balance_alert_enabled',
+        fixed: 'right',
+        width: 124,
+        render: (value: boolean, record) => (
+          <Tooltip
+            title={
+              value
+                ? `余额 ≤ ${formatMoney(record.effective_balance_alert_threshold)} 时通知${record.notification_channel_ids.length ? '指定渠道' : '默认渠道'}`
+                : '开启后使用全局默认阈值；可在编辑实例中自定义阈值和渠道'
+            }
+          >
+            <Space size={6}>
+              <Switch
+                size="small"
+                checked={value}
+                loading={updateMutation.isPending && updateMutation.variables?.instanceId === record.id}
+                onClick={(checked, event) => {
+                  event.stopPropagation();
+                  updateMutation.mutate({
+                    instanceId: record.id,
+                    payload: buildInstanceUpdatePayload(record, {
+                      balance_alert_enabled: checked,
+                    }),
+                  });
+                }}
+              />
+              {value ? <Text type="secondary">≤ {formatMoney(record.effective_balance_alert_threshold)}</Text> : null}
+            </Space>
+          </Tooltip>
         ),
       },
     ],
@@ -1085,7 +1094,6 @@ export function InstancesPage() {
                     <Button
                       size="small"
                       type="primary"
-                      icon={<SyncOutlined />}
                       loading={syncMutation.isPending && syncMutation.variables === record.id}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -1109,7 +1117,7 @@ export function InstancesPage() {
               );
             },
           }}
-          scroll={{ x: 1120 }}
+          scroll={{ x: 1370 }}
         />
       </Card>
 

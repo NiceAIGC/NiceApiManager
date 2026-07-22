@@ -514,6 +514,8 @@ def _instance_to_response(
         )
     last_7d_display_used_amount = sum(item["used_display_amount"] for item in last_7d_usage)
     last_7d_request_count = sum(item["request_count"] for item in last_7d_usage)
+    today_stat = stats_by_date.get(day_start_utc.date())
+    today_display_used_amount = today_stat.used_display_amount if today_stat else 0.0
     total_display_used_quota = float(
         db.scalar(
             select(func.coalesce(func.sum(DailyUsageStat.used_display_amount), 0.0)).where(
@@ -568,6 +570,7 @@ def _instance_to_response(
             "last_7d_display_used_amount": last_7d_display_used_amount,
             "last_7d_request_count": last_7d_request_count,
             "last_7d_usage": last_7d_usage,
+            "today_display_used_amount": today_display_used_amount,
             "remote_user_id": instance.session.remote_user_id if instance.session else instance.remote_user_id,
             "has_access_token": bool(instance.access_token),
             "proxy_mode": instance.proxy_mode,

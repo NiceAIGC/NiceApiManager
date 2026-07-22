@@ -9,9 +9,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.time import utcnow
-from app.models import AppSetting, Base, Instance, NotificationLog, SyncRun, UserSnapshot
+from app.models import AppSetting, Base, DailyUsageStat, Instance, NotificationLog, SyncRun, UserSnapshot
 from app.schemas.app_setting import NotificationChannelConfig
 from app.services import notification_service, sync_service
+from app.services.instance_service import list_instances
+from app.services.snapshot_metrics import current_day_start_utc
 
 
 class NotificationFeatureTests(unittest.TestCase):
@@ -166,6 +168,78 @@ class NotificationFeatureTests(unittest.TestCase):
             sync_service.run_scheduled_sync_pass()
 
         worker.assert_called_once_with(auto_disabled_id, "auto-disabled", trigger_type="scheduled")
+
+    def test_scheduler_respects_interval_and_runs_due_enabled_instances(self) -> None:
+        with self.session_factory() as db:
+            due = Instance(
+                name="due",
+                base_url="https://due.example.com",
+                program_type="newapi",
+                username="user",
+                password="password",
+                enabled=True,
+                billing_mode="prepaid",
+                priority=3,
+                sync_interval_minutes=120,
+                last_sync_at=utcnow() - timedelta(minutes=121),
+            )
+            not_due = Instance(
+                name="not-due",
+                base_url="https://not-due.example.com",
+                program_type="newapi",
+                username="user",
+                password="password",
+                enabled=True,
+                billing_mode="prepaid",
+                priority=3,
+                sync_interval_minutes=120,
+                last_sync_at=utcnow() - timedelta(minutes=119),
+            )
+            db.add_all([due, not_due])
+            db.commit()
+            due_id = due.id
+
+        with (
+            patch.object(sync_service, "SessionLocal", self.session_factory),
+            patch.object(sync_service, "_sync_instance_in_worker") as worker,
+        ):
+            worker.return_value.status = "success"
+            sync_service.run_scheduled_sync_pass()
+
+        worker.assert_called_once_with(due_id, "due", trigger_type="scheduled")
+
+    def test_instance_list_exposes_today_usage_amount(self) -> None:
+        today = current_day_start_utc("Asia/Shanghai").date()
+        with self.session_factory() as db:
+            instance = Instance(
+                name="today-usage",
+                base_url="https://usage.example.com",
+                program_type="newapi",
+                username="user",
+                password="password",
+                enabled=True,
+                billing_mode="prepaid",
+                priority=3,
+                sync_interval_minutes=120,
+            )
+            db.add(instance)
+            db.flush()
+            db.add(
+                DailyUsageStat(
+                    instance_id=instance.id,
+                    usage_date=today,
+                    request_count=12,
+                    used_quota=625_000,
+                    used_display_amount=1.25,
+                    synced_at=utcnow(),
+                )
+            )
+            db.commit()
+
+            response = list_instances(db)
+
+        self.assertEqual(1, response.total)
+        self.assertEqual(1.25, response.items[0].today_display_used_amount)
 
 
 if __name__ == "__main__":

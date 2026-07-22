@@ -1,16 +1,27 @@
 import { DollarOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import { Alert, Card, Col, Empty, Input, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Card, Col, Empty, Input, Row, Segmented, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { fetchInstances } from '../api/instances';
 import { fetchPricingModels } from '../api/pricing';
 import { formatDateTime } from '../utils/format';
+import { cacheUsdPerMillion, inputUsdPerMillion, outputUsdPerMillion } from '../utils/pricing';
 function formatPricingValue(value?: number | null): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return '-';
   }
   return Number.parseFloat(value.toFixed(12)).toString();
+}
+
+type PricingDisplayMode = 'ratio' | 'usd';
+
+
+function formatUsdPerMillion(value?: number | null): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return '-';
+  }
+  return `$${new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 }).format(value)} / 1M`;
 }
 
 
@@ -22,6 +33,7 @@ export function PricingPage() {
   const [groupName, setGroupName] = useState<string | undefined>(undefined);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [displayMode, setDisplayMode] = useState<PricingDisplayMode>('ratio');
 
   const { data: instanceData } = useQuery({
     queryKey: ['instances', tag],
@@ -89,7 +101,7 @@ export function PricingPage() {
       <Card className="section-card ratio-hero-card">
         <Space direction="vertical" size={4}>
           <Typography.Title level={4} style={{ margin: 0 }}><DollarOutlined /> 定价模型</Typography.Title>
-          <Typography.Text type="secondary">同时展示倍率计费、固定价格和缓存倍率；数值保留有效小数，避免长浮点噪声。</Typography.Text>
+          <Typography.Text type="secondary">倍率口径：1x 输入 = $2 / 1M tokens；输出价格 = 模型倍率 × 补全倍率 × $2；缓存读写价格按各自倍率换算。</Typography.Text>
         </Space>
       </Card>
 
@@ -100,7 +112,7 @@ export function PricingPage() {
         <Col xs={12} lg={6}><Card><Statistic title="当前页供应商" value={summary.vendors} /></Card></Col>
       </Row>
 
-      <Alert showIcon icon={<InfoCircleOutlined />} type="info" message="倍率计费：输入基础倍率 × 输出/缓存倍率 × 分组倍率；固定计费：按请求价格 × 分组倍率。实际规则以远端站点为准。" />
+      <Alert showIcon icon={<InfoCircleOutlined />} type="info" message="可在倍率和美元价格间切换。固定价格模型保持显示每次请求价格，不套用每百万 Token 换算。" />
       <div className="table-toolbar">
         <div className="table-toolbar-left">
           <Select
@@ -146,6 +158,16 @@ export function PricingPage() {
               setGroupName(value);
               setPage(1);
             }}
+          />
+        </div>
+        <div className="table-toolbar-right">
+          <Segmented
+            value={displayMode}
+            onChange={(value) => setDisplayMode(value as PricingDisplayMode)}
+            options={[
+              { label: '倍率', value: 'ratio' },
+              { label: '美元 / 1M tokens', value: 'usd' },
+            ]}
           />
         </div>
       </div>
@@ -199,33 +221,63 @@ export function PricingPage() {
             ),
           },
           {
-            title: '模型倍率 / 固定价',
+            title: displayMode === 'ratio' ? '模型倍率 / 固定价' : '输入价格 / 固定价',
             key: 'base_pricing',
-            width: 160,
+            width: 178,
             render: (_: unknown, record) => (
               <div className="pricing-number-cell">
-                <strong>{formatPricingValue(record.quota_type === 0 ? record.model_ratio : record.model_price)}</strong>
-                <span>{record.quota_type === 0 ? '输入基础倍率' : '每次请求价格'}</span>
+                <strong>
+                  {record.quota_type !== 0
+                    ? `$${formatPricingValue(record.model_price)} / 请求`
+                    : displayMode === 'ratio'
+                      ? `${formatPricingValue(record.model_ratio)}x`
+                      : formatUsdPerMillion(inputUsdPerMillion(record.model_ratio))}
+                </strong>
+                <span>{record.quota_type === 0 ? '输入' : '固定价格'}</span>
               </div>
             ),
           },
           {
-            title: '输出倍率',
-            dataIndex: 'completion_ratio',
-            key: 'completion_ratio',
-            width: 110,
-            render: (value: number) => formatPricingValue(value),
-          },
-          {
-            title: '缓存倍率',
-            key: 'cache_ratios',
+            title: displayMode === 'ratio' ? '补全倍率' : '输出价格',
+            key: 'completion_pricing',
             width: 150,
-            render: (_: unknown, record) => (
-              <div className="pricing-number-cell">
-                <strong>读 {formatPricingValue(record.cache_ratio)}</strong>
-                <span>写 {formatPricingValue(record.create_cache_ratio)}</span>
-              </div>
-            ),
+            render: (_: unknown, record) =>
+              record.quota_type !== 0 ? '-' : (
+                <div className="pricing-number-cell">
+                  <strong>
+                    {displayMode === 'ratio'
+                      ? `${formatPricingValue(record.completion_ratio)}x`
+                      : formatUsdPerMillion(outputUsdPerMillion(record.model_ratio, record.completion_ratio))}
+                  </strong>
+                  <span>输出 ÷ 输入</span>
+                </div>
+              ),
+          },
+          {
+            title: displayMode === 'ratio' ? '缓存倍率' : '缓存价格',
+            key: 'cache_ratios',
+            width: 190,
+            render: (_: unknown, record) => {
+              if (record.quota_type !== 0) {
+                return '-';
+              }
+              const readValue = record.cache_ratio == null
+                ? '-'
+                : displayMode === 'ratio'
+                  ? `${formatPricingValue(record.cache_ratio)}x`
+                  : formatUsdPerMillion(cacheUsdPerMillion(record.model_ratio, record.cache_ratio));
+              const writeValue = record.create_cache_ratio == null
+                ? '-'
+                : displayMode === 'ratio'
+                  ? `${formatPricingValue(record.create_cache_ratio)}x`
+                  : formatUsdPerMillion(cacheUsdPerMillion(record.model_ratio, record.create_cache_ratio));
+              return (
+                <div className="pricing-number-cell">
+                  <strong>读 {readValue}</strong>
+                  <span>写 {writeValue}</span>
+                </div>
+              );
+            },
           },
           {
             title: '可用分组',
