@@ -537,22 +537,38 @@ def _ensure_session(
         select(InstanceSession).where(InstanceSession.instance_id == instance.id)
     )
 
-    if cached_session and _session_is_still_usable(cached_session):
-        try:
-            client.get_user_self(
-                cached_session.remote_user_id,
-                cached_session.cookie_value,
-                cached_session.access_token,
-            )
-            return NewAPISessionData(
-                remote_user_id=cached_session.remote_user_id,
-                cookie_value=cached_session.cookie_value,
-                access_token=cached_session.access_token,
-                expires_at=cached_session.expires_at,
-            )
-        except NewAPIClientError:
-            logger.info("Cached session for instance %s expired remotely, relogging in.", instance.id)
+    if cached_session:
+        if _session_is_still_usable(cached_session):
+            try:
+                client.get_user_self(
+                    cached_session.remote_user_id,
+                    cached_session.cookie_value,
+                    cached_session.access_token,
+                )
+                return NewAPISessionData(
+                    remote_user_id=cached_session.remote_user_id,
+                    cookie_value=cached_session.cookie_value,
+                    access_token=cached_session.access_token,
+                    expires_at=cached_session.expires_at,
+                    refresh_token=cached_session.refresh_token,
+                )
+            except NewAPIClientError:
+                logger.info("Cached session for instance %s expired remotely, reauthenticating.", instance.id)
 
+        if cached_session.refresh_token:
+            try:
+                session_data = client.refresh(cached_session.remote_user_id, cached_session.refresh_token)
+            except NewAPIClientError:
+                logger.info("Refresh token for instance %s is unusable, logging in again.", instance.id)
+            else:
+                cached_session.remote_user_id = session_data.remote_user_id
+                cached_session.cookie_value = session_data.cookie_value
+                cached_session.access_token = session_data.access_token
+                cached_session.expires_at = session_data.expires_at
+                cached_session.refresh_token = session_data.refresh_token
+                with _sqlite_write_context():
+                    db.commit()
+                return session_data
     session_data = client.login(instance.username, instance.password)
 
     if cached_session is None:
@@ -563,6 +579,7 @@ def _ensure_session(
     cached_session.cookie_value = session_data.cookie_value
     cached_session.access_token = session_data.access_token
     cached_session.expires_at = session_data.expires_at
+    cached_session.refresh_token = session_data.refresh_token
 
     try:
         with _sqlite_write_context():
@@ -581,6 +598,7 @@ def _ensure_session(
             cookie_value=concurrent_session.cookie_value,
             access_token=concurrent_session.access_token,
             expires_at=concurrent_session.expires_at,
+            refresh_token=concurrent_session.refresh_token,
         )
 
     return session_data

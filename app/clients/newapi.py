@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+import json
+from urllib.parse import urlsplit
 from typing import Any
 
 import httpx
@@ -22,6 +25,7 @@ class NewAPISessionData:
     cookie_value: str
     access_token: str | None
     expires_at: datetime | None
+    refresh_token: str | None = None
 
 
 def detect_program_type(status_data: dict[str, Any], configured_program_type: str = "newapi") -> str:
@@ -82,29 +86,70 @@ class NewAPIClient:
             proxy=self.proxy,
         )
 
+    def _origin(self) -> str:
+        """Return the exact URL origin required by modern New API's refresh guard."""
+        parsed = urlsplit(self.base_url)
+        return f"{parsed.scheme}://{parsed.netloc}"
+
     def login(self, username: str, password: str) -> NewAPISessionData:
-        """Authenticate with username/password and capture the session cookie."""
+        """Authenticate against legacy cookie and modern bearer-token New API releases."""
         with self._build_client() as client:
             response = client.post(
                 "/api/user/login",
                 json={"username": username, "password": password},
             )
             payload = self._decode_response(response)
-            cookie_value = client.cookies.get("session")
-            if not cookie_value:
-                raise NewAPIClientError("Remote instance did not return a session cookie.")
+            data = payload.get("data") or {}
+            if not isinstance(data, dict):
+                raise NewAPIClientError("Remote login response has an invalid data payload.")
+            if data.get("require_2fa"):
+                raise NewAPIClientError("远端账号已启用两步验证，账密同步暂不支持该登录方式。")
 
-            user_data = payload.get("data") or {}
+            access_token = self._extract_access_token(payload)
+            refresh_token = client.cookies.get("new_api_refresh") or None
+            cookie_value = client.cookies.get("session") or ""
+            if not cookie_value and not access_token:
+                raise NewAPIClientError("Remote instance did not return supported authentication credentials.")
+
+            user_data = data.get("user") if isinstance(data.get("user"), dict) else data
             remote_user_id = user_data.get("id")
             if not remote_user_id:
                 raise NewAPIClientError("Remote instance did not return a user ID.")
 
-            expires_at = self._extract_cookie_expiry(response)
+            expires_at = (
+                self._extract_access_token_expiry(data, access_token)
+                if access_token
+                else self._extract_cookie_expiry(response, "session")
+            )
             return NewAPISessionData(
                 remote_user_id=int(remote_user_id),
                 cookie_value=cookie_value,
-                access_token=self._extract_access_token(payload),
+                access_token=access_token,
                 expires_at=expires_at,
+                refresh_token=refresh_token,
+            )
+
+    def refresh(self, remote_user_id: int, refresh_token: str) -> NewAPISessionData:
+        """Rotate a modern New API refresh token and return its new access token."""
+        with self._build_client(refresh_token=refresh_token) as client:
+            response = client.post("/api/user/auth/refresh", headers={"Origin": self._origin()})
+            payload = self._decode_response(response)
+            data = payload.get("data") or {}
+            if not isinstance(data, dict):
+                raise NewAPIClientError("Remote refresh response has an invalid data payload.")
+
+            access_token = self._extract_access_token(payload)
+            if not access_token:
+                raise NewAPIClientError("Remote instance did not return a refreshed access token.")
+            rotated_refresh_token = response.cookies.get("new_api_refresh") or refresh_token
+            user_data = data.get("user")
+            refreshed_user_id = user_data.get("id") if isinstance(user_data, dict) else None
+            return NewAPISessionData(
+                remote_user_id=int(refreshed_user_id or remote_user_id),
+                cookie_value="",
+                access_token=access_token,
+                expires_at=self._extract_access_token_expiry(data, access_token),
+                refresh_token=rotated_refresh_token,
             )
 
     def get_user_self(
@@ -221,6 +266,7 @@ class NewAPIClient:
         remote_user_id: int | None = None,
         cookie_value: str | None = None,
         access_token: str | None = None,
+        refresh_token: str | None = None,
     ) -> httpx.Client:
         """Create a short-lived HTTP client with the required auth headers."""
         headers: dict[str, str] = {}
@@ -233,7 +279,11 @@ class NewAPIClient:
         if token_value:
             headers["Authorization"] = token_value if token_value.lower().startswith("bearer ") else f"Bearer {token_value}"
 
-        cookies = {"session": cookie_value} if cookie_value else None
+        cookies = (
+            {"new_api_refresh": refresh_token}
+            if refresh_token
+            else ({"session": cookie_value} if cookie_value else None)
+        )
         try:
             return httpx.Client(
                 base_url=self.base_url,
@@ -429,10 +479,33 @@ class NewAPIClient:
         return token or None
 
     @staticmethod
-    def _extract_cookie_expiry(response: httpx.Response) -> datetime | None:
-        """Parse the `session` cookie expiry from Set-Cookie headers when present."""
+    def _extract_access_token_expiry(data: dict[str, Any], access_token: str) -> datetime | None:
+        """Read modern New API's expiry field, with the JWT claim as a compatibility fallback."""
+        raw_expires_at = data.get("access_expires_at")
+        try:
+            expires_at = int(raw_expires_at)
+        except (TypeError, ValueError):
+            expires_at = 0
+        if expires_at > 0:
+            return datetime.fromtimestamp(expires_at, timezone.utc).replace(tzinfo=None)
+
+        try:
+            encoded_payload = access_token.split(".")[1]
+            encoded_payload += "=" * (-len(encoded_payload) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(encoded_payload))
+            expires_at = int(claims.get("exp") or 0)
+        except (IndexError, TypeError, ValueError, json.JSONDecodeError):
+            return None
+        if expires_at <= 0:
+            return None
+        return datetime.fromtimestamp(expires_at, timezone.utc).replace(tzinfo=None)
+
+    @staticmethod
+    def _extract_cookie_expiry(response: httpx.Response, cookie_name: str) -> datetime | None:
+        """Parse one authentication cookie's expiry from Set-Cookie headers when present."""
+        prefix = f"{cookie_name}="
         for raw_cookie in response.headers.get_list("set-cookie"):
-            if not raw_cookie.startswith("session="):
+            if not raw_cookie.startswith(prefix):
                 continue
 
             parts = [part.strip() for part in raw_cookie.split(";")]

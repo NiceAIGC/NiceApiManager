@@ -25,6 +25,7 @@ class InstanceSession(Base):
     remote_user_id: Mapped[int] = mapped_column(Integer, nullable=False)
     cookie_value: Mapped[str] = mapped_column(Text, nullable=False)
     access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
