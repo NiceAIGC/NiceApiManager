@@ -1,4 +1,4 @@
-import { Modal, Form, Input } from 'antd';
+import { Modal, Form, Input } from '../ui';
 
 import type { ChangePasswordPayload } from '../types/api';
 

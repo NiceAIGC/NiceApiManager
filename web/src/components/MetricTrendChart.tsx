@@ -1,4 +1,4 @@
-import { Empty, Typography } from 'antd';
+import { Empty, Typography } from '../ui';
 import { useMemo } from 'react';
 
 import { formatMoney, formatNumber } from '../utils/format';

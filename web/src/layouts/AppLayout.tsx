@@ -1,15 +1,13 @@
-import {
-  DashboardOutlined,
-  DatabaseOutlined,
-  BellOutlined,
-  LineChartOutlined,
-  LogoutOutlined,
-  MenuOutlined,
-  PartitionOutlined,
-  ReloadOutlined,
-  SettingOutlined,
-} from '@ant-design/icons';
-import { App, Button, Drawer, Grid, Layout, Menu, Space, Typography } from 'antd';
+import { DashboardOutlined,
+DatabaseOutlined,
+BellOutlined,
+LineChartOutlined,
+LogoutOutlined,
+MenuOutlined,
+PartitionOutlined,
+ReloadOutlined,
+SettingOutlined, } from '../ui/icons';
+import { App, Button, Drawer, Grid, Layout, Menu, Space, Typography } from '../ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';

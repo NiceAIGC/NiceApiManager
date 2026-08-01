@@ -1,30 +1,26 @@
-import {
-  App,
-  Button,
-  Card,
-  Col,
-  Descriptions,
-  Empty,
-  Input,
-  Rate,
-  Row,
-  Select,
-  Space,
-  Switch,
-  Table,
-  Tag,
-  Tooltip,
-  Typography,
-} from 'antd';
-import type { TableColumnsType, TablePaginationConfig } from 'antd';
-import {
-  DeleteOutlined,
-  EditOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-  SyncOutlined,
-  UpOutlined,
-} from '@ant-design/icons';
+import { App,
+Button,
+Card,
+Col,
+Descriptions,
+Empty,
+Input,
+Rate,
+Row,
+Select,
+Space,
+Switch,
+Table,
+Tag,
+Tooltip,
+Typography, } from '../ui';
+import type { TableColumnsType, TablePaginationConfig } from '../ui/types';
+import { DeleteOutlined,
+EditOutlined,
+PlusOutlined,
+ReloadOutlined,
+SyncOutlined,
+UpOutlined, } from '../ui/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 

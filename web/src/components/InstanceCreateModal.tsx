@@ -1,4 +1,4 @@
-import { App, Button, Col, Collapse, Descriptions, Form, Input, InputNumber, Modal, Rate, Row, Segmented, Select, Space, Switch, Typography } from 'antd';
+import { App, Button, Col, Collapse, Descriptions, Form, Input, InputNumber, Modal, Rate, Row, Segmented, Select, Space, Switch, Typography } from '../ui';
 import { useEffect, useState } from 'react';
 
 import { getErrorMessage } from '../api/client';

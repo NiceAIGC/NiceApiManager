@@ -1,23 +1,21 @@
-import { SyncOutlined } from '@ant-design/icons';
+import { SyncOutlined } from '../ui/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  App,
-  Button,
-  Card,
-  Col,
-  DatePicker,
-  Descriptions,
-  Empty,
-  Input,
-  InputNumber,
-  Row,
-  Segmented,
-  Select,
-  Space,
-  Statistic,
-  Tag,
-  Typography,
-} from 'antd';
+import { App,
+Button,
+Card,
+Col,
+DatePicker,
+Descriptions,
+Empty,
+Input,
+InputNumber,
+Row,
+Segmented,
+Select,
+Space,
+Statistic,
+Tag,
+Typography, } from '../ui';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useMemo, useState } from 'react';
 

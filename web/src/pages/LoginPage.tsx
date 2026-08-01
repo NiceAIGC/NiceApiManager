@@ -1,5 +1,5 @@
-import { LockOutlined } from '@ant-design/icons';
-import { App, Button, Card, Form, Input, Typography } from 'antd';
+import { LockOutlined } from '../ui/icons';
+import { App, Button, Card, Form, Input, Typography } from '../ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
