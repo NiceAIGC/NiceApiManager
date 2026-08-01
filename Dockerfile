@@ -6,7 +6,7 @@ WORKDIR /web
 
 COPY web/package.json web/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --legacy-peer-deps --no-audit --no-fund
+    npm ci --no-audit --no-fund
 
 COPY web/index.html ./
 COPY web/tsconfig.json web/tsconfig.app.json web/tsconfig.node.json ./
