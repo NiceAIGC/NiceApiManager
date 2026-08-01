@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   color-scheme: light;
   font-family:
@@ -81,9 +85,7 @@ a {
   height: 40px;
 }
 
-.app-mobile-drawer .ant-drawer-content {
-  background: #001529;
-}
+.ui-drawer { background: #001529; }
 
 .app-header-title {
   margin: 0 !important;
@@ -113,9 +115,7 @@ a {
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 
-.section-card .ant-card-body {
-  padding: 18px;
-}
+.section-card [data-slot="base"] { padding: 18px; }
 
 .stat-card {
   height: 100%;
@@ -223,11 +223,7 @@ a {
   gap: 16px;
 }
 
-.dashboard-main-chart-card .ant-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
+.dashboard-main-chart-card [data-slot="base"] { display: flex; flex-direction: column; gap: 20px; }
 
 .dashboard-main-chart-meta {
   display: grid;
@@ -786,65 +782,9 @@ a {
   align-items: center;
 }
 
-.instances-compact-table .ant-table {
-  font-size: 13px;
-}
+.instances-compact-table .hero-table { font-size: 13px; }
 
-.instances-compact-table .ant-table-thead > tr > th,
-.instances-compact-table .ant-table-tbody > tr > td {
-  padding: 9px 8px !important;
-}
-
-.instances-compact-table .ant-table-tbody > tr > td {
-  line-height: 1.4;
-}
-
-.instances-compact-table .ant-table-row-expand-icon-cell {
-  width: 32px;
-  min-width: 32px;
-}
-
-.instances-compact-table .ant-table-selection-column {
-  width: 36px;
-  min-width: 36px;
-}
-
-.instances-compact-table .ant-tag {
-  margin-inline-end: 0;
-  padding-inline: 6px;
-  font-size: 12px;
-  line-height: 20px;
-}
-
-.instances-compact-table .ant-btn-sm {
-  height: 26px;
-  padding: 0 8px;
-  font-size: 13px;
-}
-
-.instance-name-cell {
-  max-width: 190px;
-}
-
-.instance-priority-rate {
-  color: #f59e0b;
-  font-size: 11px;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.instance-priority-rate .ant-rate-star {
-  margin-inline-end: 1px !important;
-}
-
-.instances-compact-table .ant-table-expanded-row > .ant-table-cell {
-  background: #f6f8fb;
-  box-shadow: inset 0 1px 0 #e2e8f0;
-}
-
-.instances-compact-table .ant-table-expanded-row:hover > .ant-table-cell {
-  background: #f6f8fb;
-}
+.instance-priority-rate { color: #f59e0b; }
 
 .instance-expanded-actions {
   display: flex;
@@ -1040,9 +980,7 @@ a {
   width: 100%;
 }
 
-.stacked-usage-chart-tooltip .ant-list-item {
-  padding-block: 4px;
-}
+.stacked-usage-chart-tooltip { padding-block: 4px; }
 
 .instance-batch-grid {
   display: grid;

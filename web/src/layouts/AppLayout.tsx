@@ -1,15 +1,5 @@
-import {
-  DashboardOutlined,
-  DatabaseOutlined,
-  BellOutlined,
-  LineChartOutlined,
-  LogoutOutlined,
-  MenuOutlined,
-  PartitionOutlined,
-  ReloadOutlined,
-  SettingOutlined,
-} from '@ant-design/icons';
-import { App, Button, Drawer, Grid, Layout, Menu, Space, Typography } from 'antd';
+import { Button, Drawer, DrawerBody, DrawerContent, DrawerHeader, Tooltip, addToast } from '@heroui/react';
+import { Bell, ChartNoAxesCombined, Database, LayoutDashboard, LogOut, Menu, Network, RefreshCw, Settings } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -18,157 +8,30 @@ import { logout } from '../api/auth';
 import { fetchAppSettings } from '../api/settings';
 import { setDisplayTimezone } from '../utils/format';
 
-const { Header, Content, Sider } = Layout;
-const { Text } = Typography;
-const { useBreakpoint } = Grid;
-
-const menuItems = [
-  {
-    key: '/dashboard',
-    icon: <DashboardOutlined />,
-    label: '仪表盘',
-  },
-  {
-    key: '/instances',
-    icon: <DatabaseOutlined />,
-    label: '实例管理',
-  },
-  {
-    key: '/groups',
-    icon: <PartitionOutlined />,
-    label: '分组倍率',
-  },
-  {
-    key: '/pricing',
-    icon: <LineChartOutlined />,
-    label: '定价模型',
-  },
-  {
-    key: '/logs',
-    icon: <ReloadOutlined />,
-    label: '日志记录',
-  },
-  {
-    key: '/notifications',
-    icon: <BellOutlined />,
-    label: '告警通知',
-  },
-  {
-    key: '/settings',
-    icon: <SettingOutlined />,
-    label: '系统设置',
-  },
+const navigationItems = [
+  { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard },
+  { path: '/instances', label: '实例管理', icon: Database },
+  { path: '/groups', label: '分组倍率', icon: Network },
+  { path: '/pricing', label: '定价模型', icon: ChartNoAxesCombined },
+  { path: '/logs', label: '日志记录', icon: RefreshCw },
+  { path: '/notifications', label: '告警通知', icon: Bell },
+  { path: '/settings', label: '系统设置', icon: Settings },
 ];
+
+function Navigation({ onNavigate }: { onNavigate?: () => void }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return <div className="flex h-full flex-col bg-slate-950 text-slate-100"><div className="border-b border-white/10 px-6 py-6"><p className="text-lg font-semibold">NiceApiManager</p><p className="mt-1 text-xs text-slate-400">中转站聚合管理后台</p></div><nav className="flex flex-1 flex-col gap-1 p-3">{navigationItems.map(({ path, label, icon: Icon }) => <Button key={path} className="justify-start" color={location.pathname === path ? 'primary' : 'default'} startContent={<Icon size={18} />} variant={location.pathname === path ? 'flat' : 'light'} onPress={() => { navigate(path); onNavigate?.(); }}>{label}</Button>)}</nav></div>;
+}
 
 export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { message } = App.useApp();
-  const screens = useBreakpoint();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const { data: appSettingsData } = useQuery({
-    queryKey: ['app-settings'],
-    queryFn: fetchAppSettings,
-    staleTime: 5 * 60 * 1000,
-  });
-
-  useEffect(() => {
-    setDisplayTimezone(appSettingsData?.scheduler_timezone);
-  }, [appSettingsData?.scheduler_timezone]);
-
-  useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [location.pathname]);
-
-  const logoutMutation = useMutation({
-    mutationFn: logout,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['auth-status'] });
-      navigate('/login', { replace: true });
-    },
-    onError: () => {
-      message.error('退出登录失败，请稍后重试。');
-    },
-  });
-
-  const pageTitle = useMemo(
-    () => menuItems.find((item) => item.key === location.pathname)?.label || 'NiceApiManager',
-    [location.pathname],
-  );
-
-  const navigationMenu = (
-    <>
-      <div className="brand-block">
-        <div className="brand-title">NiceApiManager</div>
-        <div className="brand-subtitle">中转站聚合管理后台</div>
-      </div>
-      <Menu
-        theme="dark"
-        mode="inline"
-        selectedKeys={[location.pathname]}
-        items={menuItems}
-        onClick={({ key }) => navigate(key)}
-        style={{ borderRight: 0, paddingTop: 12 }}
-      />
-    </>
-  );
-
-  return (
-    <Layout className="app-shell">
-      {screens.lg ? (
-        <Sider width={240} className="app-sider">
-          {navigationMenu}
-        </Sider>
-      ) : (
-        <Drawer
-          title={null}
-          placement="left"
-          open={mobileMenuOpen}
-          onClose={() => setMobileMenuOpen(false)}
-          width={240}
-          closable={false}
-          className="app-mobile-drawer"
-          styles={{
-            body: { padding: 0, background: '#001529' },
-            header: { display: 'none' },
-          }}
-        >
-          {navigationMenu}
-        </Drawer>
-      )}
-      <Layout>
-        <Header className="app-header">
-          <Space size={12} align="center">
-            {!screens.lg ? (
-              <Button
-                type="text"
-                className="app-mobile-menu-trigger"
-                icon={<MenuOutlined />}
-                onClick={() => setMobileMenuOpen(true)}
-              />
-            ) : null}
-            <Space direction="vertical" size={0}>
-              <Typography.Title level={4} className="app-header-title">
-                {pageTitle}
-              </Typography.Title>
-            </Space>
-          </Space>
-          <Space>
-            <Button
-              icon={<LogoutOutlined />}
-              loading={logoutMutation.isPending}
-              onClick={() => logoutMutation.mutate()}
-            >
-              退出登录
-            </Button>
-          </Space>
-        </Header>
-        <Content className="page-content">
-          <Outlet />
-        </Content>
-      </Layout>
-    </Layout>
-  );
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const { data: settings } = useQuery({ queryKey: ['app-settings'], queryFn: fetchAppSettings, staleTime: 300_000 });
+  useEffect(() => setDisplayTimezone(settings?.scheduler_timezone), [settings?.scheduler_timezone]);
+  const logoutMutation = useMutation({ mutationFn: logout, onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['auth-status'] }); navigate('/login', { replace: true }); }, onError: () => addToast({ title: '退出失败', description: '请稍后重试。', color: 'danger' }) });
+  const title = useMemo(() => navigationItems.find((item) => item.path === location.pathname)?.label ?? 'NiceApiManager', [location.pathname]);
+  return <div className="min-h-screen bg-slate-50 text-slate-900"><aside className="fixed inset-y-0 left-0 hidden w-60 lg:block"><Navigation /></aside><div className="min-h-screen lg:pl-60"><header className="sticky top-0 z-20 flex min-h-20 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur lg:px-7"><div className="flex items-center gap-3"><Button isIconOnly className="lg:hidden" variant="light" onPress={() => setDrawerOpen(true)}><Menu size={20} /></Button><h1 className="text-xl font-semibold">{title}</h1></div><Tooltip content="退出当前登录"><Button isLoading={logoutMutation.isPending} startContent={<LogOut size={17} />} variant="flat" onPress={() => logoutMutation.mutate()}>退出登录</Button></Tooltip></header><main className="mx-auto w-full max-w-[1800px] p-4 lg:p-7"><Outlet /></main></div><Drawer isOpen={drawerOpen} placement="left" size="xs" onOpenChange={setDrawerOpen}><DrawerContent>{() => <><DrawerHeader className="sr-only">导航菜单</DrawerHeader><DrawerBody className="p-0"><Navigation onNavigate={() => setDrawerOpen(false)} /></DrawerBody></>}</DrawerContent></Drawer></div>;
 }
