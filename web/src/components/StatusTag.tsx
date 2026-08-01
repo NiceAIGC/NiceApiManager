@@ -1,4 +1,4 @@
-import { Tag } from '../ui';
+import { Tag } from 'antd';
 
 const colorMap: Record<string, string> = {
   healthy: 'success',

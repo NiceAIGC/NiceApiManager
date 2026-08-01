@@ -1,4 +1,4 @@
-import { Empty, Progress, Space, Table, Tag, Typography } from '../ui';
+import { Empty, Progress, Space, Table, Tag, Typography } from 'antd';
 import { useMemo } from 'react';
 
 import type { DashboardInstanceSummary } from '../types/api';

@@ -1,16 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App,
-Button,
-Card,
-Col,
-Form,
-Input,
-InputNumber,
-Row,
-Select,
-Space,
-Switch,
-Typography, } from '../ui';
+import {
+  App,
+  Button,
+  Card,
+  Col,
+  Form,
+  Input,
+  InputNumber,
+  Row,
+  Select,
+  Space,
+  Switch,
+  Typography,
+} from 'antd';
 import { useEffect, useState } from 'react';
 
 import { changePassword } from '../api/auth';

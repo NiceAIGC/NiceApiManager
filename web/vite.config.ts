@@ -18,7 +18,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           router: ['react-router-dom'],
-          heroui: ['@heroui/react', 'framer-motion'],
+          antd: ['antd', '@ant-design/icons'],
           query: ['@tanstack/react-query', 'axios'],
         },
       },

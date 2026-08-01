@@ -1,4 +1,4 @@
-import { Empty, List, Space, Tag, Tooltip, Typography } from '../ui';
+import { Empty, List, Space, Tag, Tooltip, Typography } from 'antd';
 import { useMemo } from 'react';
 
 import type { DashboardTrendPoint, DashboardTrendSeriesItem } from '../types/api';

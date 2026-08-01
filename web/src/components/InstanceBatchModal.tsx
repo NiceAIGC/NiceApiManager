@@ -1,5 +1,5 @@
-import { DeleteOutlined, PlusOutlined } from '../ui/icons';
-import { App, Button, Card, Descriptions, Form, Input, InputNumber, Modal, Rate, Select, Space, Switch, Typography } from '../ui';
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { App, Button, Card, Descriptions, Form, Input, InputNumber, Modal, Rate, Select, Space, Switch, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 
 import { getErrorMessage } from '../api/client';

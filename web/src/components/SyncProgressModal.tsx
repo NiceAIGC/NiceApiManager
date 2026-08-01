@@ -1,5 +1,5 @@
-import { Alert, Button, Descriptions, Modal, Progress, Space, Table, Tag, Typography } from '../ui';
-import type { ColumnsType } from '../ui/types';
+import { Alert, Button, Descriptions, Modal, Progress, Space, Table, Tag, Typography } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 
 const { Text } = Typography;
 

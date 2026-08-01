@@ -1,5 +1,5 @@
-import { BarChartOutlined, InfoCircleOutlined } from '../ui/icons';
-import { Alert, Card, Col, Empty, Row, Select, Space, Statistic, Table, Tag, Typography } from '../ui';
+import { BarChartOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Alert, Card, Col, Empty, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 

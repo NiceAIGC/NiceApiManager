@@ -1,5 +1,5 @@
-import { Empty, Select, Space, Table, Tabs, Tag, Typography } from '../ui';
-import type { TabsProps } from '../ui/types';
+import { Empty, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
+import type { TabsProps } from 'antd';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';

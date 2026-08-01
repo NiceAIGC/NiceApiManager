@@ -1,4 +1,4 @@
-import { Spin } from '../ui';
+import { Spin } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 

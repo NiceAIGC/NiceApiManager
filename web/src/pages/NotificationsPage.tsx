@@ -1,22 +1,24 @@
-import { DeleteOutlined, PlusOutlined, QuestionCircleOutlined } from '../ui/icons';
+import { DeleteOutlined, PlusOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert,
-App,
-Button,
-Card,
-Col,
-Collapse,
-Divider,
-Drawer,
-Form,
-Input,
-InputNumber,
-Row,
-Select,
-Space,
-Switch,
-Tag,
-Typography, } from '../ui';
+import {
+  Alert,
+  App,
+  Button,
+  Card,
+  Col,
+  Collapse,
+  Divider,
+  Drawer,
+  Form,
+  Input,
+  InputNumber,
+  Row,
+  Select,
+  Space,
+  Switch,
+  Tag,
+  Typography,
+} from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 
 import { getErrorMessage } from '../api/client';

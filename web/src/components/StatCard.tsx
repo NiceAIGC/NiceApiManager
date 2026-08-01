@@ -1,4 +1,4 @@
-import { Card, Typography } from '../ui';
+import { Card, Typography } from 'antd';
 import type { ReactNode } from 'react';
 
 const { Text } = Typography;

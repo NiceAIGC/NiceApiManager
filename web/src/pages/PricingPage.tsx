@@ -1,5 +1,5 @@
-import { DollarOutlined, InfoCircleOutlined } from '../ui/icons';
-import { Alert, Card, Col, Empty, Input, Row, Segmented, Select, Space, Statistic, Table, Tag, Typography } from '../ui';
+import { DollarOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Alert, Card, Col, Empty, Input, Row, Segmented, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
