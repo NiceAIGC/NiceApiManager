@@ -4,10 +4,7 @@ __pycache__/
 .venv/
 data/
 web/node_modules/
-web/dist/
 *.tsbuildinfo
-web/vite.config.js
-web/vite.config.d.ts
 /dev_temp/
 /_tmp_test*.db
 /_tmp_test*.db-*

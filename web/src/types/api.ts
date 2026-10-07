@@ -363,7 +363,6 @@ export interface BalanceNotificationRule {
   instance_ids: number[];
   tags: string[];
   include_disabled: boolean;
-  repeat_interval_minutes: number;
   notify_on_recovery: boolean;
   channel_ids: string[];
 }
@@ -379,7 +378,6 @@ export interface AggregateBalanceNotificationRule {
   instance_ids: number[];
   tags: string[];
   include_disabled: boolean;
-  repeat_interval_minutes: number;
   notify_on_recovery: boolean;
   channel_ids: string[];
 }

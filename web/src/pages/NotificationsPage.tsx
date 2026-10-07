@@ -100,7 +100,6 @@ function createBalanceRule(severity: 'warning' | 'critical'): BalanceNotificatio
     instance_ids: [],
     tags: [],
     include_disabled: false,
-    repeat_interval_minutes: severity === 'critical' ? 120 : 360,
     notify_on_recovery: true,
     channel_ids: [],
   };
@@ -118,7 +117,6 @@ function createAggregateBalanceRule(): AggregateBalanceNotificationRule {
     instance_ids: [],
     tags: [],
     include_disabled: false,
-    repeat_interval_minutes: 180,
     notify_on_recovery: true,
     channel_ids: [],
   };
@@ -419,7 +417,7 @@ const guideItems = [
         </Paragraph>
         <ul className="guide-steps">
           <li>命中阈值 → 视为「告警中」，向该规则的渠道推送一条告警（可要求连续命中多次才发，见去重）。</li>
-          <li>持续命中 → 按「重复提醒间隔」周期性再次提醒，不会每次巡检都刷屏。</li>
+          <li>余额告警每轮低余额只发送一次，恢复到阈值以上后再次跌破才重新告警；连接失败规则仍按「重复提醒间隔」提醒。</li>
           <li>恢复到「恢复阈值」以上 → 状态转为正常，若开了「恢复通知」会再发一条恢复消息。</li>
         </ul>
         <Text type="secondary">关闭巡检后不会自动检查，但仍可用右上角「发送测试通知」验证渠道连通性。</Text>
@@ -474,7 +472,7 @@ const guideItems = [
           <Text strong>连续命中次数</Text>：连续多少次巡检都低于阈值才首次告警，用来过滤抖动。
         </li>
         <li>
-          <Text strong>重复提醒间隔</Text>：已告警且仍未恢复时，每隔多少分钟再提醒一次。
+          <Text strong>余额告警</Text>：持续低于阈值不会重复发送，恢复后再次跌破才重新通知。
         </li>
         <li>
           <Text strong>级别</Text>：严重 / 预警，仅影响通知的类型标识与图标。
@@ -505,8 +503,8 @@ const guideItems = [
         <li>渠道是否「启用」，测试通知能否收到。</li>
         <li>规则是否「启用」，作用范围是否真的覆盖到目标实例。</li>
         <li>余额类规则：目标是否为预付费实例、是否已同步出余额（余额为空会跳过）。</li>
-        <li>是否设了较大的「连续命中次数」或「重复提醒间隔」导致延迟。</li>
-        <li>刚触发过、仍在重复间隔内，属正常抑制，可到「通知日志」页核对投递记录。</li>
+        <li>余额告警首次触发可能等待「连续命中次数」；告警中要等恢复后再次跌破才会重发。</li>
+        <li>连接失败规则刚触发过、仍在重复间隔内时不会重发；可到「通知日志」页核对投递记录。</li>
       </ul>
     ),
   },
@@ -1035,11 +1033,6 @@ export function NotificationsPage() {
                                         <InputNumber style={{ width: '100%' }} min={1} max={10} precision={0} />
                                       </Form.Item>
                                     </Col>
-                                    <Col xs={24} md={8}>
-                                      <Form.Item name={[field.name, 'repeat_interval_minutes']} label="重复提醒间隔（分钟）">
-                                        <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} />
-                                      </Form.Item>
-                                    </Col>
                                     <Col xs={24} md={4}>
                                       <Form.Item name={[field.name, 'include_disabled']} label="包含停用实例" valuePropName="checked">
                                         <Switch checkedChildren="包含" unCheckedChildren="排除" />
@@ -1192,11 +1185,6 @@ export function NotificationsPage() {
                         <Col xs={24} md={8}>
                           <Form.Item name={[field.name, 'min_consecutive_checks']} label="连续命中次数">
                             <InputNumber style={{ width: '100%' }} min={1} max={10} precision={0} />
-                          </Form.Item>
-                        </Col>
-                        <Col xs={24} md={8}>
-                          <Form.Item name={[field.name, 'repeat_interval_minutes']} label="重复提醒间隔（分钟）">
-                            <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} />
                           </Form.Item>
                         </Col>
                         <Col xs={24} md={4}>

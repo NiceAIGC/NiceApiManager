@@ -53,7 +53,6 @@ class BaseNotificationRule(BaseModel):
     instance_ids: list[int] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     include_disabled: bool = False
-    repeat_interval_minutes: int = Field(default=180, ge=5, le=10080)
     notify_on_recovery: bool = True
     channel_ids: list[str] = Field(default_factory=list)
 
@@ -158,6 +157,7 @@ class AggregateBalanceNotificationRule(BaseNotificationRule):
 class ConnectivityFailureNotificationRule(BaseNotificationRule):
     """Alert when an instance repeatedly fails to connect."""
 
+    repeat_interval_minutes: int = Field(default=180, ge=5, le=10080)
     consecutive_failures: int = Field(default=3, ge=2, le=20)
 
 
@@ -179,7 +179,6 @@ def build_default_notification_rules() -> NotificationRuleSet:
                 severity="warning",
                 threshold=50,
                 resolve_threshold=80,
-                repeat_interval_minutes=360,
                 min_consecutive_checks=1,
             ),
             BalanceNotificationRule(
@@ -188,7 +187,6 @@ def build_default_notification_rules() -> NotificationRuleSet:
                 severity="critical",
                 threshold=10,
                 resolve_threshold=20,
-                repeat_interval_minutes=120,
                 min_consecutive_checks=1,
             ),
         ],
@@ -199,7 +197,6 @@ def build_default_notification_rules() -> NotificationRuleSet:
                 enabled=False,
                 threshold=100,
                 resolve_threshold=160,
-                repeat_interval_minutes=180,
                 min_consecutive_checks=1,
             )
         ],

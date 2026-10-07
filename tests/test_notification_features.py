@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.time import utcnow
-from app.models import AppSetting, Base, DailyUsageStat, Instance, NotificationLog, SyncRun, UserSnapshot
+from app.models import AppSetting, Base, DailyUsageStat, Instance, NotificationLog, NotificationRuleState, SyncRun, UserSnapshot
 from app.schemas.app_setting import NotificationChannelConfig
 from app.services import notification_service, sync_service
 from app.services.instance_service import list_instances
@@ -88,6 +88,134 @@ class NotificationFeatureTests(unittest.TestCase):
             self.assertEqual("instance_balance", logs[0].rule_type)
             self.assertEqual("alert", logs[0].event_type)
             self.assertEqual("channel_default", logs[0].channels_json[0]["channel_id"])
+
+    def test_quick_balance_alert_rearms_only_after_recovery(self) -> None:
+        with self.session_factory() as db:
+            self._add_default_channel(db)
+            db.add(
+                Instance(
+                    name="quick-alert",
+                    base_url="https://example.com",
+                    program_type="newapi",
+                    username="user",
+                    password="password",
+                    balance_alert_enabled=True,
+                    billing_mode="prepaid",
+                    quota_per_unit=500_000,
+                )
+            )
+            db.commit()
+
+        started_at = utcnow()
+        with patch.object(notification_service, "_send_via_apprise", return_value=True) as send:
+            for minutes, balance, expected_events in (
+                (0, 50, ["alert"]),
+                (361, 49, ["alert"]),
+                (362, 61, ["alert"]),
+                (363, 50, ["alert"]),
+                (364, 72, ["alert", "recovery"]),
+                (365, 50, ["alert", "recovery", "alert"]),
+            ):
+                with self.session_factory() as db:
+                    instance = db.scalars(select(Instance)).one()
+                    instance.latest_display_quota = balance
+                    notification_service._evaluate_instance_balance_alerts(
+                        db, instances=[instance], now=started_at + timedelta(minutes=minutes)
+                    )
+                    db.commit()
+                    self.assertEqual(
+                        expected_events,
+                        [item.event_type for item in db.scalars(select(NotificationLog).order_by(NotificationLog.id)).all()],
+                    )
+                    state = db.scalars(select(NotificationRuleState)).one()
+                    self.assertEqual("normal" if minutes == 364 else "alerting", state.status)
+        self.assertEqual(3, send.call_count)
+
+    def test_balance_recovery_delivery_failure_still_rearms_alert(self) -> None:
+        with self.session_factory() as db:
+            self._add_default_channel(db)
+            db.add(
+                Instance(
+                    name="recovery-failure",
+                    base_url="https://example.com",
+                    program_type="newapi",
+                    username="user",
+                    password="password",
+                    balance_alert_enabled=True,
+                    billing_mode="prepaid",
+                    quota_per_unit=500_000,
+                )
+            )
+            db.commit()
+
+        started_at = utcnow()
+        with patch.object(notification_service, "_send_via_apprise", side_effect=[True, False, True]):
+            for minutes, balance in ((0, 50), (5, 72), (10, 50)):
+                with self.session_factory() as db:
+                    instance = db.scalars(select(Instance)).one()
+                    instance.latest_display_quota = balance
+                    notification_service._evaluate_instance_balance_alerts(
+                        db, instances=[instance], now=started_at + timedelta(minutes=minutes)
+                    )
+                    db.commit()
+
+        with self.session_factory() as db:
+            logs = db.scalars(select(NotificationLog).order_by(NotificationLog.id)).all()
+            self.assertEqual(["alert", "recovery", "alert"], [item.event_type for item in logs])
+            self.assertEqual(["success", "failed", "success"], [item.delivery_status for item in logs])
+
+    def test_advanced_balance_rules_do_not_repeat_before_recovery(self) -> None:
+        with self.session_factory() as db:
+            self._add_default_channel(db)
+            settings = db.scalars(select(AppSetting)).one()
+            settings.notification_enabled = True
+            settings.notification_rules_json = {
+                "low_balance_rules": [{
+                    "id": "individual", "name": "Individual", "threshold": 60,
+                    "repeat_interval_minutes": 5, "notify_on_recovery": False,
+                }],
+                "aggregate_balance_rules": [{
+                    "id": "combined", "name": "Combined", "threshold": 60,
+                    "instance_ids": [1], "repeat_interval_minutes": 5,
+                    "notify_on_recovery": False,
+                }],
+                "connectivity_failure_rules": [],
+            }
+            db.add(
+                Instance(
+                    name="advanced-alert",
+                    base_url="https://example.com",
+                    program_type="newapi",
+                    username="user",
+                    password="password",
+                    billing_mode="prepaid",
+                    quota_per_unit=500_000,
+                )
+            )
+            db.commit()
+
+        started_at = utcnow()
+        with patch.object(notification_service, "_send_via_apprise", return_value=True) as send:
+            for minutes, balance, expected_alerts in (
+                (0, 50, 2),
+                (361, 49, 2),
+                (362, 61, 2),
+                (363, 50, 2),
+                (364, 72, 2),
+                (365, 50, 4),
+            ):
+                with self.session_factory() as db:
+                    instance = db.scalars(select(Instance)).one()
+                    instance.latest_display_quota = balance
+                    now = started_at + timedelta(minutes=minutes)
+                    notification_service._evaluate_low_balance_rules(db, instances=[instance], now=now)
+                    notification_service._evaluate_aggregate_balance_rules(db, instances=[instance], now=now)
+                    db.commit()
+                    logs = db.scalars(select(NotificationLog).order_by(NotificationLog.id)).all()
+                    self.assertEqual(expected_alerts, len(logs))
+                    self.assertEqual({"alert"}, {item.event_type for item in logs})
+                    self.assertEqual({"low_balance", "aggregate_balance"}, {item.rule_type for item in logs})
+        self.assertEqual(4, send.call_count)
 
     def test_five_scheduled_failures_mark_instance_as_auto_disabled(self) -> None:
         with self.session_factory() as db:

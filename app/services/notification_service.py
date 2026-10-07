@@ -285,7 +285,7 @@ def _evaluate_instance_balance_alerts(db: Session, *, instances: list[Instance],
             is_resolved=balance is not None and balance >= recovery_threshold,
             current_value=_format_amount(balance),
             threshold_hits_required=1,
-            repeat_interval_minutes=360,
+            repeat_interval_minutes=None,
             notify_on_recovery=True,
             alert_channels=channels,
             alert_title=title,
@@ -383,7 +383,7 @@ def _evaluate_low_balance_rules(db: Session, *, instances: list[Instance], now) 
                 is_resolved=is_resolved,
                 current_value=_format_amount(balance),
                 threshold_hits_required=rule.min_consecutive_checks,
-                repeat_interval_minutes=rule.repeat_interval_minutes,
+                repeat_interval_minutes=None,
                 notify_on_recovery=rule.notify_on_recovery,
                 alert_channels=channels,
                 alert_title=title,
@@ -479,7 +479,7 @@ def _evaluate_aggregate_balance_rules(db: Session, *, instances: list[Instance],
             is_resolved=is_resolved,
             current_value=_format_amount(total_balance),
             threshold_hits_required=rule.min_consecutive_checks,
-            repeat_interval_minutes=rule.repeat_interval_minutes,
+            repeat_interval_minutes=None,
             notify_on_recovery=rule.notify_on_recovery,
             alert_channels=channels,
             alert_title=title,
@@ -625,7 +625,7 @@ def _apply_state_transition(
     is_resolved: bool,
     current_value: str,
     threshold_hits_required: int,
-    repeat_interval_minutes: int,
+    repeat_interval_minutes: int | None,
     notify_on_recovery: bool,
     alert_channels: list[NotificationChannelConfig],
     alert_title: str,
@@ -638,7 +638,7 @@ def _apply_state_transition(
     alert_context: _NotificationDispatchContext,
     recovery_context: _NotificationDispatchContext,
 ) -> None:
-    """Apply dedup, cooldown, and recovery rules around one state row."""
+    """Apply dedup, optional cooldown, and recovery rules around one state row."""
     state.last_value = current_value
     state.last_evaluated_at = now
 
@@ -659,7 +659,7 @@ def _apply_state_transition(
                 state.last_triggered_at = now
             return
 
-        if _is_repeat_due(state.last_triggered_at, repeat_interval_minutes, now):
+        if repeat_interval_minutes is not None and _is_repeat_due(state.last_triggered_at, repeat_interval_minutes, now):
             results = _deliver_message(
                 alert_channels,
                 title=alert_title,
@@ -684,7 +684,7 @@ def _apply_state_transition(
                 )
                 _create_notification_log(db, context=recovery_context, results=results)
                 delivered = _has_successful_delivery(results)
-            if delivered:
+            if delivered or repeat_interval_minutes is None:
                 state.status = "normal"
                 state.last_resolved_at = now
         else:
