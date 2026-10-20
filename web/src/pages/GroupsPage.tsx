@@ -1,5 +1,6 @@
 import {
   BarChartOutlined,
+  CheckOutlined,
   DeleteOutlined,
   EditOutlined,
   InfoCircleOutlined,
@@ -11,7 +12,9 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Col,
+  Dropdown,
   Empty,
   Input,
   Modal,
@@ -31,13 +34,16 @@ import type { ColumnsType } from 'antd/es/table';
 import { Form } from 'antd';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
 import {
+  assignGroupNamesToLabel,
   createGroupLabel,
   deleteGroupLabel,
   fetchGroupComparison,
   fetchGroupLabels,
   fetchGroupNames,
   fetchGroups,
+  removeGroupNameFromLabel,
   updateGroupLabel,
 } from '../api/groups';
 import { fetchInstances } from '../api/instances';
@@ -57,14 +63,16 @@ function ratioTagColor(ratio: number): string {
   return ratio > 1.05 ? 'orange' : ratio < 0.95 ? 'green' : 'blue';
 }
 
-function peakWindow(start?: string | null, end?: string | null, multiplier?: number | null) {
+/** Sub2API 高峰时段（分组级）：紧凑标签，hover 看详情。 */
+function PeakTag({ start, end, ratio }: { start?: string | null; end?: string | null; ratio?: number | null }) {
   if (!start || !end) {
     return null;
   }
-  const label = `${formatClock(start)}–${formatClock(end)}${multiplier != null ? ` ×${Number.parseFloat(multiplier.toFixed(4))}` : ''}`;
   return (
-    <Tooltip title="高峰时段内整单消耗额外乘以高峰倍率">
-      <Tag color="orange">{label}</Tag>
+    <Tooltip title={`高峰时段内整单消耗额外乘 ${Number.parseFloat((ratio ?? 1).toFixed(4))} 倍`}>
+      <Tag color="orange" style={{ marginInlineEnd: 0 }}>
+        {formatClock(start)}–{formatClock(end)}×{Number.parseFloat((ratio ?? 1).toFixed(2))}
+      </Tag>
     </Tooltip>
   );
 }
@@ -149,6 +157,52 @@ function LabelEditModal({
   );
 }
 
+/** 标签下拉菜单（行内或批量操作共用） */
+function LabelActionMenu({
+  labelItems,
+  assignedLabels,
+  onAssign,
+  onRemove,
+  onCreate,
+  children,
+}: {
+  labelItems: GroupLabelItem[];
+  assignedLabels: string[];
+  onAssign: (labelId: number) => void;
+  onRemove: (labelId: number) => void;
+  onCreate: () => void;
+  children: React.ReactNode;
+}) {
+  const items = [
+    ...labelItems.map((label) => ({
+      key: `assign-${label.id}`,
+      label: (
+        <Space size={6}>
+          {assignedLabels.includes(label.name) ? <CheckOutlined /> : null}
+          <span>{label.name}</span>
+          {assignedLabels.includes(label.name) ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>（已包含，点击移除）</Typography.Text>
+          ) : null}
+        </Space>
+      ),
+      onClick: () => {
+        if (assignedLabels.includes(label.name)) {
+          onRemove(label.id);
+        } else {
+          onAssign(label.id);
+        }
+      },
+    })),
+    { type: 'divider' as const },
+    {
+      key: 'create',
+      label: <Space size={6}><PlusOutlined /><span>新建标签…</span></Space>,
+      onClick: onCreate,
+    },
+  ];
+  return <Dropdown menu={{ items }} trigger={['click']} placement="bottomLeft">{children}</Dropdown>;
+}
+
 export function GroupsPage() {
   const [viewMode, setViewMode] = useState<GroupsViewMode>('detail');
   const [tag, setTag] = useState<string | undefined>(undefined);
@@ -159,6 +213,8 @@ export function GroupsPage() {
   const [platform, setPlatform] = useState<string | undefined>(undefined);
   const [labelModalOpen, setLabelModalOpen] = useState(false);
   const [editingLabel, setEditingLabel] = useState<GroupLabelItem | null>(null);
+  const [selectedRows, setSelectedRows] = useState<GroupRatioItem[]>([]);
+  const [batchGroupNames, setBatchGroupNames] = useState<string[]>([]);
 
   const queryClient = useQueryClient();
 
@@ -196,7 +252,39 @@ export function GroupsPage() {
     enabled: viewMode === 'compare' && compareLabelId !== undefined,
   });
 
-  const deleteMutation = useMutation({
+  const assignMutation = useMutation({
+    mutationFn: async ({ labelId, groupNames }: { labelId: number; groupNames: string[] }) =>
+      assignGroupNamesToLabel(labelId, groupNames),
+    onSuccess: () => {
+      message.success('已打标签');
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      queryClient.invalidateQueries({ queryKey: ['group-labels'] });
+      queryClient.invalidateQueries({ queryKey: ['group-compare'] });
+      setSelectedRows([]);
+      setBatchGroupNames([]);
+    },
+    onError: (error) => {
+      message.error(`操作失败：${error instanceof Error ? error.message : '未知错误'}`);
+    },
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: async ({ labelId, groupNames }: { labelId: number; groupNames: string[] }) =>
+      removeGroupNameFromLabel(labelId, groupNames),
+    onSuccess: () => {
+      message.success('已移除标签');
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      queryClient.invalidateQueries({ queryKey: ['group-labels'] });
+      queryClient.invalidateQueries({ queryKey: ['group-compare'] });
+      setSelectedRows([]);
+      setBatchGroupNames([]);
+    },
+    onError: (error) => {
+      message.error(`操作失败：${error instanceof Error ? error.message : '未知错误'}`);
+    },
+  });
+
+  const deleteLabelMutation = useMutation({
     mutationFn: (id: number) => deleteGroupLabel(id),
     onSuccess: () => {
       message.success('标签已删除');
@@ -207,6 +295,8 @@ export function GroupsPage() {
       message.error(`删除失败：${error instanceof Error ? error.message : '未知错误'}`);
     },
   });
+
+  const labelItems = labelData?.items ?? [];
 
   const instanceOptions = useMemo(
     () => (instanceData?.items ?? []).map((item) => ({ label: item.name, value: item.id })),
@@ -233,14 +323,7 @@ export function GroupsPage() {
     return Array.from(platforms).sort().map((item) => ({ label: item, value: item }));
   }, [data?.items]);
 
-  const labelOptions = (labelData?.items ?? []).map((item) => ({ label: item.name, value: item.id }));
-  const labelsById = useMemo(() => {
-    const mapping = new Map<number, GroupLabelItem>();
-    for (const item of labelData?.items ?? []) {
-      mapping.set(item.id, item);
-    }
-    return mapping;
-  }, [labelData]);
+  const labelOptions = labelItems.map((item) => ({ label: item.name, value: item.id }));
 
   const summary = useMemo(() => {
     const rows = data?.items ?? [];
@@ -253,6 +336,16 @@ export function GroupsPage() {
       max: ratios.length ? Math.max(...ratios) : 0,
     };
   }, [data?.items]);
+
+  /** 单行或批量给分组打标签 */
+  const handleAssign = (labelId: number, groupNames: string[]) => {
+    assignMutation.mutate({ labelId, groupNames });
+  };
+
+  /** 单行或批量移除标签 */
+  const handleRemove = (labelId: number, groupNames: string[]) => {
+    removeMutation.mutate({ labelId, groupNames });
+  };
 
   const detailColumns: ColumnsType<GroupRatioItem> = [
     {
@@ -272,15 +365,22 @@ export function GroupsPage() {
       title: '分组名',
       dataIndex: 'group_name',
       key: 'group_name',
-      width: 180,
+      width: 200,
       render: (value: string, record) => (
         <Space direction="vertical" size={0}>
           <span style={{ fontWeight: 600 }}>{value}</span>
           {record.labels.length ? (
             <Space size={4} wrap>
               {record.labels.map((name) => {
-                const source = (labelData?.items ?? []).find((item) => item.name === name);
-                return source ? <Tag key={name} color={labelColor(source)}>{name}</Tag> : <Tag key={name}>{name}</Tag>;
+                const source = labelItems.find((item) => item.name === name);
+                return source ? (
+                  <Tag key={name} color={labelColor(source)} closable
+                    onClose={(e) => {
+                      e.preventDefault();
+                      handleRemove(source.id, [value]);
+                    }}
+                  >{name}</Tag>
+                ) : <Tag key={name}>{name}</Tag>;
               })}
             </Space>
           ) : null}
@@ -304,26 +404,27 @@ export function GroupsPage() {
       render: (value: number) => <Tag color={ratioTagColor(value)}>{formatRatio(value)}</Tag>,
     },
     {
-      title: '个人倍率',
-      dataIndex: 'user_ratio',
-      key: 'user_ratio',
-      width: 110,
-      render: (value?: number | null) =>
-        value == null ? '-' : <Tag color="cyan">{formatRatio(value)}</Tag>,
-    },
-    {
-      title: '平台',
-      dataIndex: 'platform',
-      key: 'platform',
-      width: 110,
-      render: (value?: string | null) => value || '-',
+      title: '平台/个人',
+      key: 'platform_user',
+      width: 140,
+      render: (_: unknown, record) => (
+        <Space size={4} wrap>
+          {record.platform ? <Tag>{record.platform}</Tag> : null}
+          {record.user_ratio != null ? <Tag color="cyan">个人 {formatRatio(record.user_ratio)}</Tag> : null}
+          {!record.platform && record.user_ratio == null ? '-' : null}
+        </Space>
+      ),
     },
     {
       title: '高峰时段',
       key: 'peak',
       width: 190,
       render: (_: unknown, record) =>
-        peakWindow(record.peak_start, record.peak_end, record.peak_ratio) ?? '-',
+        record.peak_start && record.peak_end ? (
+          <PeakTag start={record.peak_start} end={record.peak_end} ratio={record.peak_ratio} />
+        ) : (
+          '-'
+        ),
     },
     {
       title: '快照时间',
@@ -331,6 +432,28 @@ export function GroupsPage() {
       key: 'snapshot_at',
       width: 170,
       render: (value: string) => formatDateTime(value),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 110,
+      fixed: 'right',
+      render: (_: unknown, record) => (
+        <LabelActionMenu
+          labelItems={labelItems}
+          assignedLabels={record.labels}
+          onAssign={(labelId) => handleAssign(labelId, [record.group_name])}
+          onRemove={(labelId) => handleRemove(labelId, [record.group_name])}
+          onCreate={() => {
+            setEditingLabel(null);
+            setLabelModalOpen(true);
+          }}
+        >
+          <Button size="small" icon={<TagsOutlined />}>
+            打标签
+          </Button>
+        </LabelActionMenu>
+      ),
     },
   ];
 
@@ -376,7 +499,9 @@ export function GroupsPage() {
             </Space>
             <Space size={4} wrap>
               {entry.user_ratio != null ? <Tag color="cyan">个人 {formatRatio(entry.user_ratio)}</Tag> : null}
-              {peakWindow(entry.peak_start, entry.peak_end, entry.peak_ratio)}
+              {entry.peak_start && entry.peak_end ? (
+                <PeakTag start={entry.peak_start} end={entry.peak_end} ratio={entry.peak_ratio} />
+              ) : null}
               {entry.platform ? <Tag>{entry.platform}</Tag> : null}
             </Space>
           </Space>
@@ -403,69 +528,67 @@ export function GroupsPage() {
     },
   ];
 
+  const selectedGroupNames = useMemo(
+    () => Array.from(new Set(selectedRows.map((item) => item.group_name))),
+    [selectedRows],
+  );
+
+  const batchAssigned = useMemo(
+    () => labelItems.filter((label) =>
+      selectedGroupNames.length > 0 &&
+      selectedGroupNames.every((name) => label.group_names.includes(name))
+    ),
+    [labelItems, selectedGroupNames],
+  );
+
   return (
     <div className="page-stack">
       <Card className="section-card ratio-hero-card">
         <Space direction="vertical" size={4}>
           <Typography.Title level={4} style={{ margin: 0 }}><BarChartOutlined /> 分组倍率</Typography.Title>
           <Typography.Text type="secondary">
-            倍率越高，同一模型调用消耗的额度越多。可给分组打标签并在同标签下跨实例对比倍率；Sub2API 分组额外展示个人倍率、平台与高峰时段。
+            倍率越高，同一模型调用消耗的额度越多。可快速给分组打标签，并在同标签下跨实例对比倍率；Sub2API 分组额外展示个人倍率与高峰时段。
           </Typography.Text>
         </Space>
       </Card>
 
-      {labelData?.items?.length ? (
-        <Card size="small" title={<Space size={6}><TagsOutlined /> 标签管理</Space>}>
-          <Space size={[8, 8]} wrap>
-            {(labelData.items ?? []).map((item) => (
-              <Tooltip key={item.id} title={`分组：${item.group_names.join('、') || '未分配'}${item.remark ? `；${item.remark}` : ''}`}>
-                <Space size={4} style={{ padding: '2px 8px', border: '1px solid var(--border, #d9d9d9)', borderRadius: 6 }}>
-                  <Tag color={labelColor(item)} style={{ marginInlineEnd: 0 }}>{item.name}</Tag>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>{item.group_names.length} 组</Typography.Text>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<EditOutlined />}
-                    onClick={() => {
-                      setEditingLabel(item);
-                      setLabelModalOpen(true);
-                    }}
-                  />
-                  <Popconfirm title={`删除标签「${item.name}」？`} onConfirm={() => deleteMutation.mutate(item.id)}>
-                    <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                  </Popconfirm>
-                </Space>
-              </Tooltip>
-            ))}
-            <Button
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setEditingLabel(null);
-                setLabelModalOpen(true);
-              }}
+      <Card size="small" title={<Space size={6}><TagsOutlined /> 标签管理</Space>}>
+        <Space size={[8, 8]} wrap>
+          {labelItems.map((item) => (
+            <Tooltip
+              key={item.id}
+              title={`分组：${item.group_names.join('、') || '未分配'}${item.remark ? `；${item.remark}` : ''}`}
             >
-              新建标签
-            </Button>
-          </Space>
-        </Card>
-      ) : (
-        <Card size="small">
-          <Space>
-            <Typography.Text type="secondary">给分组打标签后可在同标签下对比各实例倍率。</Typography.Text>
-            <Button
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setEditingLabel(null);
-                setLabelModalOpen(true);
-              }}
-            >
-              新建标签
-            </Button>
-          </Space>
-        </Card>
-      )}
+              <Space size={4} style={{ padding: '2px 8px', border: '1px solid var(--border, #d9d9d9)', borderRadius: 6 }}>
+                <Tag color={labelColor(item)} style={{ marginInlineEnd: 0 }}>{item.name}</Tag>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>{item.group_names.length} 组</Typography.Text>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => {
+                    setEditingLabel(item);
+                    setLabelModalOpen(true);
+                  }}
+                />
+                <Popconfirm title={`删除标签「${item.name}」？`} onConfirm={() => deleteLabelMutation.mutate(item.id)}>
+                  <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                </Popconfirm>
+              </Space>
+            </Tooltip>
+          ))}
+          <Button
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setEditingLabel(null);
+              setLabelModalOpen(true);
+            }}
+          >
+            新建标签
+          </Button>
+        </Space>
+      </Card>
 
       <Row gutter={[16, 16]}>
         <Col xs={12} lg={6}><Card><Statistic title="分组记录" value={summary.total} /></Card></Col>
@@ -546,15 +669,45 @@ export function GroupsPage() {
       </div>
 
       {viewMode === 'detail' ? (
-        <Table
-          rowKey="id"
-          loading={isLoading}
-          dataSource={data?.items ?? []}
-          locale={{ emptyText: <Empty description="暂无分组倍率数据" /> }}
-          scroll={{ x: 1280 }}
-          pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (total) => `共 ${total} 项` }}
-          columns={detailColumns}
-        />
+        <>
+          {selectedRows.length > 0 && (
+            <Card size="small" style={{ marginBottom: 12, background: '#f0f5ff', borderColor: '#adc6ff' }}>
+              <Space wrap>
+                <Typography.Text strong>
+                  已选 {selectedRows.length} 行（{selectedGroupNames.length} 个分组）
+                </Typography.Text>
+                <LabelActionMenu
+                  labelItems={labelItems}
+                  assignedLabels={batchAssigned.map((item) => item.name)}
+                  onAssign={(labelId) => handleAssign(labelId, selectedGroupNames)}
+                  onRemove={(labelId) => handleRemove(labelId, selectedGroupNames)}
+                  onCreate={() => {
+                    setEditingLabel(null);
+                    setLabelModalOpen(true);
+                  }}
+                >
+                  <Button type="primary" icon={<TagsOutlined />}>
+                    批量打标签
+                  </Button>
+                </LabelActionMenu>
+                <Button size="small" onClick={() => setSelectedRows([])}>取消选择</Button>
+              </Space>
+            </Card>
+          )}
+          <Table
+            rowKey="id"
+            loading={isLoading}
+            dataSource={data?.items ?? []}
+            locale={{ emptyText: <Empty description="暂无分组倍率数据" /> }}
+            scroll={{ x: 1400 }}
+            pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (total) => `共 ${total} 项` }}
+            rowSelection={{
+              selectedRowKeys: selectedRows.map((item) => item.id),
+              onChange: (_keys, rows) => setSelectedRows(rows),
+            }}
+            columns={detailColumns}
+          />
+        </>
       ) : compareLabelId === undefined ? (
         <Card><Empty description="请先选择一个标签开始对比" /></Card>
       ) : (
@@ -576,12 +729,8 @@ export function GroupsPage() {
         onClose={() => {
           setLabelModalOpen(false);
           setEditingLabel(null);
-          if (editingLabel === null && compareLabelId === undefined && labelData?.items?.length) {
-            setCompareLabelId(labelData.items[labelData.items.length - 1].id);
-          }
         }}
       />
     </div>
   );
 }
-

@@ -626,7 +626,7 @@ export function PricingPage() {
           pagination={paginationConfig}
           columns={detailColumns}
           expandable={{
-            rowExpandable: (record) => isTieredRow(record) || Boolean(record.tiers?.length) || Boolean(record.billing_expr) || Boolean(record.time_pricing?.periods?.length),
+            rowExpandable: (record) => isTieredRow(record) || Boolean(record.tiers?.length) || Boolean(record.billing_expr) || Boolean(record.time_pricing?.periods?.length) || Boolean(record.extra && Object.values(record.extra).some(v => v != null)),
             expandedRowRender: (record) => (
               <Space direction="vertical" size={8} style={{ width: '100%' }}>
                 {record.tiers?.length ? <TierTable tiers={record.tiers} /> : null}
@@ -642,6 +642,40 @@ export function PricingPage() {
                     {record.time_pricing.timezone ? <Tag>时区 {record.time_pricing.timezone}</Tag> : null}
                   </Space>
                 ) : null}
+                {/* 图片/音频等扩展价格（NewAPI 倍率字段 / Sub2API 显式价格） */}
+                {(record.extra?.image_ratio != null ||
+                  record.extra?.audio_ratio != null ||
+                  record.extra?.audio_completion_ratio != null ||
+                  record.extra?.image_input_price != null ||
+                  record.extra?.image_output_price != null) && (
+                  <Space size={4} wrap>
+                    {record.extra?.image_ratio != null ? (
+                      <Tag color="purple">图片倍率 {formatRatio(record.extra.image_ratio)}</Tag>
+                    ) : null}
+                    {record.extra?.audio_ratio != null ? (
+                      <Tag color="purple">音频倍率 {formatRatio(record.extra.audio_ratio)}</Tag>
+                    ) : null}
+                    {record.extra?.audio_completion_ratio != null ? (
+                      <Tag color="purple">音频补全 {formatRatio(record.extra.audio_completion_ratio)}</Tag>
+                    ) : null}
+                    {record.extra?.image_input_price != null ? (
+                      <Tag color="purple">图片输入 {formatPricePerMillion(record.extra.image_input_price)}</Tag>
+                    ) : null}
+                    {record.extra?.image_output_price != null ? (
+                      <Tag color="purple">图片输出 {formatPricePerMillion(record.extra.image_output_price)}</Tag>
+                    ) : null}
+                    {record.extra?.official_price_input != null ? (
+                      <Tooltip title="官方参考价（未含分组倍率）">
+                        <Tag>官方参考 {formatPricePerMillion(record.extra.official_price_input)}</Tag>
+                      </Tooltip>
+                    ) : null}
+                    {record.extra?.long_context_basis ? (
+                      <Tooltip title="长上下文阶梯计价基准：整单按所在档单价">
+                        <Tag color="geekblue">{record.extra.long_context_basis === 'whole_request' ? '长上下文整单' : record.extra.long_context_basis}</Tag>
+                      </Tooltip>
+                    ) : null}
+                  </Space>
+                )}
                 {record.billing_expr ? (
                   <Typography.Paragraph code copyable style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
                     {record.billing_expr}

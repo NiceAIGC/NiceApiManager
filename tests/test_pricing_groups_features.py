@@ -105,6 +105,22 @@ class BillingExprParserTests(unittest.TestCase):
         self.assertIsNone(parse_billing_expr(None))
         self.assertIsNone(parse_billing_expr("p * 2 + c * 3"))
 
+    def test_request_rule_periods_extracted(self) -> None:
+        expr = (
+            'tier("base", p * 2.5 + c * 15)'
+            '|||when((hour("UTC") >= 1 && hour("UTC") < 4) || (hour("UTC") >= 6 && hour("UTC") < 10)) * 0.5'
+        )
+        parsed = parse_billing_expr(expr)
+        self.assertIsNotNone(parsed)
+        periods = parsed.get("request_rule_periods")
+        self.assertEqual(
+            [
+                {"timezone": "UTC", "from_hour": 1, "to_hour": 4, "weekdays_only": False},
+                {"timezone": "UTC", "from_hour": 6, "to_hour": 10, "weekdays_only": False},
+            ],
+            periods,
+        )
+
 
 class PricingStorageTests(unittest.TestCase):
     def test_newapi_ratio_row_normalizes_to_usd_per_million(self) -> None:

@@ -63,3 +63,13 @@ export async function updateGroupLabel(labelId: number, payload: GroupLabelPaylo
 export async function deleteGroupLabel(labelId: number): Promise<void> {
   await apiClient.delete(`/groups/labels/${labelId}`);
 }
+
+export async function assignGroupNamesToLabel(labelId: number, groupNames: string[]): Promise<GroupLabelItem> {
+  const { data } = await apiClient.post<GroupLabelItem>(`/groups/labels/${labelId}/assign`, { group_names: groupNames });
+  return data;
+}
+
+export async function removeGroupNameFromLabel(labelId: number, groupNames: string[]): Promise<GroupLabelItem> {
+  const { data } = await apiClient.post<GroupLabelItem>(`/groups/labels/${labelId}/unassign`, { group_names: groupNames });
+  return data;
+}

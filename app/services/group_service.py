@@ -175,6 +175,34 @@ def list_group_labels(db: Session) -> GroupLabelListResponse:
     return GroupLabelListResponse(total=len(items), items=items)
 
 
+def assign_group_names_to_label(db: Session, label_id: int, group_names: list[str]) -> GroupLabelItem | None:
+    """Append group names to one label without touching existing assignments."""
+    label = db.get(GroupLabel, label_id)
+    if label is None:
+        return None
+    existing = {item.group_name for item in label.assignments}
+    for group_name in dict.fromkeys(group_names):
+        if group_name.strip() and group_name.strip() not in existing:
+            db.add(GroupLabelAssignment(label_id=label_id, group_name=group_name.strip()))
+    db.commit()
+    db.refresh(label)
+    return _label_item(label)
+
+
+def remove_group_name_from_label(db: Session, label_id: int, group_name: str) -> GroupLabelItem | None:
+    """Remove one group name from a label."""
+    label = db.get(GroupLabel, label_id)
+    if label is None:
+        return None
+    db.query(GroupLabelAssignment).filter(
+        GroupLabelAssignment.label_id == label_id,
+        GroupLabelAssignment.group_name == group_name.strip(),
+    ).delete()
+    db.commit()
+    db.refresh(label)
+    return _label_item(label)
+
+
 def create_group_label(db: Session, name: str, color: str | None, remark: str | None, group_names: list[str]) -> GroupLabelItem:
     """Create one label and optionally assign group names to it."""
     label = GroupLabel(name=name.strip(), color=color, remark=remark)

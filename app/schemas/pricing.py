@@ -34,6 +34,9 @@ class PricingModelItem(BaseModel):
     price_cache_write_1h: float | None = None
     # USD per request for fixed/per-request billed models.
     price_per_request: float | None = None
+    # Source-specific extras (image/audio ratios, description, reasoning
+    # multipliers, official reference price, long-context basis...).
+    extra: dict[str, Any] | None = None
     enable_groups: list[str]
     supported_endpoint_types: list[str]
     snapshot_at: datetime

@@ -54,6 +54,8 @@ class PricingModel(Base):
     price_cache_write_1h: Mapped[float | None] = mapped_column(Float, nullable=True)
     # USD per request for fixed/per-request billed models.
     price_per_request: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Source-specific extras (image/audio ratios, description, icon, tags...).
+    extra_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     enable_groups_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     supported_endpoint_types_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

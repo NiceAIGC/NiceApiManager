@@ -13,13 +13,22 @@ from app.schemas.group import (
     GroupNameFacetResponse,
     GroupRatioListResponse,
 )
+from pydantic import BaseModel
+
+
+class GroupAssignPayload(BaseModel):
+    group_names: list[str]
+
+
 from app.services.group_service import (
+    assign_group_names_to_label,
     compare_group_ratios,
     create_group_label,
     delete_group_label,
     distinct_group_names,
     list_group_labels,
     list_group_ratios,
+    remove_group_name_from_label,
     update_group_label,
 )
 
@@ -127,3 +136,31 @@ def delete_label_route(label_id: int, db: Session = Depends(get_db)) -> None:
     """Delete one group label together with its assignments."""
     if not delete_group_label(db, label_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Label not found.")
+
+
+@router.post("/groups/labels/{label_id}/assign", response_model=GroupLabelItem)
+def post_label_assign(
+    label_id: int,
+    payload: GroupAssignPayload,
+    db: Session = Depends(get_db),
+) -> GroupLabelItem:
+    """Append group names to one label without replacing existing ones."""
+    item = assign_group_names_to_label(db, label_id, payload.group_names)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Label not found.")
+    return item
+
+
+@router.post("/groups/labels/{label_id}/unassign", response_model=GroupLabelItem)
+def post_label_unassign(
+    label_id: int,
+    payload: GroupAssignPayload,
+    db: Session = Depends(get_db),
+) -> GroupLabelItem:
+    """Remove group names from one label."""
+    result = None
+    for group_name in payload.group_names:
+        result = remove_group_name_from_label(db, label_id, group_name)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Label not found.")
+    return result

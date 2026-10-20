@@ -88,6 +88,7 @@ def list_pricing_models(
                 price_cache_write=model.price_cache_write,
                 price_cache_write_1h=model.price_cache_write_1h,
                 price_per_request=model.price_per_request,
+                extra=model.extra_json or None,
                 enable_groups=model.enable_groups_json or [],
                 supported_endpoint_types=model.supported_endpoint_types_json or [],
                 snapshot_at=model.snapshot_at,

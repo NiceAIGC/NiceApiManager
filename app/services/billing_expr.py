@@ -117,6 +117,11 @@ def parse_billing_expr(expression: str | None) -> dict[str, Any] | None:
     rule_text = request_rules.strip()
     if rule_text:
         parsed["request_rules"] = rule_text
+        # Expose structured time windows from request rules so the UI can
+        # show peak/off-peak periods without parsing the expression again.
+        periods = parse_request_rule_periods(rule_text)
+        if periods:
+            parsed["request_rule_periods"] = periods
     return parsed
 
 

@@ -300,6 +300,18 @@ export interface TimePricingSchedule {
   periods: Array<{ start_time: string; end_time: string; multiplier: number }>;
 }
 
+export interface PricingModelExtra {
+  image_ratio?: number | null;
+  audio_ratio?: number | null;
+  audio_completion_ratio?: number | null;
+  image_input_price?: number | null;
+  image_output_price?: number | null;
+  reasoning_effort_multipliers?: Record<string, number> | null;
+  long_context_basis?: string | null;
+  official_price_input?: number | null;
+  usage_cost_usd?: number | null;
+}
+
 export interface PricingModelItem {
   id: number;
   instance_id: number;
@@ -324,6 +336,7 @@ export interface PricingModelItem {
   price_cache_write?: number | null;
   price_cache_write_1h?: number | null;
   price_per_request?: number | null;
+  extra?: PricingModelExtra | null;
   enable_groups: string[];
   supported_endpoint_types: string[];
   snapshot_at: string;

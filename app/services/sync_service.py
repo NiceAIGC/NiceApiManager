@@ -887,6 +887,20 @@ def _replace_pricing_models(
             supported_endpoint_types_json=[str(item) for item in (row.get("supported_endpoint_types") or [])],
             snapshot_at=snapshot_at,
         )
+        # Source-specific metadata: image/audio ratios, model description/tags,
+        # sub2api reasoning multipliers, official reference prices...
+        extra: dict[str, object] = {}
+        for key in (
+            "image_ratio", "audio_ratio", "audio_completion_ratio",
+            "image_input_price", "image_output_price",
+            "reasoning_effort_multipliers", "long_context_basis",
+            "official_price_input", "usage_cost_usd",
+        ):
+            value = row.get(key)
+            if value is not None:
+                extra[key] = value
+        if extra:
+            record.extra_json = extra
         if parsed_tiers:
             record.tiers_json = parsed_tiers
         time_pricing = row.get("time_pricing")
