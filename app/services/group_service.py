@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from sqlalchemy import String, cast, func, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import GroupLabel, GroupLabelAssignment, GroupRatio, Instance
+from app.services.search_utils import fuzzy_like_pattern
 from app.schemas.group import (
     GroupCompareEntry,
     GroupCompareResponse,
@@ -39,7 +40,11 @@ def list_group_ratios(
         pattern = f'%"{tag.strip()}"%'
         stmt = stmt.where(cast(Instance.tags_json, String).like(pattern))
     if search:
-        stmt = stmt.where(GroupRatio.group_name.ilike(f"%{search.strip()}%"))
+        pattern = fuzzy_like_pattern(search)
+        if pattern:
+            stmt = stmt.where(
+                or_(GroupRatio.group_name.ilike(pattern), GroupRatio.group_desc.ilike(pattern))
+            )
     if platform:
         stmt = stmt.where(GroupRatio.platform == platform.strip())
     if label_id is not None:

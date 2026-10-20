@@ -6,6 +6,7 @@ from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import GroupRatio, Instance, PricingModel
+from app.services.search_utils import fuzzy_like_pattern
 from app.schemas.pricing import (
     PricingCompareEntry,
     PricingCompareModelRow,
@@ -290,10 +291,11 @@ def _pricing_filters(
     if instance_id is not None:
         filters.append(PricingModel.instance_id == instance_id)
     if search:
-        pattern = f"%{search.strip()}%"
-        filters.append(
-            or_(PricingModel.model_name.ilike(pattern), PricingModel.vendor_name.ilike(pattern))
-        )
+        pattern = fuzzy_like_pattern(search)
+        if pattern:
+            filters.append(
+                or_(PricingModel.model_name.ilike(pattern), PricingModel.vendor_name.ilike(pattern))
+            )
     if group_name:
         # Stored as JSON array; LIKE against serialized values is good enough.
         pattern = f'%"{group_name}"%'

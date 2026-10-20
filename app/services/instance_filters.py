@@ -7,6 +7,7 @@ from urllib.parse import urlsplit, urlunsplit
 from sqlalchemy import String, cast, or_
 
 from app.models import Instance
+from app.services.search_utils import fuzzy_like_pattern
 
 
 def normalize_base_url(value: str) -> str:
@@ -59,14 +60,15 @@ def apply_instance_filters(
     normalized_tags = normalize_tag_filters(tags)
 
     if search:
-        pattern = f"%{search.strip()}%"
-        stmt = stmt.where(
-            or_(
-                Instance.name.ilike(pattern),
-                Instance.base_url.ilike(pattern),
-                Instance.username.ilike(pattern),
+        pattern = fuzzy_like_pattern(search)
+        if pattern:
+            stmt = stmt.where(
+                or_(
+                    Instance.name.ilike(pattern),
+                    Instance.base_url.ilike(pattern),
+                    Instance.username.ilike(pattern),
+                )
             )
-        )
 
     if billing_mode:
         stmt = stmt.where(Instance.billing_mode == billing_mode)

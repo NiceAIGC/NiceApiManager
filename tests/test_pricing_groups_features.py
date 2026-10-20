@@ -488,5 +488,51 @@ class PricingCompareTests(unittest.TestCase):
         self.assertEqual(["fixed"], [item.model_name for item in fixed_rows.items])
 
 
+class FuzzySearchTests(unittest.TestCase):
+    def test_fuzzy_pattern_wide_match(self) -> None:
+        from app.services.search_utils import fuzzy_like_pattern
+
+        self.assertEqual("%a%a%b%b%", fuzzy_like_pattern("aa BB"))
+        self.assertEqual("%a%b%c%", fuzzy_like_pattern("abc"))
+        self.assertIsNone(fuzzy_like_pattern("  "))
+        self.assertIsNone(fuzzy_like_pattern(None))
+
+    def test_fuzzy_search_finds_wide_matches(self) -> None:
+        from sqlalchemy import create_engine, select
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import StaticPool
+        from app.models import Base, Instance, PricingModel
+        from app.services.pricing_service import list_pricing_models
+        from app.services.sync_service import _replace_pricing_models
+
+        engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        Base.metadata.create_all(engine)
+        db = sessionmaker(bind=engine)()
+        instance = Instance(name="t", base_url="u", program_type="newapi", password="x", quota_per_unit=500000.0)
+        db.add(instance)
+        db.commit()
+        _replace_pricing_models(db, instance.id, {"data": [
+            {"model_name": "AA123BB", "quota_type": 0, "model_ratio": 1, "completion_ratio": 2},
+            {"model_name": "deepseek-v4-pro", "quota_type": 0, "model_ratio": 1, "completion_ratio": 2},
+            {"model_name": "gpt-6-astra", "quota_type": 0, "model_ratio": 1, "completion_ratio": 2},
+        ]}, None)
+        db.commit()
+
+        # Wide: "aa bb" matches "AA123BB"
+        rows = list_pricing_models(db, search="aa bb")
+        self.assertEqual(["AA123BB"], [item.model_name for item in rows.items])
+
+        # Still narrow enough: "ds" does not match "deepseek-v4-pro" (d…s order ok, but 'ds' as substring works too)
+        rows2 = list_pricing_models(db, search="ds")
+        names2 = [item.model_name for item in rows2.items]
+        self.assertIn("deepseek-v4-pro", names2)
+
+        # Order matters: "bba" should NOT match "AA123BB"
+        rows3 = list_pricing_models(db, search="bba")
+        self.assertNotIn("AA123BB", [item.model_name for item in rows3.items])
+
+        db.close()
+
+
 if __name__ == "__main__":
     unittest.main()
