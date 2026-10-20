@@ -13,13 +13,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.clients.newapi import NewAPIClient, NewAPIClientError, NewAPISessionData, detect_program_type
-from app.clients.sub2api import Sub2APIClient, Sub2APIClientError, Sub2APISessionData
+from app.clients.sub2api import MICRO_USD_PER_UNIT, Sub2APIClient, Sub2APIClientError, Sub2APISessionData
 from app.core.database import SessionLocal, is_sqlite_locked_error, sqlite_write_lock
 from app.core.time import utcnow
 from app.models import DailyUsageStat, GroupRatio, Instance, InstanceSession, PricingModel, SyncRun, UserSnapshot
 from app.schemas.instance import InstanceTestResponse
 from app.schemas.sync_run import BulkSyncInstanceResult, BulkSyncResponse
 from app.services.app_setting_service import RuntimeAppSettings, get_runtime_app_settings
+from app.services.billing_expr import parse_billing_expr
 from app.services.proxy_utils import resolve_socks5_proxy_url
 from app.services.snapshot_metrics import quota_to_display_amount, resolve_timezone, uses_postpaid_billing
 from app.services.notification_service import dispatch_instance_health_event
@@ -141,7 +142,14 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
             instance.quota_per_unit = _extract_quota_per_unit(status_data) or instance.quota_per_unit
             _persist_user_snapshot(db, instance_id, user_data, snapshot_at)
             _replace_group_ratios(db, instance_id, group_data, snapshot_at)
-            _replace_pricing_models(db, instance_id, pricing_payload, snapshot_at)
+            _replace_pricing_models(
+                db,
+                instance_id,
+                pricing_payload,
+                snapshot_at,
+                quota_per_unit=instance.quota_per_unit,
+                program=instance.program_type,
+            )
             history_source, history_warning = _sync_recent_daily_usage(
                 db,
                 instance=instance,
@@ -376,10 +384,18 @@ def _sync_single_sub2api_instance(db: Session, instance: Instance, trigger_type:
 
         snapshot_at = utcnow()
         with _sqlite_write_context():
-            instance.quota_per_unit = instance.quota_per_unit or 1.0
+            # Sub2API money counters are always stored in micro-USD.
+            instance.quota_per_unit = MICRO_USD_PER_UNIT
             _persist_user_snapshot(db, instance_id, user_data, snapshot_at)
             _replace_group_ratios(db, instance_id, group_data, snapshot_at)
-            _replace_pricing_models(db, instance_id, pricing_payload, snapshot_at)
+            _replace_pricing_models(
+                db,
+                instance_id,
+                pricing_payload,
+                snapshot_at,
+                quota_per_unit=instance.quota_per_unit,
+                program="sub2api",
+            )
             history_source, history_warning = _sync_recent_sub2api_daily_usage(
                 db,
                 instance=instance,
@@ -783,15 +799,25 @@ def _replace_group_ratios(
         if not isinstance(payload, dict):
             continue
         row = payload
-        db.add(
-            GroupRatio(
-                instance_id=instance_id,
-                group_name=group_name,
-                group_desc=row.get("desc"),
-                ratio=_coerce_float(row.get("ratio", 0)),
-                snapshot_at=snapshot_at,
-            )
+        record = GroupRatio(
+            instance_id=instance_id,
+            group_name=group_name,
+            group_desc=row.get("desc"),
+            ratio=_coerce_float(row.get("ratio", 0)),
+            platform=_optional_str(row.get("platform")),
+            user_ratio=_coerce_optional_float(row.get("user_ratio")),
+            peak_ratio=_coerce_optional_float(row.get("peak_ratio")),
+            peak_start=_optional_str(row.get("peak_start")),
+            peak_end=_optional_str(row.get("peak_end")),
+            snapshot_at=snapshot_at,
         )
+        extra = row.get("extra")
+        if isinstance(extra, dict):
+            record.extra_json = extra
+        db.add(record)
+
+
+NEWAPI_DEFAULT_QUOTA_PER_UNIT = 500_000.0
 
 
 def _replace_pricing_models(
@@ -799,8 +825,16 @@ def _replace_pricing_models(
     instance_id: int,
     pricing_payload: dict[str, object],
     snapshot_at,
+    *,
+    quota_per_unit: float | None = None,
+    program: str = "newapi",
 ) -> None:
-    """Replace the current stored pricing models for one instance."""
+    """Replace the current stored pricing models for one instance.
+
+    Normalized `price_*` columns always hold USD per 1M tokens (or USD per
+    request for fixed-price models) so NewAPI ratio pricing and Sub2API
+    explicit pricing can be compared directly.
+    """
     db.execute(delete(PricingModel).where(PricingModel.instance_id == instance_id))
 
     vendors = {
@@ -808,28 +842,127 @@ def _replace_pricing_models(
         for vendor in (pricing_payload.get("vendors") or [])
         if isinstance(vendor, dict) and vendor.get("id") is not None
     }
+    effective_qpu = quota_per_unit if (quota_per_unit or 0) > 0 else NEWAPI_DEFAULT_QUOTA_PER_UNIT
 
     for row in pricing_payload.get("data") or []:
         if not isinstance(row, dict):
             continue
-        db.add(
-            PricingModel(
-                instance_id=instance_id,
-                model_name=str(row.get("model_name")),
-                vendor_id=row.get("vendor_id"),
-                vendor_name=vendors.get(row.get("vendor_id")),
-                quota_type=_coerce_int(row.get("quota_type", 0)),
-                model_ratio=_coerce_float(row.get("model_ratio", 0)),
-                model_price=_coerce_float(row.get("model_price", 0)),
-                cache_ratio=_coerce_optional_float(row.get("cache_ratio")),
-                create_cache_ratio=_coerce_optional_float(row.get("create_cache_ratio")),
-                billing_mode=str(row.get("billing_mode") or "") or None,
-                completion_ratio=_coerce_float(row.get("completion_ratio", 0)),
-                enable_groups_json=list(row.get("enable_groups") or []),
-                supported_endpoint_types_json=list(row.get("supported_endpoint_types") or []),
-                snapshot_at=snapshot_at,
-            )
+
+        billing_expr = _optional_str(row.get("billing_expr"))
+        billing_mode = _optional_str(row.get("billing_mode"))
+        parsed_tiers = row.get("tiers") if isinstance(row.get("tiers"), list) else None
+        if billing_expr and not parsed_tiers:
+            parsed = parse_billing_expr(billing_expr)
+            parsed_tiers = parsed.get("tiers") if parsed else None
+
+        normalized = _normalized_prices(
+            row,
+            quota_per_unit=effective_qpu,
+            program=program,
+            parsed_tiers=parsed_tiers,
         )
+
+        # SQLAlchemy's JSON type serializes an explicit None into the text
+        # 'null' instead of SQL NULL — only set JSON columns that carry data.
+        record = PricingModel(
+            instance_id=instance_id,
+            model_name=str(row.get("model_name")),
+            vendor_id=row.get("vendor_id"),
+            vendor_name=_optional_str(row.get("vendor_name")) or vendors.get(row.get("vendor_id")),
+            quota_type=_coerce_int(row.get("quota_type", 0)),
+            model_ratio=_coerce_float(row.get("model_ratio", 0)),
+            model_price=_coerce_float(row.get("model_price", 0)),
+            cache_ratio=_coerce_optional_float(row.get("cache_ratio")),
+            create_cache_ratio=_coerce_optional_float(row.get("create_cache_ratio")),
+            billing_mode=billing_mode,
+            billing_expr=billing_expr,
+            price_input=normalized.get("price_input"),
+            price_output=normalized.get("price_output"),
+            price_cache_read=normalized.get("price_cache_read"),
+            price_cache_write=normalized.get("price_cache_write"),
+            price_cache_write_1h=normalized.get("price_cache_write_1h"),
+            price_per_request=normalized.get("price_per_request"),
+            completion_ratio=_coerce_float(row.get("completion_ratio", 0)),
+            enable_groups_json=[str(item) for item in (row.get("enable_groups") or [])],
+            supported_endpoint_types_json=[str(item) for item in (row.get("supported_endpoint_types") or [])],
+            snapshot_at=snapshot_at,
+        )
+        if parsed_tiers:
+            record.tiers_json = parsed_tiers
+        time_pricing = row.get("time_pricing")
+        if isinstance(time_pricing, dict):
+            record.time_pricing_json = time_pricing
+        db.add(record)
+
+
+def _normalized_prices(
+    row: dict[str, object],
+    *,
+    quota_per_unit: float,
+    program: str,
+    parsed_tiers: list[dict[str, object]] | None,
+) -> dict[str, float | None]:
+    """Compute USD-per-1M-token prices for one pricing row."""
+    # Sub2API rows already carry explicit USD-per-1M prices.
+    explicit = {
+        "price_input": _coerce_optional_float(row.get("price_input")),
+        "price_output": _coerce_optional_float(row.get("price_output")),
+        "price_cache_read": _coerce_optional_float(row.get("price_cache_read")),
+        "price_cache_write": _coerce_optional_float(row.get("price_cache_write")),
+        "price_cache_write_1h": _coerce_optional_float(row.get("price_cache_write_1h")),
+        "price_per_request": _coerce_optional_float(row.get("price_per_request")),
+    }
+    if any(value is not None for value in explicit.values()):
+        return explicit
+
+    # Tiered expressions price everything in USD per 1M tokens already.
+    if parsed_tiers:
+        first_tier = parsed_tiers[0] if isinstance(parsed_tiers[0], dict) else {}
+        prices = first_tier.get("prices") if isinstance(first_tier.get("prices"), dict) else {}
+        return {
+            "price_input": _coerce_optional_float(prices.get("input")),
+            "price_output": _coerce_optional_float(prices.get("output")),
+            "price_cache_read": _coerce_optional_float(prices.get("cache_read")),
+            "price_cache_write": _coerce_optional_float(prices.get("cache_write")),
+            "price_cache_write_1h": _coerce_optional_float(prices.get("cache_write_1h")),
+            "price_per_request": _coerce_optional_float(first_tier.get("fixed_price")),
+        }
+
+    quota_type = _coerce_int(row.get("quota_type", 0), 0)
+    if quota_type != 0:
+        # NewAPI fixed price is USD per request already.
+        price = _coerce_optional_float(row.get("model_price"))
+        return {
+            "price_input": None,
+            "price_output": None,
+            "price_cache_read": None,
+            "price_cache_write": None,
+            "price_cache_write_1h": None,
+            "price_per_request": price,
+        }
+
+    # NewAPI ratio pricing: USD per 1M tokens = ratio * 1e6 / quota_per_unit.
+    model_ratio = _coerce_float(row.get("model_ratio", 0))
+    input_price = model_ratio * 1_000_000.0 / quota_per_unit if quota_per_unit > 0 else None
+    completion_ratio = _coerce_float(row.get("completion_ratio", 0))
+    cache_ratio = _coerce_optional_float(row.get("cache_ratio"))
+    create_cache_ratio = _coerce_optional_float(row.get("create_cache_ratio"))
+    return {
+        "price_input": input_price,
+        "price_output": input_price * completion_ratio if input_price is not None else None,
+        "price_cache_read": input_price * cache_ratio if (input_price is not None and cache_ratio is not None) else None,
+        "price_cache_write": input_price * create_cache_ratio if (input_price is not None and create_cache_ratio is not None) else None,
+        "price_cache_write_1h": None,
+        "price_per_request": None,
+    }
+
+
+def _optional_str(value: object) -> str | None:
+    """Coerce optional upstream strings without storing empty values."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _extract_quota_per_unit(status_data: dict[str, object]) -> float | None:
@@ -954,6 +1087,7 @@ def _sync_recent_sub2api_daily_usage(
             session_data,
             start_timestamp=int(start_at_utc.timestamp()),
             end_timestamp=int(end_at_utc.timestamp()),
+            timezone_name=runtime_settings.scheduler_timezone,
         )
         _accumulate_daily_usage_from_quota_rows(
             aggregated,

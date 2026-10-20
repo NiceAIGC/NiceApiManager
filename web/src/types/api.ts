@@ -202,9 +202,17 @@ export interface GroupRatioItem {
   id: number;
   instance_id: number;
   instance_name: string;
+  instance_program: string;
   group_name: string;
   group_desc?: string | null;
   ratio: number;
+  platform?: string | null;
+  user_ratio?: number | null;
+  peak_ratio?: number | null;
+  peak_start?: string | null;
+  peak_end?: string | null;
+  extra?: Record<string, unknown> | null;
+  labels: string[];
   snapshot_at: string;
 }
 
@@ -213,10 +221,90 @@ export interface GroupRatioListResponse {
   items: GroupRatioItem[];
 }
 
+export interface GroupLabelItem {
+  id: number;
+  name: string;
+  color?: string | null;
+  remark?: string | null;
+  group_names: string[];
+  created_at: string;
+}
+
+export interface GroupLabelListResponse {
+  total: number;
+  items: GroupLabelItem[];
+}
+
+export interface GroupNameFacetResponse {
+  total: number;
+  items: string[];
+}
+
+export interface GroupLabelPayload {
+  name?: string;
+  color?: string | null;
+  remark?: string | null;
+  group_names?: string[] | null;
+}
+
+export interface GroupCompareEntry {
+  instance_id: number;
+  instance_name: string;
+  instance_program: string;
+  ratio: number;
+  user_ratio?: number | null;
+  platform?: string | null;
+  peak_ratio?: number | null;
+  peak_start?: string | null;
+  peak_end?: string | null;
+  group_desc?: string | null;
+}
+
+export interface GroupCompareRow {
+  group_name: string;
+  entries: GroupCompareEntry[];
+  min_ratio?: number | null;
+  max_ratio?: number | null;
+  best_instance_id?: number | null;
+  spread?: number | null;
+}
+
+export interface GroupCompareResponse {
+  label: GroupLabelItem | null;
+  group_names: string[];
+  instances: Array<{ instance_id: number; instance_name: string; program: string }>;
+  rows: GroupCompareRow[];
+}
+
+export interface PricingTier {
+  label: string;
+  conditions: Array<{ var?: string; op?: string; value?: number; raw?: string }>;
+  time_condition?: string | null;
+  time_windows?: Array<{ timezone: string; from_hour: number; to_hour: number }>;
+  weekdays_only?: boolean;
+  fixed_price?: number | null;
+  prices?: Record<string, number>;
+  min_tokens?: number;
+  max_tokens?: number | null;
+  input_price?: number | null;
+  output_price?: number | null;
+  cache_read_price?: number | null;
+  cache_write_price?: number | null;
+  cache_write_1h_price?: number | null;
+  per_request_price?: number | null;
+}
+
+export interface TimePricingSchedule {
+  timezone?: string | null;
+  weekdays_only?: boolean;
+  periods: Array<{ start_time: string; end_time: string; multiplier: number }>;
+}
+
 export interface PricingModelItem {
   id: number;
   instance_id: number;
   instance_name: string;
+  instance_program: string;
   model_name: string;
   vendor_id?: number | null;
   vendor_name?: string | null;
@@ -227,6 +315,15 @@ export interface PricingModelItem {
   cache_ratio?: number | null;
   create_cache_ratio?: number | null;
   billing_mode?: string | null;
+  billing_expr?: string | null;
+  tiers?: PricingTier[] | null;
+  time_pricing?: TimePricingSchedule | null;
+  price_input?: number | null;
+  price_output?: number | null;
+  price_cache_read?: number | null;
+  price_cache_write?: number | null;
+  price_cache_write_1h?: number | null;
+  price_per_request?: number | null;
   enable_groups: string[];
   supported_endpoint_types: string[];
   snapshot_at: string;
@@ -237,6 +334,48 @@ export interface PricingModelListResponse {
   offset: number;
   limit: number;
   items: PricingModelItem[];
+}
+
+export interface PricingCompareEntry {
+  instance_id: number;
+  pricing_model_id?: number | null;
+  quota_type: number;
+  billing_mode?: string | null;
+  tier_count: number;
+  has_time_pricing: boolean;
+  model_ratio: number;
+  completion_ratio: number;
+  price_input?: number | null;
+  price_output?: number | null;
+  price_cache_read?: number | null;
+  price_per_request?: number | null;
+  min_group_ratio?: number | null;
+  effective_input?: number | null;
+}
+
+export interface PricingCompareModelRow {
+  model_name: string;
+  vendor_name?: string | null;
+  entries: PricingCompareEntry[];
+  best_instance_id?: number | null;
+  best_input_price?: number | null;
+  worst_input_price?: number | null;
+}
+
+export interface PricingCompareResponse {
+  instances: Array<{ instance_id: number; instance_name: string; program: string }>;
+  models: PricingCompareModelRow[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface PricingFacetResponse {
+  vendors: string[];
+  groups: string[];
+  endpoints: string[];
+  model_count: number;
+  instance_count: number;
 }
 
 export interface SyncRun {
