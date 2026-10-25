@@ -1,5 +1,6 @@
-import { Pagination, Select, ListBox, Spinner, Table } from '@heroui/react';
+import { Button, Checkbox, Pagination, Select, ListBox, Spinner, Table } from '@heroui/react';
 import type { Key, SortDescriptor } from '@heroui/react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 
@@ -57,6 +58,25 @@ interface DataTableProps<T> {
 type DisplayItem<T> = { kind: 'data'; row: T; key: Key } | { kind: 'expanded'; row: T; key: Key };
 
 const EXPAND_PREFIX = '__expand__';
+const SELECT_COLUMN_ID = '__selection__';
+const EXPAND_COLUMN_ID = '__expand_toggle__';
+
+function SelectAllControl({ all, some, onToggle }: { all: boolean; some: boolean; onToggle: (checked: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 text-sm text-muted select-none">
+      <input
+        type="checkbox"
+        className="h-4 w-4 cursor-pointer accent-[var(--accent)]"
+        checked={all}
+        ref={(el) => {
+          if (el) el.indeterminate = !all && some;
+        }}
+        onChange={(event) => onToggle(event.target.checked)}
+      />
+      全选本页
+    </label>
+  );
+}
 
 export function DataTable<T>({
   rows,
@@ -88,7 +108,16 @@ export function DataTable<T>({
 
   const dataKeySet = useMemo(() => new Set(rows.map(rowKey)), [rows, rowKey]);
 
-  const columnCount = columns.length;
+  const displayColumns = useMemo<Array<DataTableColumn<T>>>(
+    () => [
+      ...(selection ? [{ id: SELECT_COLUMN_ID, title: null, width: 40 } as DataTableColumn<T>] : []),
+      ...(expandable ? [{ id: EXPAND_COLUMN_ID, title: null, width: 40 } as DataTableColumn<T>] : []),
+      ...columns,
+    ],
+    [columns, selection, expandable],
+  );
+
+  const columnCount = displayColumns.length;
 
   const handleSelectionChange = (keys: Set<Key> | 'all') => {
     if (!selection) return;
@@ -99,19 +128,31 @@ export function DataTable<T>({
     selection.onChange(new Set([...keys].filter((key) => dataKeySet.has(key))));
   };
 
-  const handleRowAction = (key: Key) => {
+  const toggleExpand = (key: Key) => {
     if (!expandable) return;
-    const raw = String(key);
-    if (raw.startsWith(EXPAND_PREFIX)) return;
-    const dataKey = typeof key === 'number' ? key : raw;
     const next = new Set(expandable.expandedKeys);
-    if (next.has(dataKey)) next.delete(dataKey);
-    else next.add(dataKey);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
     expandable.onExpandedChange(next);
   };
 
+  const selectAllState = useMemo(
+    () => ({
+      all: Boolean(selection) && rows.length > 0 && rows.every((row) => selection?.selectedKeys.has(rowKey(row))),
+      some: Boolean(selection) && rows.some((row) => selection?.selectedKeys.has(rowKey(row))),
+      onToggle: (checked: boolean) => selection?.onChange(checked ? new Set(dataKeySet) : new Set()),
+    }),
+    [selection, rows, rowKey, dataKeySet],
+  );
+
   return (
     <div className={cx('flex w-full flex-col gap-3', className)}>
+      {selection ? (
+        <div className="flex items-center gap-3">
+          <SelectAllControl {...selectAllState} />
+          <span className="text-sm text-muted">已选 {selection.selectedKeys.size} / {rows.length} 项</span>
+        </div>
+      ) : null}
       <div className="relative w-full overflow-x-auto rounded-xl border border-border bg-surface">
         {loading ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/60">
@@ -127,23 +168,32 @@ export function DataTable<T>({
               onSelectionChange={selection ? handleSelectionChange : undefined}
               sortDescriptor={sortDescriptor}
               onSortChange={onSortChange}
-              onRowAction={expandable ? handleRowAction : undefined}
               style={minWidth ? { minWidth } : undefined}
             >
-              <Table.Header columns={columns}>
-                {(column) => (
-                  <Table.Column
-                    id={column.id}
-                    isRowHeader={column.id === columns[0]?.id}
-                    allowsSorting={column.sortable}
-                    style={{
-                      width: column.width,
-                      textAlign: column.align,
-                    }}
-                  >
-                    {column.title}
-                  </Table.Column>
-                )}
+              <Table.Header columns={displayColumns}>
+                {(column) =>
+                  column.id === SELECT_COLUMN_ID ? (
+                    <Table.Column id={column.id} style={{ width: column.width }}>
+                      {null}
+                    </Table.Column>
+                  ) : column.id === EXPAND_COLUMN_ID ? (
+                    <Table.Column id={column.id} style={{ width: column.width }}>
+                      {null}
+                    </Table.Column>
+                  ) : (
+                    <Table.Column
+                      id={column.id}
+                      isRowHeader={column.id === displayColumns.find((entry) => entry.id !== SELECT_COLUMN_ID && entry.id !== EXPAND_COLUMN_ID)?.id}
+                      allowsSorting={column.sortable}
+                      style={{
+                        width: column.width,
+                        textAlign: column.align,
+                      }}
+                    >
+                      {column.title}
+                    </Table.Column>
+                  )
+                }
               </Table.Header>
               <Table.Body items={items} renderEmptyState={() => <div className="py-10 text-center text-sm text-muted">{emptyText}</div>}>
                 {(item) =>
@@ -153,16 +203,31 @@ export function DataTable<T>({
                     </Table.Row>
                   ) : (
                     <Table.Row id={item.key} className={rowClassName?.(item.row)}>
-                      {(columnId) => {
-                        const column = columns.find((entry) => entry.id === String(columnId));
-                        return (
-                          <Table.Cell>
-                            <div className={cx(column?.align === 'right' && 'text-right', column?.align === 'center' && 'text-center')}>
-                              {column?.render ? column.render(item.row) : String((item.row as Record<string, unknown>)[String(columnId)] ?? '')}
+                      {displayColumns.map((column) =>
+                        column.id === SELECT_COLUMN_ID ? (
+                          <Table.Cell key={column.id}>
+                            <Checkbox slot="selection" aria-label="选择本行">
+                              <Checkbox.Control>
+                                <Checkbox.Indicator />
+                              </Checkbox.Control>
+                            </Checkbox>
+                          </Table.Cell>
+                        ) : column.id === EXPAND_COLUMN_ID ? (
+                          <Table.Cell key={column.id}>
+                            {expandable && (expandable.rowExpandable?.(item.row) ?? true) ? (
+                              <Button isIconOnly variant="ghost" size="sm" aria-label={expandable.expandedKeys.has(item.key) ? '收起详情' : '展开详情'} onPress={() => toggleExpand(item.key)}>
+                                {expandable.expandedKeys.has(item.key) ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                              </Button>
+                            ) : null}
+                          </Table.Cell>
+                        ) : (
+                          <Table.Cell key={column.id}>
+                            <div className={cx(column.align === 'right' && 'text-right', column.align === 'center' && 'text-center')}>
+                              {column.render ? column.render(item.row) : String((item.row as Record<string, unknown>)[column.id] ?? '')}
                             </div>
                           </Table.Cell>
-                        );
-                      }}
+                        ),
+                      )}
                     </Table.Row>
                   )
                 }

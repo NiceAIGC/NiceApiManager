@@ -36,7 +36,7 @@ interface TextInputProps extends BaseFieldProps {
 /** 文本输入字段：Label + Input/TextArea + 错误/描述。inputProps 直接传 RHF 的 register() 返回值 */
 export function TextInput({ label, required, error, description, className, inputProps, textarea }: TextInputProps) {
   return (
-    <TextField className={cx('w-full', className)} isInvalid={Boolean(error)} isRequired={required}>
+    <TextField className={className} isInvalid={Boolean(error)} isRequired={required}>
       {label ? <Label>{label}</Label> : null}
       {textarea ? (
         // input 与 textarea 的 props 结构一致，仅事件目标元素类型不同；RHF register 返回值两者通用
@@ -63,7 +63,7 @@ interface NumberInputProps extends BaseFieldProps {
 export function NumberInput({ label, required, error, description, className, value, onChange, min, max, step, placeholder, isDisabled }: NumberInputProps) {
   return (
     <NumberField
-      className={cx('w-full', className)}
+      className={className}
       isInvalid={Boolean(error)}
       isRequired={required}
       isDisabled={isDisabled}
@@ -128,7 +128,7 @@ export function SelectInput(props: SelectInputProps) {
   const { labelNode, listBox } = useSelectParts(props);
 
   return (
-    <div className={cx('flex w-full flex-col gap-1.5', className)}>
+    <div className={cx('flex flex-col gap-1.5', className)}>
       {props.multiple ? (
         <Select
           selectionMode="multiple"

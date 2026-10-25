@@ -18,7 +18,7 @@ interface SegmentedControlProps {
 /** antd Segmented 的等价物：单选分段切换 */
 export function SegmentedControl({ options, value, onChange, size = 'md', className }: SegmentedControlProps) {
   return (
-    <ToggleButtonGroup className={cx('shrink-0', className)} size={size}>
+    <ToggleButtonGroup className={cx('shrink-0 flex-wrap', className)} size={size}>
       {options.map((option) => (
         <ToggleButton
           key={option.value}

@@ -59,13 +59,8 @@ a {
 
 
 /* Dashboard and custom chart layouts */
-.dashboard-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-}
 .dashboard-toolbar-secondary { display: flex; flex-direction: column; gap: 16px; }
-.dashboard-kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
+.dashboard-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
 .dashboard-main-chart-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .dashboard-main-chart-meta-item { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 8px; background: var(--surface-secondary); border: 1px solid var(--border); }
 .dashboard-instance-toolbar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }

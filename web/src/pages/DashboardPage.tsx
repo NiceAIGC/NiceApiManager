@@ -119,16 +119,16 @@ export function DashboardPage() {
     <div className="page-stack">
       <Card><Card.Content className="flex flex-col gap-4 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="m-0 text-base font-semibold">筛选与分析维度</h2><div className="flex flex-wrap gap-2"><Button variant="secondary" onPress={resetFilters}>清空筛选</Button><Button variant="secondary" onPress={resetTrendRange}>恢复默认时间</Button><Button variant="primary" isPending={syncProgress.running} onPress={() => void runBatchSync(syncTargets)}><RefreshCw size={16} />同步全部（{syncTargets.length}）</Button></div></div>
-        <div className="dashboard-filter-grid">
-          <TextInput inputProps={{ 'aria-label': '搜索实例名、地址、用户名', placeholder: '搜索实例名、地址、用户名', value: search, onChange: (event) => setSearch(event.target.value) }} />
-          <SelectInput options={tagOptions} value={selectedTags} multiple placeholder="按标签筛选" onChange={(value) => setSelectedTags(Array.isArray(value) ? value : [])} />
-          <SelectInput options={BILLING_OPTIONS} value={billingMode} placeholder="按计费方式筛选" onChange={(value) => setBillingMode(value === 'prepaid' || value === 'postpaid' ? value : undefined)} />
-          <SelectInput options={[{ value: 'true', label: '启用' }, { value: 'false', label: '停用' }]} value={enabled === undefined ? undefined : String(enabled)} placeholder="按启用状态筛选" onChange={(value) => setEnabled(value === 'true' ? true : value === 'false' ? false : undefined)} />
-          <SelectInput options={HEALTH_OPTIONS} value={healthStatus} placeholder="按健康状态筛选" onChange={(value) => setHealthStatus(typeof value === 'string' ? value : undefined)} />
+        <div className="flex flex-wrap gap-3">
+          <TextInput className="w-64" inputProps={{ 'aria-label': '搜索实例名、地址、用户名', placeholder: '搜索实例名、地址、用户名', value: search, onChange: (event) => setSearch(event.target.value) }} />
+          <SelectInput className="w-44" options={tagOptions} value={selectedTags} multiple placeholder="按标签筛选" onChange={(value) => setSelectedTags(Array.isArray(value) ? value : [])} />
+          <SelectInput className="w-40" options={BILLING_OPTIONS} value={billingMode} placeholder="按计费方式筛选" onChange={(value) => setBillingMode(value === 'prepaid' || value === 'postpaid' ? value : undefined)} />
+          <SelectInput className="w-36" options={[{ value: 'true', label: '启用' }, { value: 'false', label: '停用' }]} value={enabled === undefined ? undefined : String(enabled)} placeholder="按启用状态筛选" onChange={(value) => setEnabled(value === 'true' ? true : value === 'false' ? false : undefined)} />
+          <SelectInput className="w-40" options={HEALTH_OPTIONS} value={healthStatus} placeholder="按健康状态筛选" onChange={(value) => setHealthStatus(typeof value === 'string' ? value : undefined)} />
         </div>
         <div className="dashboard-toolbar-secondary">
           <div className="flex flex-wrap items-center gap-3"><span className="text-sm text-muted">时间范围</span><SegmentedControl options={TREND_OPTIONS} value={trendMode} onChange={(value) => setTrendMode(value as TrendMode)} />
-            {trendMode === 'custom-days' ? <div className="flex items-center gap-2"><NumberInput value={customTrendDays} min={1} max={MAX_TREND_DAYS} onChange={(value) => setCustomTrendDays(value ?? 7)} /><span className="text-sm text-muted">天</span></div> : null}
+            {trendMode === 'custom-days' ? <div className="flex items-center gap-2"><NumberInput className="w-24" value={customTrendDays} min={1} max={MAX_TREND_DAYS} onChange={(value) => setCustomTrendDays(value ?? 7)} /><span className="text-sm text-muted">天</span></div> : null}
             {trendMode === 'range' ? <DateRangePicker value={customRange} onChange={onRangeChange}>
               <DateRangePicker.Trigger className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm text-foreground"><span>{customRange.start.toString()}</span><DateRangePicker.RangeSeparator>至</DateRangePicker.RangeSeparator><span>{customRange.end.toString()}</span><DateRangePicker.TriggerIndicator>▾</DateRangePicker.TriggerIndicator></DateRangePicker.Trigger>
               <DateRangePicker.Popover><RangeCalendar aria-label="自定义时间范围" value={customRange} onChange={onRangeChange}>
