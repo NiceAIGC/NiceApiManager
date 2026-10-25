@@ -10,7 +10,7 @@
 NiceApiManager 是一个面向 NewAPI / RixAPI / ShellAPI 站点的统一管理后台，采用前后端一体化部署：
 
 - 后端：`FastAPI + SQLAlchemy + Alembic`
-- 前端：`React + TypeScript + Vite + Ant Design`
+- 前端：`React 19 + TypeScript + Vite + HeroUI v3 + Tailwind CSS v4`
 - 数据库：默认 `SQLite`
 - 部署方式：推荐 `Docker Compose` 单容器部署
 

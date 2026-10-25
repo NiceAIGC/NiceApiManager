@@ -1,4 +1,4 @@
-import { Spin } from 'antd';
+import { Spinner } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 
@@ -14,8 +14,8 @@ export function RequireAuth() {
 
   if (isLoading) {
     return (
-      <div className="auth-screen">
-        <Spin size="large" />
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Spinner size="lg" />
       </div>
     );
   }

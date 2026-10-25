@@ -1,19 +1,28 @@
-import { LockOutlined } from '@ant-design/icons';
-import { App, Button, Card, Form, Input, Typography } from 'antd';
+import { Button, Card } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Lock } from 'lucide-react';
+import { useForm } from 'react-hook-form';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { fetchAuthStatus, login } from '../api/auth';
 import { getErrorMessage } from '../api/client';
+import { TextInput } from '../components/ui';
+import { notify } from '../lib/toast';
 
-const { Paragraph, Title } = Typography;
+interface LoginFormValues {
+  password: string;
+}
 
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { message } = App.useApp();
-  const [form] = Form.useForm<{ password: string }>();
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginFormValues>();
 
   const { data, isLoading } = useQuery({
     queryKey: ['auth-status'],
@@ -28,7 +37,7 @@ export function LoginPage() {
       navigate((location.state as { from?: string } | null)?.from || '/dashboard', { replace: true });
     },
     onError: (error) => {
-      message.error(getErrorMessage(error));
+      notify.error(getErrorMessage(error));
     },
   });
 
@@ -37,43 +46,33 @@ export function LoginPage() {
   }
 
   return (
-    <div className="auth-screen">
-      <Card className="auth-card">
-        <div className="auth-card-header">
-          <div className="auth-icon-shell">
-            <LockOutlined />
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-sm">
+        <Card.Content className="flex flex-col gap-6 p-8">
+          <div className="flex flex-col items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent text-accent-foreground">
+              <Lock size={22} />
+            </div>
+            <h1 className="m-0 text-xl font-bold">NiceApiManager</h1>
+            <p className="m-0 text-sm text-muted">中转站聚合管理后台</p>
           </div>
-          <Title level={2} className="auth-title">
-            NiceApiManager
-          </Title>
-        </div>
-
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={(values) => loginMutation.mutate(values.password)}
-        >
-          <Form.Item
-            name="password"
-            label="访问密码"
-            rules={[{ required: true, message: '请输入访问密码' }]}
-          >
-            <Input.Password
-              autoFocus
-              placeholder="请输入系统访问密码"
-              size="large"
+          <form className="flex flex-col gap-4" onSubmit={handleSubmit((values) => loginMutation.mutate(values.password))}>
+            <TextInput
+              label="访问密码"
+              required
+              error={errors.password?.message}
+              inputProps={{
+                type: 'password',
+                autoFocus: true,
+                placeholder: '请输入系统访问密码',
+                ...register('password', { required: '请输入访问密码' }),
+              }}
             />
-          </Form.Item>
-          <Button
-            type="primary"
-            htmlType="submit"
-            size="large"
-            block
-            loading={loginMutation.isPending}
-          >
-            进入系统
-          </Button>
-        </Form>
+            <Button type="submit" variant="primary" fullWidth isPending={loginMutation.isPending}>
+              进入系统
+            </Button>
+          </form>
+        </Card.Content>
       </Card>
     </div>
   );

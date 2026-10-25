@@ -1,5 +1,8 @@
-import { Modal, Form, Input } from 'antd';
+import { Button } from '@heroui/react';
+import { useEffect } from 'react';
+import { useForm } from 'react-hook-form';
 
+import { AppModal, TextInput } from './ui';
 import type { ChangePasswordPayload } from '../types/api';
 
 interface ChangePasswordModalProps {
@@ -9,75 +12,40 @@ interface ChangePasswordModalProps {
   onSubmit: (values: ChangePasswordPayload) => void;
 }
 
-export function ChangePasswordModal({
-  open,
-  loading,
-  onCancel,
-  onSubmit,
-}: ChangePasswordModalProps) {
-  const [form] = Form.useForm<ChangePasswordPayload & { confirm_password: string }>();
+interface ChangePasswordFormValues extends ChangePasswordPayload {
+  confirm_password: string;
+}
+
+const defaultValues: ChangePasswordFormValues = { current_password: '', new_password: '', confirm_password: '' };
+
+export function ChangePasswordModal({ open, loading, onCancel, onSubmit }: ChangePasswordModalProps) {
+  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm<ChangePasswordFormValues>({ defaultValues });
+  const newPassword = watch('new_password');
+
+  useEffect(() => { if (open) reset(defaultValues); }, [open, reset]);
+
+  const close = () => {
+    reset(defaultValues);
+    onCancel();
+  };
+
+  const submit = handleSubmit((values) => {
+    onSubmit({ current_password: values.current_password, new_password: values.new_password });
+    reset(defaultValues);
+  });
 
   return (
-    <Modal
+    <AppModal
       open={open}
+      onOpenChange={(nextOpen) => { if (!nextOpen) close(); }}
       title="修改登录密码"
-      onCancel={() => {
-        form.resetFields();
-        onCancel();
-      }}
-      onOk={() => form.submit()}
-      okText="保存密码"
-      cancelText="取消"
-      confirmLoading={loading}
-      destroyOnHidden
+      footer={<><Button variant="secondary" onPress={close}>取消</Button><Button variant="primary" isPending={loading} onPress={() => { void submit(); }}>保存密码</Button></>}
     >
-      <Form
-        form={form}
-        layout="vertical"
-        onFinish={(values) => {
-          onSubmit({
-            current_password: values.current_password,
-            new_password: values.new_password,
-          });
-          form.resetFields();
-        }}
-      >
-        <Form.Item
-          name="current_password"
-          label="当前密码"
-          rules={[{ required: true, message: '请输入当前密码' }]}
-        >
-          <Input.Password />
-        </Form.Item>
-        <Form.Item
-          name="new_password"
-          label="新密码"
-          rules={[
-            { required: true, message: '请输入新密码' },
-            { min: 6, message: '新密码至少 6 位' },
-          ]}
-        >
-          <Input.Password />
-        </Form.Item>
-        <Form.Item
-          name="confirm_password"
-          label="确认新密码"
-          dependencies={['new_password']}
-          rules={[
-            { required: true, message: '请再次输入新密码' },
-            ({ getFieldValue }) => ({
-              validator(_, value) {
-                if (!value || getFieldValue('new_password') === value) {
-                  return Promise.resolve();
-                }
-                return Promise.reject(new Error('两次输入的新密码不一致'));
-              },
-            }),
-          ]}
-        >
-          <Input.Password />
-        </Form.Item>
-      </Form>
-    </Modal>
+      <form className="flex flex-col gap-4" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <TextInput label="当前密码" required error={errors.current_password?.message} inputProps={{ type: 'password', ...register('current_password', { required: '请输入当前密码' }) }} />
+        <TextInput label="新密码" required error={errors.new_password?.message} inputProps={{ type: 'password', ...register('new_password', { required: '请输入新密码', minLength: { value: 6, message: '新密码至少 6 位' } }) }} />
+        <TextInput label="确认新密码" required error={errors.confirm_password?.message} inputProps={{ type: 'password', ...register('confirm_password', { required: '请再次输入新密码', validate: (value) => value === newPassword || '两次输入的新密码不一致' }) }} />
+      </form>
+    </AppModal>
   );
 }

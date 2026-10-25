@@ -5,11 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <title>NiceApiManager</title>
-    <script type="module" crossorigin src="/assets/index-CDhlYnzk.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/antd-DWjWfPeW.js">
-    <link rel="modulepreload" crossorigin href="/assets/query-DeF0eyd_.js">
-    <link rel="modulepreload" crossorigin href="/assets/router-ICJ1o5IN.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-BeDvmuq_.css">
+    <script>
+      (function () {
+        var stored = localStorage.getItem('heroui-theme') || 'system';
+        var resolved =
+          stored === 'system'
+            ? window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light'
+            : stored;
+        document.documentElement.classList.add(resolved);
+        document.documentElement.setAttribute('data-theme', resolved);
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-B1DGgZhI.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/query-C_qoxMlX.js">
+    <link rel="modulepreload" crossorigin href="/assets/heroui-L9FDTQ_S.js">
+    <link rel="modulepreload" crossorigin href="/assets/router-DafHd7f6.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-7to2c2EI.css">
   </head>
   <body>
     <div id="root"></div>

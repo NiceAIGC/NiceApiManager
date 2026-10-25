@@ -1,423 +1,81 @@
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Button, Card, Descriptions, Form, Input, InputNumber, Modal, Rate, Select, Space, Switch, Typography } from 'antd';
+import { Button, Card } from '@heroui/react';
+import { useFieldArray, useForm, Controller } from 'react-hook-form';
 import { useEffect, useState } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 
 import { getErrorMessage } from '../api/client';
 import { testInstanceProxy } from '../api/instances';
-import type { BatchInstanceUpdatePayload, Instance, InstanceCreatePayload } from '../types/api';
+import type { BatchInstanceUpdatePayload, Instance, InstanceCreatePayload, ProxyConnectivityTestResponse } from '../types/api';
+import { AppModal, DescriptionList, NumberInput, SelectInput, StarRating, SwitchInput, TextInput } from './ui';
+import { notify } from '../lib/toast';
 import { formatNumber, formatProgramType } from '../utils/format';
 import { normalizeBaseUrl, normalizeInstancePayload } from '../utils/instance';
 
-interface BatchFormValues {
-  items: Array<InstanceCreatePayload | BatchInstanceUpdatePayload>;
-}
-
+type BatchItem = InstanceCreatePayload & { id?: number };
+interface BatchFormValues { items: BatchItem[]; }
 interface InstanceBatchModalProps {
-  open: boolean;
-  loading: boolean;
-  mode: 'create' | 'edit';
-  initialItems?: Instance[];
-  defaultSyncIntervalMinutes?: number;
-  defaultProxyMode?: InstanceCreatePayload['proxy_mode'];
-  tagOptions?: Array<{ label: string; value: string }>;
-  notificationChannelOptions?: Array<{ label: string; value: string }>;
-  onCancel: () => void;
-  onSubmit: (items: Array<InstanceCreatePayload | BatchInstanceUpdatePayload>) => void;
+  open: boolean; loading: boolean; mode: 'create' | 'edit'; initialItems?: Instance[]; defaultSyncIntervalMinutes?: number; defaultProxyMode?: InstanceCreatePayload['proxy_mode']; tagOptions?: Array<{ label: string; value: string }>; notificationChannelOptions?: Array<{ label: string; value: string }>; onCancel: () => void; onSubmit: (items: Array<InstanceCreatePayload | BatchInstanceUpdatePayload>) => void;
 }
-
-const { Text } = Typography;
-
-function buildEmptyItem(defaultProxyMode: InstanceCreatePayload['proxy_mode']): InstanceCreatePayload {
-  return {
-    name: '',
-    remark: '',
-    base_url: 'https://',
-    program_type: 'auto',
-    username: '',
-    password: '',
-    remote_user_id: undefined,
-    access_token: '',
-    proxy_mode: defaultProxyMode,
-    socks5_proxy_url: '',
-    enabled: true,
-    balance_alert_enabled: false,
-    balance_alert_threshold: undefined,
-    notification_channel_ids: [],
-    billing_mode: 'prepaid',
-    quota_per_unit: undefined,
-    priority: 3,
-    sync_interval_minutes: 120,
-    tags: [],
-  };
+function buildEmptyItem(defaultProxyMode: InstanceCreatePayload['proxy_mode'], syncInterval = 120): BatchItem {
+  return { name: '', remark: '', base_url: 'https://', program_type: 'auto', username: '', password: '', remote_user_id: undefined, access_token: '', proxy_mode: defaultProxyMode, socks5_proxy_url: '', enabled: true, balance_alert_enabled: false, balance_alert_threshold: undefined, notification_channel_ids: [], billing_mode: 'prepaid', quota_per_unit: undefined, priority: 3, sync_interval_minutes: syncInterval, tags: [] };
 }
-
-export function InstanceBatchModal({
-  open,
-  loading,
-  mode,
-  initialItems,
-  defaultSyncIntervalMinutes = 120,
-  defaultProxyMode = 'direct',
-  tagOptions,
-  notificationChannelOptions = [],
-  onCancel,
-  onSubmit,
-}: InstanceBatchModalProps) {
-  const { message, modal } = App.useApp();
-  const [form] = Form.useForm<BatchFormValues>();
-  const [testingFieldKey, setTestingFieldKey] = useState<number | null>(null);
-
+export function InstanceBatchModal({ open, loading, mode, initialItems, defaultSyncIntervalMinutes = 120, defaultProxyMode = 'direct', tagOptions, notificationChannelOptions = [], onCancel, onSubmit }: InstanceBatchModalProps) {
+  const { control, register, handleSubmit, reset, watch, setValue, trigger, getValues, formState: { errors } } = useForm<BatchFormValues>({ defaultValues: { items: [] } });
+  const { fields, append, remove, replace } = useFieldArray({ control, name: 'items' });
+  const [testingField, setTestingField] = useState<string | null>(null);
+  const [proxyResult, setProxyResult] = useState<ProxyConnectivityTestResponse | null>(null);
+  const items = watch('items');
   useEffect(() => {
-    if (!open) {
-      form.resetFields();
-      return;
-    }
-
-    if (mode === 'edit') {
-      form.setFieldsValue({
-        items: (initialItems ?? []).map((item) => ({
-          id: item.id,
-          name: item.name,
-          remark: item.remark ?? '',
-          base_url: item.base_url,
-          program_type: item.program_type,
-          username: item.username,
-          password: '',
-          remote_user_id: item.remote_user_id ?? undefined,
-          access_token: '',
-          proxy_mode: item.proxy_mode,
-          socks5_proxy_url: item.socks5_proxy_url ?? '',
-          enabled: item.enabled,
-          balance_alert_enabled: item.balance_alert_enabled,
-          balance_alert_threshold: item.balance_alert_threshold ?? undefined,
-          notification_channel_ids: item.notification_channel_ids,
-          billing_mode: item.billing_mode,
-          quota_per_unit: item.quota_per_unit ?? undefined,
-          priority: item.priority,
-          sync_interval_minutes: item.sync_interval_minutes,
-          tags: item.tags,
-        })),
-      });
-      return;
-    }
-
-    form.setFieldsValue({
-      items: [
-        {
-          ...buildEmptyItem(defaultProxyMode),
-          sync_interval_minutes: defaultSyncIntervalMinutes,
-        },
-      ],
-    });
-  }, [defaultProxyMode, defaultSyncIntervalMinutes, form, initialItems, mode, open]);
-
-  const handleProxyTest = async (fieldName: number, fieldKey: number) => {
-    const proxyMode = form.getFieldValue(['items', fieldName, 'proxy_mode']) as InstanceCreatePayload['proxy_mode'];
-    await form.validateFields(
-      proxyMode === 'custom'
-        ? [['items', fieldName, 'base_url'], ['items', fieldName, 'proxy_mode'], ['items', fieldName, 'socks5_proxy_url']]
-        : [['items', fieldName, 'base_url'], ['items', fieldName, 'proxy_mode']],
-    );
-
-    try {
-      const values = form.getFieldValue(['items', fieldName]) as InstanceCreatePayload;
-      setTestingFieldKey(fieldKey);
-      const result = await testInstanceProxy({
-        base_url: normalizeBaseUrl(values.base_url),
-        proxy_mode: values.proxy_mode,
-        socks5_proxy_url: values.socks5_proxy_url,
-      });
-
-      modal.success({
-        title: '代理测试成功',
-        content: (
-          <Descriptions bordered size="small" column={1}>
-            <Descriptions.Item label="目标地址">{result.base_url}</Descriptions.Item>
-            <Descriptions.Item label="代理方式">
-              {result.proxy_mode === 'custom'
-                ? '自定义 SOCKS5'
-                : result.proxy_mode === 'global'
-                  ? '公用 SOCKS5'
-                  : '本地直连'}
-            </Descriptions.Item>
-            <Descriptions.Item label="实际代理">{result.resolved_proxy_url || '本地直连'}</Descriptions.Item>
-            <Descriptions.Item label="识别程序">{formatProgramType(result.detected_program_type)}</Descriptions.Item>
-            <Descriptions.Item label="兑换比">{formatNumber(result.quota_per_unit)}</Descriptions.Item>
-          </Descriptions>
-        ),
-      });
-    } catch (error) {
-      message.error(getErrorMessage(error));
-    } finally {
-      setTestingFieldKey(null);
-    }
+    if (!open) { reset({ items: [] }); return; }
+    if (mode === 'edit') { replace((initialItems ?? []).map((item) => ({ id: item.id, name: item.name, remark: item.remark ?? '', base_url: item.base_url, program_type: item.program_type, username: item.username, password: '', remote_user_id: item.remote_user_id ?? undefined, access_token: '', proxy_mode: item.proxy_mode, socks5_proxy_url: item.socks5_proxy_url ?? '', enabled: item.enabled, balance_alert_enabled: item.balance_alert_enabled, balance_alert_threshold: item.balance_alert_threshold ?? undefined, notification_channel_ids: item.notification_channel_ids, billing_mode: item.billing_mode, quota_per_unit: item.quota_per_unit ?? undefined, priority: item.priority, sync_interval_minutes: item.sync_interval_minutes, tags: item.tags }))); return; }
+    replace([buildEmptyItem(defaultProxyMode, defaultSyncIntervalMinutes)]);
+  }, [defaultProxyMode, defaultSyncIntervalMinutes, initialItems, mode, open, replace, reset]);
+  const testProxy = async (index: number, fieldId: string) => {
+    const proxyMode = getValues(`items.${index}.proxy_mode`);
+    const valid = await trigger(proxyMode === 'custom' ? [`items.${index}.base_url`, `items.${index}.proxy_mode`, `items.${index}.socks5_proxy_url`] : [`items.${index}.base_url`, `items.${index}.proxy_mode`]);
+    if (!valid) return;
+    try { setTestingField(fieldId); const item = getValues(`items.${index}`); const result = await testInstanceProxy({ base_url: normalizeBaseUrl(item.base_url), proxy_mode: item.proxy_mode, socks5_proxy_url: item.socks5_proxy_url }); setProxyResult(result); } catch (error) { notify.error(getErrorMessage(error)); } finally { setTestingField(null); }
   };
-
-  return (
-    <Modal
-      open={open}
-      title={mode === 'create' ? '批量新增实例' : '批量编辑实例'}
-      width={1100}
-      destroyOnHidden
-      onCancel={onCancel}
-      onOk={() => form.submit()}
-      okText={mode === 'create' ? '批量保存' : '批量更新'}
-      cancelText="取消"
-      confirmLoading={loading}
-    >
-      <Form
-        form={form}
-        layout="vertical"
-        onFinish={(values) => onSubmit(values.items.map((item) => normalizeInstancePayload(item)))}
-      >
-        <Form.List name="items">
-          {(fields, { add, remove }) => (
-            <div className="page-stack">
-              {fields.map((field, index) => (
-                <Card
-                  key={field.key}
-                  size="small"
-                  title={mode === 'create' ? `实例 ${index + 1}` : `实例 ID ${(form.getFieldValue(['items', index, 'id']) as number) || '-'}`}
-                  extra={
-                    mode === 'create' ? (
-                      <Button
-                        danger
-                        type="text"
-                        icon={<DeleteOutlined />}
-                        onClick={() => remove(field.name)}
-                        disabled={fields.length === 1}
-                      >
-                        删除本行
-                      </Button>
-                    ) : null
-                  }
-                >
-                  {mode === 'edit' ? (
-                    <Form.Item name={[field.name, 'id']} hidden>
-                      <Input />
-                    </Form.Item>
-                  ) : null}
-
-                  <div className="instance-batch-grid">
-                    <Form.Item
-                      name={[field.name, 'name']}
-                      label="实例名称"
-                      rules={[{ required: true, message: '请输入实例名称' }]}
-                    >
-                      <Input placeholder="例如：gac 主站" />
-                    </Form.Item>
-                    <Form.Item name={[field.name, 'remark']} label="备注">
-                      <Input placeholder="例如：主力 / 备用 / 仅 Claude Code" maxLength={255} />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'base_url']}
-                      label="Base URL"
-                      rules={[
-                        { required: true, message: '请输入实例地址' },
-                        { type: 'url', message: '请输入合法的 URL' },
-                      ]}
-                    >
-                      <Input
-                        placeholder="https://example.com"
-                        onBlur={(event) => {
-                          form.setFieldValue(
-                            ['items', field.name, 'base_url'],
-                            normalizeBaseUrl(event.target.value),
-                          );
-                        }}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'program_type']}
-                      label="程序类型"
-                      rules={[{ required: true, message: '请选择程序类型' }]}
-                    >
-                      <Select
-                        options={[
-                          { label: '自动识别', value: 'auto' },
-                          { label: 'NewAPI', value: 'newapi' },
-                          { label: 'RixAPI', value: 'rixapi' },
-                          { label: 'ShellAPI', value: 'shellapi' },
-                          { label: 'Sub2API', value: 'sub2api' },
-                        ]}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'billing_mode']}
-                      label="计费方式"
-                      rules={[{ required: true, message: '请选择计费方式' }]}
-                    >
-                      <Select
-                        options={[
-                          { label: '预付费', value: 'prepaid' },
-                          { label: '后付费', value: 'postpaid' },
-                        ]}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'username']}
-                      label="用户名 / 邮箱"
-                      extra="账密登录时填写。"
-                    >
-                      <Input placeholder="远端站点用户名或邮箱" />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'password']}
-                      label="密码"
-                      extra={mode === 'create' ? '账密登录时填写。' : '留空则保持现有密码。'}
-                    >
-                      <Input.Password placeholder={mode === 'create' ? '远端站点密码' : '留空则保持现有密码'} />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'remote_user_id']}
-                      label="远端用户 ID"
-                      extra="ID + 密钥模式时填写。"
-                    >
-                      <InputNumber style={{ width: '100%' }} min={1} precision={0} placeholder="例如：11766" />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'access_token']}
-                      label="访问密钥"
-                      extra={mode === 'create' ? 'ID + 密钥模式时填写。' : '留空则保持现有访问密钥。'}
-                    >
-                      <Input.Password placeholder={mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥'} />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'quota_per_unit']}
-                      label="余额倍率"
-                      extra="留空则使用远端识别值；Sub2API 未填写时默认 1.0。"
-                    >
-                      <InputNumber style={{ width: '100%' }} min={0.000001} precision={6} placeholder="例如：1.0" />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'priority']}
-                      label="常用优先级"
-                      rules={[{ required: true, message: '请选择优先级' }]}
-                    >
-                      <Rate count={5} />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'proxy_mode']}
-                      label="代理方式"
-                      rules={[{ required: true, message: '请选择代理方式' }]}
-                    >
-                      <Select
-                        options={[
-                          { label: '本地直连', value: 'direct' },
-                          { label: '公用 SOCKS5', value: 'global' },
-                          { label: '自定义 SOCKS5', value: 'custom' },
-                        ]}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      noStyle
-                      shouldUpdate={(prev, next) =>
-                        prev.items?.[field.name]?.proxy_mode !== next.items?.[field.name]?.proxy_mode
-                      }
-                    >
-                      {() =>
-                        form.getFieldValue(['items', field.name, 'proxy_mode']) === 'custom' ? (
-                          <Form.Item
-                            name={[field.name, 'socks5_proxy_url']}
-                            label="自定义 SOCKS5 代理"
-                            extra="支持 `用户名:密码@主机:端口`，会自动补 `socks5://`。"
-                            rules={[{ required: true, message: '请输入自定义 SOCKS5 代理' }]}
-                          >
-                            <Input placeholder="例如：xxxmit3t:Sxxxxx@6xxx37.233:2xxx" />
-                          </Form.Item>
-                        ) : null
-                      }
-                    </Form.Item>
-                    <Form.Item
-                      noStyle
-                      shouldUpdate={(prev, next) =>
-                        prev.items?.[field.name]?.proxy_mode !== next.items?.[field.name]?.proxy_mode
-                      }
-                    >
-                      {() => {
-                        const currentProxyMode = form.getFieldValue(['items', field.name, 'proxy_mode']) as InstanceCreatePayload['proxy_mode'];
-                        if (currentProxyMode === 'direct') {
-                          return null;
-                        }
-
-                        return (
-                          <Form.Item label="代理测试">
-                            <Space>
-                              <Button
-                                onClick={() => handleProxyTest(field.name, field.key)}
-                                loading={testingFieldKey === field.key}
-                              >
-                                测试当前代理
-                              </Button>
-                              <Text type="secondary">会使用当前 Base URL 请求远端 `/api/status`。</Text>
-                            </Space>
-                          </Form.Item>
-                        );
-                      }}
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'sync_interval_minutes']}
-                      label="同步周期（分钟）"
-                      rules={[{ required: true, message: '请输入同步周期' }]}
-                    >
-                      <InputNumber style={{ width: '100%' }} min={5} max={10080} precision={0} addonAfter="分钟" />
-                    </Form.Item>
-                    <Form.Item name={[field.name, 'tags']} label="标签">
-                      <Select
-                        mode="tags"
-                        options={tagOptions}
-                        tokenSeparators={[',']}
-                        placeholder="可直接选择已有标签，也可输入新标签"
-                      />
-                    </Form.Item>
-                    <Form.Item name={[field.name, 'enabled']} label="启用状态" valuePropName="checked">
-                      <Switch checkedChildren="启用" unCheckedChildren="停用" />
-                    </Form.Item>
-                    <Form.Item name={[field.name, 'balance_alert_enabled']} label="余额告警" valuePropName="checked">
-                      <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-                    </Form.Item>
-                    <Form.Item
-                      noStyle
-                      shouldUpdate={(prev, next) =>
-                        prev.items?.[field.name]?.balance_alert_enabled !== next.items?.[field.name]?.balance_alert_enabled
-                      }
-                    >
-                      {() =>
-                        form.getFieldValue(['items', field.name, 'balance_alert_enabled']) ? (
-                          <>
-                            <Form.Item name={[field.name, 'balance_alert_threshold']} label="余额告警阈值" extra="留空使用全局默认值。">
-                              <InputNumber style={{ width: '100%' }} min={0.01} placeholder="全局默认" />
-                            </Form.Item>
-                            <Form.Item name={[field.name, 'notification_channel_ids']} label="告警渠道" extra="留空走默认渠道。">
-                              <Select mode="multiple" allowClear options={notificationChannelOptions} placeholder="默认通知渠道" />
-                            </Form.Item>
-                          </>
-                        ) : null
-                      }
-                    </Form.Item>
-                  </div>
-                </Card>
-              ))}
-
-              {mode === 'create' ? (
-                <Space>
-                  <Button
-                    icon={<PlusOutlined />}
-                    onClick={() =>
-                      add({
-                        ...buildEmptyItem(defaultProxyMode),
-                        sync_interval_minutes: defaultSyncIntervalMinutes,
-                      })
-                    }
-                  >
-                    再添加一行
-                  </Button>
-                </Space>
-              ) : null}
-            </div>
-          )}
-        </Form.List>
-      </Form>
-    </Modal>
-  );
+  const submit = ({ items: values }: BatchFormValues) => onSubmit(values.map((item) => normalizeInstancePayload(item)));
+  const programOptions = [{ label: '自动识别', value: 'auto' }, { label: 'NewAPI', value: 'newapi' }, { label: 'RixAPI', value: 'rixapi' }, { label: 'ShellAPI', value: 'shellapi' }, { label: 'Sub2API', value: 'sub2api' }];
+  const proxyOptions = [{ label: '本地直连', value: 'direct' }, { label: '公用 SOCKS5', value: 'global' }, { label: '自定义 SOCKS5', value: 'custom' }];
+  return (<>
+  <AppModal open={open} onOpenChange={(value) => { if (!value) onCancel(); }} title={mode === 'create' ? '批量新增实例' : '批量编辑实例'} size="full" footer={<div className="flex justify-end gap-2"><Button variant="secondary" onPress={onCancel}>取消</Button><Button variant="primary" isPending={loading} onPress={() => { void handleSubmit(submit)(); }} >{mode === 'create' ? '批量保存' : '批量更新'}</Button></div>}>
+    <form className="flex max-h-[72vh] flex-col gap-4 overflow-y-auto pr-2" onSubmit={handleSubmit(submit)}>{fields.map((field, index) => { const item = items[index]; const itemErrors = errors.items?.[index]; const customProxy = item?.proxy_mode === 'custom'; const alertsEnabled = item?.balance_alert_enabled; return <Card key={field.id}><Card.Header><Card.Title>{mode === 'create' ? `实例 ${index + 1}` : `实例 ID ${item?.id ?? '-'}`}</Card.Title>{mode === 'create' ? <Button isIconOnly variant="ghost" aria-label="删除本行" isDisabled={fields.length === 1} onPress={() => remove(index)}><Trash2 size={16} /></Button> : null}</Card.Header><Card.Content className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2">
+      <TextInput label="实例名称" required error={itemErrors?.name?.message} inputProps={{ placeholder: '例如：gac 主站', ...register(`items.${index}.name`, { required: '请输入实例名称' }) }} />
+      <TextInput label="备注" inputProps={{ placeholder: '例如：主力 / 备用 / 仅 Claude Code', maxLength: 255, ...register(`items.${index}.remark`) }} />
+      <TextInput label="Base URL" required error={itemErrors?.base_url?.message} inputProps={{ placeholder: 'https://example.com', ...register(`items.${index}.base_url`, { required: '请输入实例地址', pattern: { value: /^https?:\/\/.+/, message: '请输入合法的 URL' }, onBlur: (event) => setValue(`items.${index}.base_url`, normalizeBaseUrl(event.target.value)) }) }} />
+      <Controller control={control} name={`items.${index}.program_type`} rules={{ required: '请选择程序类型' }} render={({ field: input }) => <SelectInput label="程序类型" required error={itemErrors?.program_type?.message} options={programOptions} value={input.value} onChange={input.onChange} />} />
+      <Controller control={control} name={`items.${index}.billing_mode`} rules={{ required: '请选择计费方式' }} render={({ field: input }) => <SelectInput label="计费方式" required error={itemErrors?.billing_mode?.message} options={[{ label: '预付费', value: 'prepaid' }, { label: '后付费', value: 'postpaid' }]} value={input.value} onChange={input.onChange} />} />
+      <TextInput label="用户名 / 邮箱" description="账密登录时填写。" inputProps={{ placeholder: '远端站点用户名或邮箱', ...register(`items.${index}.username`) }} />
+      <TextInput label="密码" description={mode === 'create' ? '账密登录时填写。' : '留空则保持现有密码。'} inputProps={{ type: 'password', placeholder: mode === 'create' ? '远端站点密码' : '留空则保持现有密码', ...register(`items.${index}.password`) }} />
+      <Controller control={control} name={`items.${index}.remote_user_id`} render={({ field: input }) => <NumberInput label="远端用户 ID" description="ID + 密钥模式时填写。" value={input.value} onChange={input.onChange} min={1} step={1} placeholder="例如：11766" />} />
+      <TextInput label="访问密钥" description={mode === 'create' ? 'ID + 密钥模式时填写。' : '留空则保持现有访问密钥。'} inputProps={{ type: 'password', placeholder: mode === 'create' ? 'Access Token / 管理密钥' : '留空则保持现有访问密钥', ...register(`items.${index}.access_token`) }} />
+      <Controller control={control} name={`items.${index}.quota_per_unit`} render={({ field: input }) => <NumberInput label="余额倍率" description="留空则使用远端识别值；Sub2API 未填写时默认 1.0。" value={input.value} onChange={input.onChange} min={0.000001} step={0.000001} placeholder="例如：1.0" />} />
+      <Controller control={control} name={`items.${index}.priority`} rules={{ required: '请选择优先级' }} render={({ field: input }) => <div><label className="text-sm">常用优先级</label><StarRating value={input.value ?? 3} onChange={input.onChange} /></div>} />
+      <Controller control={control} name={`items.${index}.proxy_mode`} rules={{ required: '请选择代理方式' }} render={({ field: input }) => <SelectInput label="代理方式" required error={itemErrors?.proxy_mode?.message} options={proxyOptions} value={input.value} onChange={input.onChange} />} />
+      {customProxy ? <TextInput label="自定义 SOCKS5 代理" required description="支持 `用户名:密码@主机:端口`，会自动补 `socks5://`。" error={itemErrors?.socks5_proxy_url?.message} inputProps={{ placeholder: '例如：xxxmit3t:Sxxxxx@6xxx37.233:2xxx', ...register(`items.${index}.socks5_proxy_url`, { required: '请输入自定义 SOCKS5 代理' }) }} /> : null}
+      {item?.proxy_mode !== 'direct' ? <div className="flex items-end gap-3"><Button variant="secondary" isPending={testingField === field.id} onPress={() => testProxy(index, field.id)}>测试当前代理</Button><span className="text-sm text-muted">会使用当前 Base URL 请求远端 `/api/status`。</span></div> : null}
+      <Controller control={control} name={`items.${index}.sync_interval_minutes`} rules={{ required: '请输入同步周期' }} render={({ field: input }) => <NumberInput label="同步周期（分钟）" required error={itemErrors?.sync_interval_minutes?.message} value={input.value} onChange={input.onChange} min={5} max={10080} step={1} />} />
+      <Controller control={control} name={`items.${index}.tags`} render={({ field: input }) => <SelectInput label="标签" options={tagOptions ?? []} value={input.value ?? []} onChange={input.onChange} multiple placeholder="可直接选择已有标签，也可输入新标签" />} />
+      <Controller control={control} name={`items.${index}.enabled`} render={({ field: input }) => <SwitchInput label="启用状态" checked={input.value} onChange={input.onChange} />} />
+      <Controller control={control} name={`items.${index}.balance_alert_enabled`} render={({ field: input }) => <SwitchInput label="余额告警" checked={input.value} onChange={input.onChange} />} />
+      {alertsEnabled ? <><Controller control={control} name={`items.${index}.balance_alert_threshold`} render={({ field: input }) => <NumberInput label="余额告警阈值" description="留空使用全局默认值。" value={input.value} onChange={input.onChange} min={0.01} placeholder="全局默认" />} /><Controller control={control} name={`items.${index}.notification_channel_ids`} render={({ field: input }) => <SelectInput label="告警渠道" description="留空走默认渠道。" options={notificationChannelOptions} value={input.value?.map(String) ?? []} onChange={(value) => input.onChange(value.map(Number))} multiple placeholder="默认通知渠道" />} /></> : null}
+    </Card.Content></Card>; })}{mode === 'create' ? <Button className="self-start" variant="secondary" onPress={() => append(buildEmptyItem(defaultProxyMode, defaultSyncIntervalMinutes))}><Plus size={16} />再添加一行</Button> : null}</form>
+  </AppModal>
+  <AppModal open={proxyResult !== null} onOpenChange={(value) => { if (!value) setProxyResult(null); }} title="代理测试成功" size="sm" footer={<Button variant="primary" onPress={() => setProxyResult(null)}>知道了</Button>}>
+    {proxyResult ? (
+      <DescriptionList
+        columns={1}
+        items={[
+          { label: '目标地址', value: proxyResult.base_url },
+          { label: '代理方式', value: proxyResult.proxy_mode === 'custom' ? '自定义 SOCKS5' : proxyResult.proxy_mode === 'global' ? '公用 SOCKS5' : '本地直连' },
+          { label: '实际代理', value: proxyResult.resolved_proxy_url || '本地直连' },
+          { label: '识别程序', value: formatProgramType(proxyResult.detected_program_type) },
+          { label: '兑换比', value: formatNumber(proxyResult.quota_per_unit) },
+        ]}
+      />
+    ) : null}
+  </AppModal>
+  </>);
 }
