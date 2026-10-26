@@ -31,6 +31,7 @@ class AppSetting(Base):
     default_balance_alert_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
     default_notification_channel_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notification_channels_json: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
+    notification_channel_groups_json: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
     notification_rules_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     notification_last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

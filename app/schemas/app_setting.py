@@ -44,6 +44,51 @@ class NotificationChannelConfig(BaseModel):
         return normalized
 
 
+def _normalize_id_list(value: list[str] | None) -> list[str]:
+    """Drop duplicate blank ids from a selection list."""
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in value or []:
+        item_id = str(raw).strip()
+        if not item_id or item_id in seen:
+            continue
+        seen.add(item_id)
+        normalized.append(item_id)
+    return normalized
+
+
+class NotificationChannelGroupConfig(BaseModel):
+    """A named bundle of notification channels selectable as one target."""
+
+    id: str = Field(default_factory=lambda: _new_config_id("group"), min_length=3, max_length=64)
+    name: str = Field(min_length=1, max_length=80)
+    channel_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("id")
+    @classmethod
+    def normalize_group_id(cls, value: str) -> str:
+        """Store compact ids without leading/trailing whitespace."""
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("渠道分组 ID 不能为空。")
+        return normalized
+
+    @field_validator("name")
+    @classmethod
+    def normalize_group_name(cls, value: str) -> str:
+        """Prevent whitespace-only group names."""
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("渠道分组名称不能为空。")
+        return normalized
+
+    @field_validator("channel_ids", mode="before")
+    @classmethod
+    def normalize_group_channel_ids(cls, value: list[str] | None) -> list[str]:
+        """Drop duplicate blank channel ids."""
+        return _normalize_id_list(value)
+
+
 class BaseNotificationRule(BaseModel):
     """Common fields shared across notification rules."""
 
@@ -55,6 +100,7 @@ class BaseNotificationRule(BaseModel):
     include_disabled: bool = False
     notify_on_recovery: bool = True
     channel_ids: list[str] = Field(default_factory=list)
+    channel_group_ids: list[str] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod
@@ -105,19 +151,11 @@ class BaseNotificationRule(BaseModel):
             normalized.append(tag)
         return normalized
 
-    @field_validator("channel_ids", mode="before")
+    @field_validator("channel_ids", "channel_group_ids", mode="before")
     @classmethod
     def normalize_channel_ids(cls, value: list[str] | None) -> list[str]:
         """Drop duplicate blank channel ids."""
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for raw in value or []:
-            channel_id = str(raw).strip()
-            if not channel_id or channel_id in seen:
-                continue
-            seen.add(channel_id)
-            normalized.append(channel_id)
-        return normalized
+        return _normalize_id_list(value)
 
 
 class BalanceNotificationRule(BaseNotificationRule):
@@ -215,22 +253,15 @@ class NotificationTestRequest(BaseModel):
     """Payload for firing a test notification."""
 
     channel_ids: list[str] = Field(default_factory=list)
+    group_ids: list[str] = Field(default_factory=list)
     title: str | None = Field(default=None, max_length=120)
     body: str | None = Field(default=None, max_length=2000)
 
-    @field_validator("channel_ids", mode="before")
+    @field_validator("channel_ids", "group_ids", mode="before")
     @classmethod
     def normalize_test_channel_ids(cls, value: list[str] | None) -> list[str]:
         """Drop duplicate blank channel ids."""
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for raw in value or []:
-            channel_id = str(raw).strip()
-            if not channel_id or channel_id in seen:
-                continue
-            seen.add(channel_id)
-            normalized.append(channel_id)
-        return normalized
+        return _normalize_id_list(value)
 
     @field_validator("title", "body")
     @classmethod
@@ -277,6 +308,7 @@ class AppSettingsResponse(BaseModel):
     default_notification_channel_id: str | None = Field(default=None, max_length=64)
     notification_check_interval_minutes: int = Field(default=5, ge=1, le=1440)
     notification_channels: list[NotificationChannelConfig] = Field(default_factory=list)
+    notification_channel_groups: list[NotificationChannelGroupConfig] = Field(default_factory=list)
     notification_rules: NotificationRuleSet = Field(default_factory=build_default_notification_rules)
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -308,6 +340,7 @@ class AppSettingsUpdateRequest(BaseModel):
     default_notification_channel_id: str | None = Field(default=None, max_length=64)
     notification_check_interval_minutes: int = Field(default=5, ge=1, le=1440)
     notification_channels: list[NotificationChannelConfig] = Field(default_factory=list)
+    notification_channel_groups: list[NotificationChannelGroupConfig] = Field(default_factory=list)
     notification_rules: NotificationRuleSet = Field(default_factory=build_default_notification_rules)
 
     @field_validator("scheduler_timezone")

@@ -104,6 +104,7 @@ def create_instance(db: Session, payload: InstanceCreate) -> Instance:
         balance_alert_enabled=payload.balance_alert_enabled,
         balance_alert_threshold=payload.balance_alert_threshold,
         notification_channel_ids_json=list(dict.fromkeys(payload.notification_channel_ids)),
+                notification_channel_group_ids_json=list(dict.fromkeys(payload.notification_channel_group_ids)),
     )
     db.add(instance)
     db.commit()
@@ -141,6 +142,7 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
                 balance_alert_enabled=payload.balance_alert_enabled,
                 balance_alert_threshold=payload.balance_alert_threshold,
                 notification_channel_ids_json=list(dict.fromkeys(payload.notification_channel_ids)),
+                notification_channel_group_ids_json=list(dict.fromkeys(payload.notification_channel_group_ids)),
             )
         )
 
@@ -222,6 +224,7 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
     instance.balance_alert_enabled = payload.balance_alert_enabled
     instance.balance_alert_threshold = payload.balance_alert_threshold
     instance.notification_channel_ids_json = list(dict.fromkeys(payload.notification_channel_ids))
+    instance.notification_channel_group_ids_json = list(dict.fromkeys(payload.notification_channel_group_ids))
     instance.billing_mode = payload.billing_mode
     instance.quota_per_unit = payload.quota_per_unit
     instance.priority = payload.priority
@@ -312,6 +315,7 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         instance.balance_alert_enabled = payload.balance_alert_enabled
         instance.balance_alert_threshold = payload.balance_alert_threshold
         instance.notification_channel_ids_json = list(dict.fromkeys(payload.notification_channel_ids))
+        instance.notification_channel_group_ids_json = list(dict.fromkeys(payload.notification_channel_group_ids))
         instance.billing_mode = payload.billing_mode
         instance.quota_per_unit = payload.quota_per_unit
         instance.priority = payload.priority
@@ -560,6 +564,7 @@ def _instance_to_response(
                 instance.balance_alert_threshold or default_balance_alert_threshold
             ),
             "notification_channel_ids": instance.notification_channel_ids_json or [],
+                "notification_channel_group_ids": instance.notification_channel_group_ids_json or [],
             "today_request_count": today_request_count(
                 db,
                 instance.id,

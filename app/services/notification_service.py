@@ -18,6 +18,7 @@ from app.schemas.app_setting import (
     BalanceNotificationRule,
     ConnectivityFailureNotificationRule,
     NotificationChannelConfig,
+    NotificationChannelGroupConfig,
     NotificationTestChannelResult,
     NotificationTestRequest,
     NotificationTestResponse,
@@ -62,7 +63,7 @@ def send_test_notification(db: Session, payload: NotificationTestRequest) -> Not
     runtime_settings = get_runtime_app_settings(db)
     channels = _resolve_channels(
         runtime_settings.notification_channels,
-        selected_channel_ids=payload.channel_ids,
+        selected_channel_ids=_expand_with_groups(payload.channel_ids, payload.group_ids, runtime_settings.notification_channel_groups),
         default_channel_id=runtime_settings.default_notification_channel_id,
     )
     if not channels:
@@ -249,7 +250,11 @@ def _evaluate_instance_balance_alerts(db: Session, *, instances: list[Instance],
         threshold = instance.balance_alert_threshold or runtime_settings.default_balance_alert_threshold
         balance = balances.get(instance.id)
         recovery_threshold = round(threshold * 1.2, 2)
-        selected_channel_ids = instance.notification_channel_ids_json or (
+        selected_channel_ids = _expand_with_groups(
+            instance.notification_channel_ids_json,
+            instance.notification_channel_group_ids_json,
+            runtime_settings.notification_channel_groups,
+        ) or (
             [runtime_settings.default_notification_channel_id]
             if runtime_settings.default_notification_channel_id
             else []
@@ -342,7 +347,7 @@ def _evaluate_low_balance_rules(db: Session, *, instances: list[Instance], now) 
         seen_target_keys: set[str] = set()
         channels = _resolve_channels(
             runtime_settings.notification_channels,
-            selected_channel_ids=rule.channel_ids,
+            selected_channel_ids=_expand_with_groups(rule.channel_ids, rule.channel_group_ids, runtime_settings.notification_channel_groups),
             default_channel_id=runtime_settings.default_notification_channel_id,
         )
 
@@ -454,7 +459,7 @@ def _evaluate_aggregate_balance_rules(db: Session, *, instances: list[Instance],
         )
         channels = _resolve_channels(
             runtime_settings.notification_channels,
-            selected_channel_ids=rule.channel_ids,
+            selected_channel_ids=_expand_with_groups(rule.channel_ids, rule.channel_group_ids, runtime_settings.notification_channel_groups),
             default_channel_id=runtime_settings.default_notification_channel_id,
         )
         total_balance = sum((balances.get(item.id) or 0) for item in matched_instances)
@@ -533,7 +538,7 @@ def _evaluate_connectivity_failure_rules(
         seen_target_keys: set[str] = set()
         channels = _resolve_channels(
             runtime_settings.notification_channels,
-            selected_channel_ids=rule.channel_ids,
+            selected_channel_ids=_expand_with_groups(rule.channel_ids, rule.channel_group_ids, runtime_settings.notification_channel_groups),
             default_channel_id=runtime_settings.default_notification_channel_id,
         )
 
@@ -802,6 +807,21 @@ def _instance_matches_rule(
     if rule.tags:
         return matches_tag
     return True
+
+
+def _expand_with_groups(
+    channel_ids: list[str],
+    group_ids: list[str],
+    groups: list[NotificationChannelGroupConfig],
+) -> list[str]:
+    """Merge explicit channel ids with the members of the selected groups."""
+    expanded = list(channel_ids)
+    group_map = {group.id: group for group in groups}
+    for group_id in group_ids:
+        group = group_map.get(group_id)
+        if group:
+            expanded.extend(group.channel_ids)
+    return list(dict.fromkeys(expanded))
 
 
 def _resolve_channels(

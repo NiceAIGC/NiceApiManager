@@ -42,6 +42,7 @@ class Instance(Base):
     balance_alert_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     balance_alert_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
     notification_channel_ids_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    notification_channel_group_ids_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     billing_mode: Mapped[str] = mapped_column(String(16), default="prepaid", nullable=False)
     priority: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     sync_interval_minutes: Mapped[int] = mapped_column(Integer, default=120, nullable=False)

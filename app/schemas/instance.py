@@ -27,6 +27,7 @@ class InstanceCreate(BaseModel):
     balance_alert_enabled: bool = False
     balance_alert_threshold: float | None = Field(default=None, gt=0, le=1000000000)
     notification_channel_ids: list[str] = Field(default_factory=list)
+    notification_channel_group_ids: list[str] = Field(default_factory=list)
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     quota_per_unit: float | None = Field(default=None, gt=0)
     priority: int = Field(default=3, ge=1, le=5)
@@ -68,6 +69,7 @@ class InstanceUpdate(BaseModel):
     balance_alert_enabled: bool = False
     balance_alert_threshold: float | None = Field(default=None, gt=0, le=1000000000)
     notification_channel_ids: list[str] = Field(default_factory=list)
+    notification_channel_group_ids: list[str] = Field(default_factory=list)
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     quota_per_unit: float | None = Field(default=None, gt=0)
     priority: int = Field(default=3, ge=1, le=5)
@@ -108,6 +110,7 @@ class InstanceResponse(BaseModel):
     balance_alert_threshold: float | None = None
     effective_balance_alert_threshold: float | None = None
     notification_channel_ids: list[str] = Field(default_factory=list)
+    notification_channel_group_ids: list[str] = Field(default_factory=list)
     billing_mode: Literal["prepaid", "postpaid"]
     priority: int
     tags: list[str] = Field(default_factory=list)

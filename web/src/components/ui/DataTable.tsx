@@ -55,6 +55,10 @@ interface DataTableProps<T> {
   compact?: boolean;
   className?: string;
   rowClassName?: (row: T) => string | undefined;
+  /** 单击行触发（如展开详情）；不影响复选框 */
+  onRowAction?: (row: T) => void;
+  /** 双击行触发（如同步实例） */
+  onRowDoubleClick?: (row: T) => void;
 }
 
 type DisplayItem<T> = { kind: 'data'; row: T; key: Key } | { kind: 'expanded'; row: T; key: Key };
@@ -96,6 +100,8 @@ export function DataTable<T>({
   compact,
   className,
   rowClassName,
+  onRowAction,
+  onRowDoubleClick,
 }: DataTableProps<T>) {
   const items = useMemo<Array<DisplayItem<T>>>(() => {
     const list: Array<DisplayItem<T>> = [];
@@ -169,6 +175,14 @@ export function DataTable<T>({
               selectionMode={selection ? 'multiple' : 'none'}
               selectedKeys={selection ? selection.selectedKeys : undefined}
               onSelectionChange={selection ? handleSelectionChange : undefined}
+              onRowAction={
+                onRowAction
+                  ? (key) => {
+                      const item = items.find((entry) => entry.key === key && entry.kind === 'data');
+                      if (item) onRowAction(item.row);
+                    }
+                  : undefined
+              }
               sortDescriptor={sortDescriptor}
               onSortChange={onSortChange}
               style={minWidth ? { minWidth } : undefined}
@@ -205,22 +219,30 @@ export function DataTable<T>({
                       <Table.Cell colSpan={columnCount}>{expandable?.renderExpanded(item.row)}</Table.Cell>
                     </Table.Row>
                   ) : (
-                    <Table.Row id={item.key} className={rowClassName?.(item.row)}>
+                    <Table.Row
+                      id={item.key}
+                      className={cx(rowClassName?.(item.row), (onRowAction || onRowDoubleClick) && 'cursor-pointer')}
+                      onDoubleClick={onRowDoubleClick ? () => onRowDoubleClick(item.row) : undefined}
+                    >
                       {displayColumns.map((column) =>
                         column.id === SELECT_COLUMN_ID ? (
                           <Table.Cell key={column.id}>
+                            <span onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
                             <Checkbox slot="selection" aria-label="选择本行">
                               <Checkbox.Control>
                                 <Checkbox.Indicator />
                               </Checkbox.Control>
                             </Checkbox>
+                            </span>
                           </Table.Cell>
                         ) : column.id === EXPAND_COLUMN_ID ? (
                           <Table.Cell key={column.id}>
                             {expandable && (expandable.rowExpandable?.(item.row) ?? true) ? (
-                              <Button isIconOnly variant="ghost" size="sm" aria-label={expandable.expandedKeys.has(item.key) ? '收起详情' : '展开详情'} onPress={() => toggleExpand(item.key)}>
-                                {expandable.expandedKeys.has(item.key) ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                              </Button>
+                              <span onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
+                                <Button isIconOnly variant="ghost" size="sm" aria-label={expandable.expandedKeys.has(item.key) ? '收起详情' : '展开详情'} onPress={() => toggleExpand(item.key)}>
+                                  {expandable.expandedKeys.has(item.key) ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                                </Button>
+                              </span>
                             ) : null}
                           </Table.Cell>
                         ) : (

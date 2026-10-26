@@ -56,6 +56,7 @@ function buildSettingsPayload(values: RuntimeSettingsFormValues, current?: AppSe
     default_balance_alert_threshold: current?.default_balance_alert_threshold ?? 50,
     default_notification_channel_id: current?.default_notification_channel_id,
     notification_channels: current?.notification_channels ?? [],
+    notification_channel_groups: current?.notification_channel_groups ?? [],
     notification_rules: current?.notification_rules ?? { low_balance_rules: [], aggregate_balance_rules: [], connectivity_failure_rules: [] },
   };
 }

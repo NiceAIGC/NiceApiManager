@@ -180,16 +180,16 @@ export function DashboardPage() {
     <div className="flex flex-col gap-5">
       {/* 筛选 + 全局操作 */}
       <Card>
-        <Card.Content className="flex flex-wrap items-center gap-3 p-4">
+        <Card.Content className="flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
           <TextInput
-            className="w-64"
+            className="w-72"
             inputProps={{ 'aria-label': '搜索实例名、地址、用户名', placeholder: '搜索实例名、地址、用户名', value: search, onChange: (event) => setSearch(event.target.value) }}
           />
           <SelectInput className="w-44" options={tagOptions} value={selectedTags} multiple placeholder="按标签筛选" onChange={(value) => setSelectedTags(Array.isArray(value) ? value : [])} />
-          <SelectInput className="w-36" options={BILLING_OPTIONS} value={billingMode} placeholder="按计费方式筛选" onChange={(value) => setBillingMode(value === 'prepaid' || value === 'postpaid' ? value : undefined)} />
-          <SelectInput className="w-32" options={ENABLED_OPTIONS} value={enabled === undefined ? undefined : String(enabled)} placeholder="按启用状态筛选" onChange={(value) => setEnabled(value === 'true' ? true : value === 'false' ? false : undefined)} />
-          <SelectInput className="w-36" options={HEALTH_OPTIONS} value={healthStatus} placeholder="按健康状态筛选" onChange={(value) => setHealthStatus(typeof value === 'string' ? value : undefined)} />
-          <div className="ml-auto flex items-center gap-2">
+          <SelectInput className="w-44" options={BILLING_OPTIONS} value={billingMode} placeholder="按计费方式筛选" onChange={(value) => setBillingMode(value === 'prepaid' || value === 'postpaid' ? value : undefined)} />
+          <SelectInput className="w-40" options={ENABLED_OPTIONS} value={enabled === undefined ? undefined : String(enabled)} placeholder="按启用状态筛选" onChange={(value) => setEnabled(value === 'true' ? true : value === 'false' ? false : undefined)} />
+          <SelectInput className="w-44" options={HEALTH_OPTIONS} value={healthStatus} placeholder="按健康状态筛选" onChange={(value) => setHealthStatus(typeof value === 'string' ? value : undefined)} />
+          <div className="ml-auto flex items-center gap-3">
             {activeFilterCount ? (
               <Button variant="ghost" size="sm" onPress={resetFilters}>
                 清空筛选（{activeFilterCount}）
@@ -223,10 +223,20 @@ export function DashboardPage() {
               {trendData ? `${trendData.start_date} 至 ${trendData.end_date}，共 ${trendData.days} 天；悬浮单日柱体查看实例构成` : '按天统计各实例消耗额度构成'}
             </Card.Description>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <Tooltip>
+            <Tooltip.Trigger>
+              <Button isIconOnly variant="ghost" size="sm" aria-label="恢复默认时间" onPress={resetTrendRange}>
+                <RotateCcw size={14} />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>恢复默认时间范围</Tooltip.Content>
+          </Tooltip>
+        </Card.Header>
+        <Card.Content className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
             <SegmentedControl size="sm" options={TREND_OPTIONS} value={trendMode} onChange={(value) => setTrendMode(value as TrendMode)} />
             {trendMode === 'custom-days' ? (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 <NumberInput className="w-20" value={customTrendDays} min={1} max={MAX_TREND_DAYS} onChange={(value) => setCustomTrendDays(value ?? 7)} />
                 <span className="text-sm text-muted">天</span>
               </div>
@@ -254,21 +264,11 @@ export function DashboardPage() {
                 </DateRangePicker.Popover>
               </DateRangePicker>
             ) : null}
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm text-muted">堆叠</span>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-sm text-muted">堆叠实例数</span>
               <NumberInput className="w-20" value={trendBreakdownLimit} min={1} max={20} onChange={(value) => setTrendBreakdownLimit(value ?? 8)} />
             </div>
-            <Tooltip>
-              <Tooltip.Trigger>
-                <Button isIconOnly variant="ghost" size="sm" aria-label="恢复默认时间" onPress={resetTrendRange}>
-                  <RotateCcw size={14} />
-                </Button>
-              </Tooltip.Trigger>
-              <Tooltip.Content>恢复默认时间范围</Tooltip.Content>
-            </Tooltip>
           </div>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-4">
           <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-sm text-muted">
             <span>活跃消耗 <strong className="text-foreground">{formatNumber(trendSummary.activeDays)} 天</strong></span>
             <span>峰值 <strong className="text-foreground">{trendSummary.peakUsagePoint ? `${trendSummary.peakUsagePoint.date} / ${formatMoney(trendSummary.peakUsagePoint.used_display_amount)}` : '-'}</strong></span>

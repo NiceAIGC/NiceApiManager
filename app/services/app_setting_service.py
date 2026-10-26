@@ -16,6 +16,7 @@ from app.schemas.app_setting import (
     AppSettingsResponse,
     AppSettingsUpdateRequest,
     NotificationChannelConfig,
+    NotificationChannelGroupConfig,
     NotificationRuleSet,
     build_default_notification_rules,
 )
@@ -31,6 +32,7 @@ DEFAULT_NOTIFICATION_CHECK_INTERVAL_MINUTES = 5
 DEFAULT_BALANCE_ALERT_THRESHOLD = 50.0
 DEFAULT_INSTANCE_PROXY_MODE = "direct"
 _CHANNEL_LIST_ADAPTER = TypeAdapter(list[NotificationChannelConfig])
+_CHANNEL_GROUP_LIST_ADAPTER = TypeAdapter(list[NotificationChannelGroupConfig])
 _RULE_SET_ADAPTER = TypeAdapter(NotificationRuleSet)
 
 
@@ -51,6 +53,7 @@ class RuntimeAppSettings:
     default_notification_channel_id: str | None
     notification_check_interval_minutes: int
     notification_channels: list[NotificationChannelConfig]
+    notification_channel_groups: list[NotificationChannelGroupConfig]
     notification_rules: NotificationRuleSet
 
 
@@ -63,6 +66,7 @@ def get_runtime_app_settings(db: Session) -> RuntimeAppSettings:
     """Return the effective runtime settings used across services."""
     row = get_app_setting_record(db)
     notification_channels = _parse_notification_channels(row.notification_channels_json if row else None)
+    notification_channel_groups = _parse_notification_channel_groups(row.notification_channel_groups_json if row else None)
     notification_rules = _parse_notification_rules(row.notification_rules_json if row else None)
     return RuntimeAppSettings(
         sync_max_workers=_coerce_int(
@@ -115,6 +119,7 @@ def get_runtime_app_settings(db: Session) -> RuntimeAppSettings:
             maximum=1440,
         ),
         notification_channels=notification_channels,
+        notification_channel_groups=notification_channel_groups,
         notification_rules=notification_rules,
     )
 
@@ -137,6 +142,7 @@ def build_app_settings_response(db: Session) -> AppSettingsResponse:
         default_notification_channel_id=runtime.default_notification_channel_id,
         notification_check_interval_minutes=runtime.notification_check_interval_minutes,
         notification_channels=runtime.notification_channels,
+        notification_channel_groups=runtime.notification_channel_groups,
         notification_rules=runtime.notification_rules,
         created_at=row.created_at if row else None,
         updated_at=row.updated_at if row else None,
@@ -165,6 +171,7 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
     row.default_notification_channel_id = payload.default_notification_channel_id
     row.notification_check_interval_minutes = payload.notification_check_interval_minutes
     row.notification_channels_json = [item.model_dump(mode="json") for item in payload.notification_channels]
+    row.notification_channel_groups_json = [item.model_dump(mode="json") for item in payload.notification_channel_groups]
     row.notification_rules_json = payload.notification_rules.model_dump(mode="json")
     db.flush()
     _purge_removed_notification_states(db, payload.notification_rules)
@@ -188,6 +195,7 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
         ),
         notification_check_interval_minutes=row.notification_check_interval_minutes or DEFAULT_NOTIFICATION_CHECK_INTERVAL_MINUTES,
         notification_channels=_parse_notification_channels(row.notification_channels_json),
+        notification_channel_groups=_parse_notification_channel_groups(row.notification_channel_groups_json),
         notification_rules=_parse_notification_rules(row.notification_rules_json),
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -220,6 +228,17 @@ def _parse_notification_channels(value: object) -> list[NotificationChannelConfi
         return []
 
 
+def _parse_notification_channel_groups(value: object) -> list[NotificationChannelGroupConfig]:
+    """Validate channel groups stored in JSON columns while surviving legacy data."""
+    if value in (None, ""):
+        return []
+    try:
+        return _CHANNEL_GROUP_LIST_ADAPTER.validate_python(value)
+    except ValidationError:
+        logger.warning("Invalid notification channel group config detected; falling back to empty list.")
+        return []
+
+
 def _parse_notification_rules(value: object) -> NotificationRuleSet:
     """Validate rule sets stored in JSON columns while surviving legacy data."""
     if value in (None, ""):
@@ -243,8 +262,9 @@ def _resolve_default_notification_channel_id(
 
 
 def _validate_notification_channel_references(payload: AppSettingsUpdateRequest) -> None:
-    """Ensure each rule references channels that exist in the same payload."""
+    """Ensure rules and groups reference channels that exist in the same payload."""
     channel_ids = {item.id for item in payload.notification_channels}
+    group_ids = {item.id for item in payload.notification_channel_groups}
     if payload.default_notification_channel_id is not None:
         default_channel = next(
             (item for item in payload.notification_channels if item.id == payload.default_notification_channel_id),
@@ -255,12 +275,19 @@ def _validate_notification_channel_references(payload: AppSettingsUpdateRequest)
                 (item.id for item in payload.notification_channels if item.enabled),
                 None,
             )
+    for group in payload.notification_channel_groups:
+        invalid_group_channels = [item for item in group.channel_ids if item not in channel_ids]
+        if invalid_group_channels:
+            raise ValueError(f"渠道分组“{group.name}”引用了不存在的通知渠道：{', '.join(invalid_group_channels)}")
     for rule in payload.notification_rules.low_balance_rules:
         _assert_rule_channel_ids(rule.channel_ids, channel_ids, rule.name)
+        _assert_rule_group_ids(rule.channel_group_ids, group_ids, rule.name)
     for rule in payload.notification_rules.aggregate_balance_rules:
         _assert_rule_channel_ids(rule.channel_ids, channel_ids, rule.name)
+        _assert_rule_group_ids(rule.channel_group_ids, group_ids, rule.name)
     for rule in payload.notification_rules.connectivity_failure_rules:
         _assert_rule_channel_ids(rule.channel_ids, channel_ids, rule.name)
+        _assert_rule_group_ids(rule.channel_group_ids, group_ids, rule.name)
 
 
 def _assert_rule_channel_ids(selected_channel_ids: list[str], valid_channel_ids: set[str], rule_name: str) -> None:
@@ -268,6 +295,13 @@ def _assert_rule_channel_ids(selected_channel_ids: list[str], valid_channel_ids:
     invalid_ids = [item for item in selected_channel_ids if item not in valid_channel_ids]
     if invalid_ids:
         raise ValueError(f"规则“{rule_name}”引用了不存在的通知渠道：{', '.join(invalid_ids)}")
+
+
+def _assert_rule_group_ids(selected_group_ids: list[str], valid_group_ids: set[str], rule_name: str) -> None:
+    """Raise a clear error when a rule points to deleted channel groups."""
+    invalid_ids = [item for item in selected_group_ids if item not in valid_group_ids]
+    if invalid_ids:
+        raise ValueError(f"规则“{rule_name}”引用了不存在的渠道分组：{', '.join(invalid_ids)}")
 
 
 def _purge_removed_notification_states(db: Session, rules: NotificationRuleSet) -> None:

@@ -85,6 +85,7 @@ export interface Instance {
   balance_alert_threshold?: number | null;
   effective_balance_alert_threshold?: number | null;
   notification_channel_ids: string[];
+  notification_channel_group_ids: string[];
   billing_mode: 'prepaid' | 'postpaid';
   priority: number;
   sync_interval_minutes: number;
@@ -132,6 +133,7 @@ export interface InstanceCreatePayload {
   balance_alert_enabled: boolean;
   balance_alert_threshold?: number | null;
   notification_channel_ids: string[];
+  notification_channel_group_ids: string[];
   billing_mode: 'prepaid' | 'postpaid';
   quota_per_unit?: number | null;
   priority: number;
@@ -154,6 +156,7 @@ export interface InstanceUpdatePayload {
   balance_alert_enabled: boolean;
   balance_alert_threshold?: number | null;
   notification_channel_ids: string[];
+  notification_channel_group_ids: string[];
   billing_mode: 'prepaid' | 'postpaid';
   quota_per_unit?: number | null;
   priority: number;
@@ -492,9 +495,16 @@ export interface AppSettings {
   default_notification_channel_id?: string | null;
   notification_check_interval_minutes: number;
   notification_channels: NotificationChannelConfig[];
+  notification_channel_groups: NotificationChannelGroupConfig[];
   notification_rules: NotificationRuleSet;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface NotificationChannelGroupConfig {
+  id: string;
+  name: string;
+  channel_ids: string[];
 }
 
 export interface NotificationChannelConfig {
@@ -517,6 +527,7 @@ export interface BalanceNotificationRule {
   include_disabled: boolean;
   notify_on_recovery: boolean;
   channel_ids: string[];
+  channel_group_ids: string[];
 }
 
 export interface AggregateBalanceNotificationRule {
@@ -532,6 +543,7 @@ export interface AggregateBalanceNotificationRule {
   include_disabled: boolean;
   notify_on_recovery: boolean;
   channel_ids: string[];
+  channel_group_ids: string[];
 }
 
 export interface ConnectivityFailureNotificationRule {
@@ -545,6 +557,7 @@ export interface ConnectivityFailureNotificationRule {
   repeat_interval_minutes: number;
   notify_on_recovery: boolean;
   channel_ids: string[];
+  channel_group_ids: string[];
 }
 
 export interface NotificationRuleSet {
@@ -555,6 +568,7 @@ export interface NotificationRuleSet {
 
 export interface NotificationTestPayload {
   channel_ids?: string[];
+  group_ids?: string[];
   title?: string;
   body?: string;
 }
