@@ -180,7 +180,7 @@ export function DashboardPage() {
     <div className="flex flex-col gap-5">
       {/* 筛选 + 全局操作 */}
       <Card>
-        <Card.Content className="flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
+        <Card.Content className="flex flex-row flex-wrap items-center gap-x-4 gap-y-3 p-4">
           <TextInput
             className="w-72"
             inputProps={{ 'aria-label': '搜索实例名、地址、用户名', placeholder: '搜索实例名、地址、用户名', value: search, onChange: (event) => setSearch(event.target.value) }}
@@ -216,7 +216,7 @@ export function DashboardPage() {
 
       {/* 消耗趋势 */}
       <Card>
-        <Card.Header className="flex flex-wrap items-start justify-between gap-3">
+        <Card.Header className="flex flex-row flex-wrap items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
             <Card.Title>消耗趋势 · {getTrendModeLabel(trendMode, customTrendDays)}</Card.Title>
             <Card.Description>

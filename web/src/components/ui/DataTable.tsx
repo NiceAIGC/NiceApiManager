@@ -1,4 +1,4 @@
-import { Button, Checkbox, Pagination, Select, ListBox, Spinner, Table } from '@heroui/react';
+import { Button, Checkbox, Dropdown, Pagination, Spinner, Table } from '@heroui/react';
 import type { Key, SortDescriptor } from '@heroui/react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo } from 'react';
@@ -276,29 +276,31 @@ function DataTablePaginationBar({ pagination }: { pagination: DataTablePaginatio
       <div className="text-sm text-muted">共 {total} 项</div>
       <div className="flex items-center gap-3">
         {onPageSizeChange ? (
-          <Select
-            aria-label="每页条数"
-            value={String(pageSize)}
-            onChange={(next) => {
-              if (next != null) onPageSizeChange(Number(next));
-            }}
-            className="w-28"
-          >
-            <Select.Trigger>
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
-            <Select.Popover>
-              <ListBox>
+          <Dropdown>
+            <Dropdown.Trigger>
+              <Button variant="secondary" size="sm" aria-label="每页条数">
+                {pageSize} 条/页
+                <ChevronDown size={14} />
+              </Button>
+            </Dropdown.Trigger>
+            <Dropdown.Popover>
+              <Dropdown.Menu
+                selectionMode="single"
+                selectedKeys={new Set([String(pageSize)])}
+                onSelectionChange={(keys) => {
+                  if (keys === 'all') return;
+                  const [next] = keys;
+                  if (next != null) onPageSizeChange(Number(next));
+                }}
+              >
                 {(pageSizeOptions ?? [10, 20, 50, 100]).map((size) => (
-                  <ListBox.Item key={size} id={String(size)} textValue={`${size} 条/页`}>
+                  <Dropdown.Item key={size} id={String(size)}>
                     {size} 条/页
-                    <ListBox.ItemIndicator />
-                  </ListBox.Item>
+                  </Dropdown.Item>
                 ))}
-              </ListBox>
-            </Select.Popover>
-          </Select>
+              </Dropdown.Menu>
+            </Dropdown.Popover>
+          </Dropdown>
         ) : null}
         <Pagination>
           <Pagination.Content>
