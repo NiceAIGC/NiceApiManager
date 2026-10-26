@@ -51,6 +51,8 @@ interface DataTableProps<T> {
   onSortChange?: (descriptor: SortDescriptor) => void;
   /** 横向滚动时表格最小宽度（px） */
   minWidth?: number;
+  /** 紧凑密度：更小的行高与内边距 */
+  compact?: boolean;
   className?: string;
   rowClassName?: (row: T) => string | undefined;
 }
@@ -91,6 +93,7 @@ export function DataTable<T>({
   sortDescriptor,
   onSortChange,
   minWidth,
+  compact,
   className,
   rowClassName,
 }: DataTableProps<T>) {
@@ -146,7 +149,7 @@ export function DataTable<T>({
   );
 
   return (
-    <div className={cx('flex w-full flex-col gap-3', className)}>
+    <div className={cx('flex w-full flex-col gap-3', compact && 'data-table-compact', className)}>
       {selection ? (
         <div className="flex items-center gap-3">
           <SelectAllControl {...selectAllState} />

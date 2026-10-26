@@ -25,6 +25,20 @@ export function formatDateTime(value?: string | null): string {
   return parsed.tz(displayTimezone).format('YYYY-MM-DD HH:mm:ss');
 }
 
+/** 紧凑日期时间：MM-DD HH:mm，适合表格窄列 */
+export function formatShortDateTime(value?: string | null): string {
+  if (!value) {
+    return '-';
+  }
+
+  const parsed = dayjs.utc(value);
+  if (!parsed.isValid()) {
+    return '-';
+  }
+
+  return parsed.tz(displayTimezone).format('MM-DD HH:mm');
+}
+
 export function formatNumber(value?: number | null): string {
   if (value === null || value === undefined) {
     return '-';
