@@ -21,6 +21,16 @@ type RuntimeSettingsFormValues = Pick<AppSettings,
   | 'default_sync_interval_minutes'
   | 'shared_socks5_proxy_url'
   | 'default_instance_proxy_mode'
+  | 'rate_change_notify_enabled'
+  | 'rate_change_min_percent'
+  | 'rate_change_cooldown_minutes'
+  | 'announcement_sync_enabled'
+  | 'announcement_notify_enabled'
+  | 'retention_sync_runs_days'
+  | 'retention_notification_logs_days'
+  | 'retention_daily_usage_days'
+  | 'retention_rate_changes_days'
+  | 'retention_announcements_days'
 >;
 
 const defaultRuntimeSettings: RuntimeSettingsFormValues = {
@@ -32,6 +42,16 @@ const defaultRuntimeSettings: RuntimeSettingsFormValues = {
   default_sync_interval_minutes: 120,
   shared_socks5_proxy_url: '',
   default_instance_proxy_mode: 'direct',
+  rate_change_notify_enabled: true,
+  rate_change_min_percent: 0,
+  rate_change_cooldown_minutes: 60,
+  announcement_sync_enabled: true,
+  announcement_notify_enabled: true,
+  retention_sync_runs_days: 30,
+  retention_notification_logs_days: 90,
+  retention_daily_usage_days: 180,
+  retention_rate_changes_days: 180,
+  retention_announcements_days: 90,
 };
 
 function normalizeRuntimeSettings(settings?: AppSettings): RuntimeSettingsFormValues {
@@ -45,6 +65,16 @@ function normalizeRuntimeSettings(settings?: AppSettings): RuntimeSettingsFormVa
     default_sync_interval_minutes: settings.default_sync_interval_minutes,
     shared_socks5_proxy_url: settings.shared_socks5_proxy_url ?? '',
     default_instance_proxy_mode: settings.default_instance_proxy_mode,
+    rate_change_notify_enabled: settings.rate_change_notify_enabled,
+    rate_change_min_percent: settings.rate_change_min_percent,
+    rate_change_cooldown_minutes: settings.rate_change_cooldown_minutes,
+    announcement_sync_enabled: settings.announcement_sync_enabled,
+    announcement_notify_enabled: settings.announcement_notify_enabled,
+    retention_sync_runs_days: settings.retention_sync_runs_days,
+    retention_notification_logs_days: settings.retention_notification_logs_days,
+    retention_daily_usage_days: settings.retention_daily_usage_days,
+    retention_rate_changes_days: settings.retention_rate_changes_days,
+    retention_announcements_days: settings.retention_announcements_days,
   };
 }
 
@@ -112,6 +142,29 @@ export function SettingsPage() {
           <Controller control={control} name="sync_verify_ssl" render={({ field }) => <SwitchInput label="校验上游 SSL 证书" description="关闭后可连接自签名证书站点，但安全性会下降。" checked={field.value} onChange={field.onChange} />} />
         </div>
         <p className="m-0 text-sm text-muted">告警通知已移动到左侧单独页面，运行参数保存不会改动已配置的通知渠道和规则。</p>
+      </Card.Content></Card>
+
+      <Card><Card.Content className="flex flex-col gap-4 p-4">
+        <h2 className="m-0 text-base font-semibold">监控与通知</h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Controller control={control} name="rate_change_notify_enabled" render={({ field }) => <SwitchInput label="倍率变更通知" description="同步检测到分组倍率新增、删除或变动时，合并为一条通知推送到默认渠道。" checked={field.value} onChange={field.onChange} />} />
+          <Controller control={control} name="announcement_sync_enabled" render={({ field }) => <SwitchInput label="上游公告同步" description="每次同步实例时顺带抓取上游公告；首次同步只建基线不推送。" checked={field.value} onChange={field.onChange} />} />
+          <Controller control={control} name="rate_change_min_percent" render={({ field }) => <NumberInput label="倍率变动最小通知百分比" description="变动幅度低于该百分比不记录也不通知；0 表示全部记录。" value={field.value} onChange={field.onChange} min={0} max={1000} step={0.1} />} />
+          <Controller control={control} name="rate_change_cooldown_minutes" render={({ field }) => <NumberInput label="倍率变更冷却（分钟）" description="同一分组的同向变动在冷却期内不重复通知。" value={field.value} onChange={field.onChange} min={0} max={10080} />} />
+          <Controller control={control} name="announcement_notify_enabled" render={({ field }) => <SwitchInput label="新公告推送" description="发现新的上游公告时推送到默认通知渠道。" checked={field.value} onChange={field.onChange} />} />
+        </div>
+      </Card.Content></Card>
+
+      <Card><Card.Content className="flex flex-col gap-4 p-4">
+        <h2 className="m-0 text-base font-semibold">数据保留</h2>
+        <p className="m-0 text-sm text-muted">超过保留天数的历史数据每小时自动清理一次，清理不影响当前快照。</p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <Controller control={control} name="retention_sync_runs_days" rules={{ required: '请输入保留天数' }} render={({ field }) => <NumberInput label="同步日志（天）" error={errors.retention_sync_runs_days?.message} value={field.value} onChange={field.onChange} min={1} max={3650} />} />
+          <Controller control={control} name="retention_notification_logs_days" rules={{ required: '请输入保留天数' }} render={({ field }) => <NumberInput label="通知日志（天）" error={errors.retention_notification_logs_days?.message} value={field.value} onChange={field.onChange} min={1} max={3650} />} />
+          <Controller control={control} name="retention_daily_usage_days" rules={{ required: '请输入保留天数' }} render={({ field }) => <NumberInput label="每日用量统计（天）" error={errors.retention_daily_usage_days?.message} value={field.value} onChange={field.onChange} min={7} max={3650} />} />
+          <Controller control={control} name="retention_rate_changes_days" rules={{ required: '请输入保留天数' }} render={({ field }) => <NumberInput label="倍率变更记录（天）" error={errors.retention_rate_changes_days?.message} value={field.value} onChange={field.onChange} min={1} max={3650} />} />
+          <Controller control={control} name="retention_announcements_days" rules={{ required: '请输入保留天数' }} render={({ field }) => <NumberInput label="上游公告（天）" error={errors.retention_announcements_days?.message} value={field.value} onChange={field.onChange} min={1} max={3650} />} />
+        </div>
       </Card.Content></Card>
 
       <div><Button type="submit" variant="primary" isPending={updateMutation.isPending} isDisabled={isLoading}>保存设置</Button></div>

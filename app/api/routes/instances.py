@@ -1,11 +1,17 @@
 """Instance management routes."""
 
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.core.database import is_sqlite_locked_error
+from app.core.time import utcnow
+from app.models import UserSnapshot
+from app.services.snapshot_metrics import quota_to_display_amount
 from app.schemas.instance import (
     BatchInstanceCreateRequest,
     BatchInstanceDeleteRequest,
@@ -210,6 +216,32 @@ def delete_instance_route(
         delete_instance(db, instance)
     except OperationalError as exc:
         _raise_if_sqlite_locked(exc, db)
+
+
+@router.get("/instances/{instance_id}/balance-history")
+def get_instance_balance_history(
+    instance_id: int,
+    days: int = Query(default=30, ge=1, le=180, description="返回最近 N 天的余额快照。"),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Return recent balance snapshots for one instance, oldest first."""
+    instance = get_instance_or_404(db, instance_id)
+    since = utcnow() - timedelta(days=days)
+    rows = db.scalars(
+        select(UserSnapshot)
+        .where(UserSnapshot.instance_id == instance.id, UserSnapshot.snapshot_at >= since)
+        .order_by(UserSnapshot.snapshot_at.asc())
+    ).all()
+    return {
+        "items": [
+            {
+                "snapshot_at": row.snapshot_at.isoformat(),
+                "balance": quota_to_display_amount(row.quota, instance.quota_per_unit),
+                "used_amount": quota_to_display_amount(row.used_quota, instance.quota_per_unit),
+            }
+            for row in rows
+        ]
+    }
 
 
 @router.post("/instances/{instance_id}/test", response_model=InstanceTestResponse)

@@ -20,6 +20,7 @@ from app.schemas.app_setting import (
     NotificationRuleSet,
     build_default_notification_rules,
 )
+from app.core.crypto import decrypt_if_needed, encrypt_value
 from app.services.proxy_utils import normalize_socks5_proxy_url
 
 
@@ -52,6 +53,16 @@ class RuntimeAppSettings:
     default_balance_alert_threshold: float
     default_notification_channel_id: str | None
     notification_check_interval_minutes: int
+    rate_change_notify_enabled: bool
+    rate_change_min_percent: float
+    rate_change_cooldown_minutes: int
+    announcement_sync_enabled: bool
+    announcement_notify_enabled: bool
+    retention_sync_runs_days: int
+    retention_notification_logs_days: int
+    retention_daily_usage_days: int
+    retention_rate_changes_days: int
+    retention_announcements_days: int
     notification_channels: list[NotificationChannelConfig]
     notification_channel_groups: list[NotificationChannelGroupConfig]
     notification_rules: NotificationRuleSet
@@ -118,6 +129,26 @@ def get_runtime_app_settings(db: Session) -> RuntimeAppSettings:
             minimum=1,
             maximum=1440,
         ),
+        rate_change_notify_enabled=bool(row.rate_change_notify_enabled) if row and row.rate_change_notify_enabled is not None else True,
+        rate_change_min_percent=_coerce_float(
+            row.rate_change_min_percent if row else None,
+            default=0.0,
+            minimum=0.0,
+            maximum=1000.0,
+        ),
+        rate_change_cooldown_minutes=_coerce_int(
+            row.rate_change_cooldown_minutes if row else None,
+            default=60,
+            minimum=0,
+            maximum=10080,
+        ),
+        announcement_sync_enabled=bool(row.announcement_sync_enabled) if row and row.announcement_sync_enabled is not None else True,
+        announcement_notify_enabled=bool(row.announcement_notify_enabled) if row and row.announcement_notify_enabled is not None else True,
+        retention_sync_runs_days=_coerce_int(row.retention_sync_runs_days if row else None, default=30, minimum=1, maximum=3650),
+        retention_notification_logs_days=_coerce_int(row.retention_notification_logs_days if row else None, default=90, minimum=1, maximum=3650),
+        retention_daily_usage_days=_coerce_int(row.retention_daily_usage_days if row else None, default=180, minimum=7, maximum=3650),
+        retention_rate_changes_days=_coerce_int(row.retention_rate_changes_days if row else None, default=180, minimum=1, maximum=3650),
+        retention_announcements_days=_coerce_int(row.retention_announcements_days if row else None, default=90, minimum=1, maximum=3650),
         notification_channels=notification_channels,
         notification_channel_groups=notification_channel_groups,
         notification_rules=notification_rules,
@@ -141,6 +172,16 @@ def build_app_settings_response(db: Session) -> AppSettingsResponse:
         default_balance_alert_threshold=runtime.default_balance_alert_threshold,
         default_notification_channel_id=runtime.default_notification_channel_id,
         notification_check_interval_minutes=runtime.notification_check_interval_minutes,
+        rate_change_notify_enabled=runtime.rate_change_notify_enabled,
+        rate_change_min_percent=runtime.rate_change_min_percent,
+        rate_change_cooldown_minutes=runtime.rate_change_cooldown_minutes,
+        announcement_sync_enabled=runtime.announcement_sync_enabled,
+        announcement_notify_enabled=runtime.announcement_notify_enabled,
+        retention_sync_runs_days=runtime.retention_sync_runs_days,
+        retention_notification_logs_days=runtime.retention_notification_logs_days,
+        retention_daily_usage_days=runtime.retention_daily_usage_days,
+        retention_rate_changes_days=runtime.retention_rate_changes_days,
+        retention_announcements_days=runtime.retention_announcements_days,
         notification_channels=runtime.notification_channels,
         notification_channel_groups=runtime.notification_channel_groups,
         notification_rules=runtime.notification_rules,
@@ -170,7 +211,20 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
     row.default_balance_alert_threshold = payload.default_balance_alert_threshold
     row.default_notification_channel_id = payload.default_notification_channel_id
     row.notification_check_interval_minutes = payload.notification_check_interval_minutes
-    row.notification_channels_json = [item.model_dump(mode="json") for item in payload.notification_channels]
+    row.rate_change_notify_enabled = payload.rate_change_notify_enabled
+    row.rate_change_min_percent = payload.rate_change_min_percent
+    row.rate_change_cooldown_minutes = payload.rate_change_cooldown_minutes
+    row.announcement_sync_enabled = payload.announcement_sync_enabled
+    row.announcement_notify_enabled = payload.announcement_notify_enabled
+    row.retention_sync_runs_days = payload.retention_sync_runs_days
+    row.retention_notification_logs_days = payload.retention_notification_logs_days
+    row.retention_daily_usage_days = payload.retention_daily_usage_days
+    row.retention_rate_changes_days = payload.retention_rate_changes_days
+    row.retention_announcements_days = payload.retention_announcements_days
+    row.notification_channels_json = [
+        {**item.model_dump(mode="json"), "apprise_url": encrypt_value(item.apprise_url)}
+        for item in payload.notification_channels
+    ]
     row.notification_channel_groups_json = [item.model_dump(mode="json") for item in payload.notification_channel_groups]
     row.notification_rules_json = payload.notification_rules.model_dump(mode="json")
     db.flush()
@@ -194,6 +248,16 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
             row.default_notification_channel_id,
         ),
         notification_check_interval_minutes=row.notification_check_interval_minutes or DEFAULT_NOTIFICATION_CHECK_INTERVAL_MINUTES,
+        rate_change_notify_enabled=bool(row.rate_change_notify_enabled) if row.rate_change_notify_enabled is not None else True,
+        rate_change_min_percent=row.rate_change_min_percent or 0.0,
+        rate_change_cooldown_minutes=row.rate_change_cooldown_minutes or 60,
+        announcement_sync_enabled=bool(row.announcement_sync_enabled) if row.announcement_sync_enabled is not None else True,
+        announcement_notify_enabled=bool(row.announcement_notify_enabled) if row.announcement_notify_enabled is not None else True,
+        retention_sync_runs_days=row.retention_sync_runs_days or 30,
+        retention_notification_logs_days=row.retention_notification_logs_days or 90,
+        retention_daily_usage_days=row.retention_daily_usage_days or 180,
+        retention_rate_changes_days=row.retention_rate_changes_days or 180,
+        retention_announcements_days=row.retention_announcements_days or 90,
         notification_channels=_parse_notification_channels(row.notification_channels_json),
         notification_channel_groups=_parse_notification_channel_groups(row.notification_channel_groups_json),
         notification_rules=_parse_notification_rules(row.notification_rules_json),
@@ -222,7 +286,10 @@ def _parse_notification_channels(value: object) -> list[NotificationChannelConfi
     if value in (None, ""):
         return []
     try:
-        return _CHANNEL_LIST_ADAPTER.validate_python(value)
+        channels = _CHANNEL_LIST_ADAPTER.validate_python(value)
+        for channel in channels:
+            channel.apprise_url = decrypt_if_needed(channel.apprise_url) or channel.apprise_url
+        return channels
     except ValidationError:
         logger.warning("Invalid notification channel config detected; falling back to empty list.")
         return []

@@ -494,6 +494,16 @@ export interface AppSettings {
   default_balance_alert_threshold: number;
   default_notification_channel_id?: string | null;
   notification_check_interval_minutes: number;
+  rate_change_notify_enabled: boolean;
+  rate_change_min_percent: number;
+  rate_change_cooldown_minutes: number;
+  announcement_sync_enabled: boolean;
+  announcement_notify_enabled: boolean;
+  retention_sync_runs_days: number;
+  retention_notification_logs_days: number;
+  retention_daily_usage_days: number;
+  retention_rate_changes_days: number;
+  retention_announcements_days: number;
   notification_channels: NotificationChannelConfig[];
   notification_channel_groups: NotificationChannelGroupConfig[];
   notification_rules: NotificationRuleSet;

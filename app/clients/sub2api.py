@@ -213,6 +213,16 @@ class Sub2APIClient:
         """Fetch `/api/v1/model-plaza`, or None when the feature is unavailable."""
         return self._safe_get_json("/api/v1/model-plaza", session_data.access_token)
 
+    def get_announcements(self, session_data: Sub2APISessionData) -> list[dict[str, Any]]:
+        """Fetch user-visible announcements from `/api/v1/announcements` (best effort)."""
+        payload = self._safe_get("/api/v1/announcements", session_data.access_token)
+        data = self._extract_data(payload)
+        if isinstance(data, dict):
+            data = data.get("items") or data.get("announcements") or []
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
+
     def get_pricing(self, session_data: Sub2APISessionData) -> dict[str, Any]:
         """Build pricing rows from the model plaza (usage-stats fallback)."""
         plaza = self.get_model_plaza(session_data)

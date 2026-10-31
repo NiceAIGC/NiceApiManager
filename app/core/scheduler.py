@@ -4,6 +4,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.config import Settings
 from app.services.notification_service import run_notification_monitoring_pass
+from app.services.retention_service import run_retention_cleanup_pass
 from app.services.sync_service import run_scheduled_sync_pass
 
 
@@ -29,5 +30,15 @@ def build_scheduler(settings: Settings) -> BackgroundScheduler:
         coalesce=True,
         max_instances=1,
         misfire_grace_time=30,
+    )
+    scheduler.add_job(
+        run_retention_cleanup_pass,
+        trigger="interval",
+        hours=1,
+        id="retention-cleanup",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=300,
     )
     return scheduler

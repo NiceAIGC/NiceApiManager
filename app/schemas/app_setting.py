@@ -307,6 +307,16 @@ class AppSettingsResponse(BaseModel):
     default_balance_alert_threshold: float = Field(default=50, gt=0, le=1000000000)
     default_notification_channel_id: str | None = Field(default=None, max_length=64)
     notification_check_interval_minutes: int = Field(default=5, ge=1, le=1440)
+    rate_change_notify_enabled: bool = True
+    rate_change_min_percent: float = Field(default=0, ge=0, le=1000)
+    rate_change_cooldown_minutes: int = Field(default=60, ge=0, le=10080)
+    announcement_sync_enabled: bool = True
+    announcement_notify_enabled: bool = True
+    retention_sync_runs_days: int = Field(default=30, ge=1, le=3650)
+    retention_notification_logs_days: int = Field(default=90, ge=1, le=3650)
+    retention_daily_usage_days: int = Field(default=180, ge=7, le=3650)
+    retention_rate_changes_days: int = Field(default=180, ge=1, le=3650)
+    retention_announcements_days: int = Field(default=90, ge=1, le=3650)
     notification_channels: list[NotificationChannelConfig] = Field(default_factory=list)
     notification_channel_groups: list[NotificationChannelGroupConfig] = Field(default_factory=list)
     notification_rules: NotificationRuleSet = Field(default_factory=build_default_notification_rules)
@@ -339,6 +349,16 @@ class AppSettingsUpdateRequest(BaseModel):
     default_balance_alert_threshold: float = Field(default=50, gt=0, le=1000000000)
     default_notification_channel_id: str | None = Field(default=None, max_length=64)
     notification_check_interval_minutes: int = Field(default=5, ge=1, le=1440)
+    rate_change_notify_enabled: bool = True
+    rate_change_min_percent: float = Field(default=0, ge=0, le=1000)
+    rate_change_cooldown_minutes: int = Field(default=60, ge=0, le=10080)
+    announcement_sync_enabled: bool = True
+    announcement_notify_enabled: bool = True
+    retention_sync_runs_days: int = Field(default=30, ge=1, le=3650)
+    retention_notification_logs_days: int = Field(default=90, ge=1, le=3650)
+    retention_daily_usage_days: int = Field(default=180, ge=7, le=3650)
+    retention_rate_changes_days: int = Field(default=180, ge=1, le=3650)
+    retention_announcements_days: int = Field(default=90, ge=1, le=3650)
     notification_channels: list[NotificationChannelConfig] = Field(default_factory=list)
     notification_channel_groups: list[NotificationChannelGroupConfig] = Field(default_factory=list)
     notification_rules: NotificationRuleSet = Field(default_factory=build_default_notification_rules)

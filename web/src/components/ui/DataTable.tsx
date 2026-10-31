@@ -1,7 +1,7 @@
 import { Button, Checkbox, Dropdown, Pagination, Spinner, Table } from '@heroui/react';
 import type { Key, SortDescriptor } from '@heroui/react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { ReactNode } from 'react';
 
 import { cx } from '../../lib/cx';
@@ -35,6 +35,8 @@ export interface DataTablePagination {
   onPageChange: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
   pageSizeOptions?: number[];
+  /** 传入后把每页条数记忆到 localStorage（同一 key 跨页面共享） */
+  persistenceKey?: string;
 }
 
 interface DataTableProps<T> {
@@ -267,7 +269,20 @@ export function DataTable<T>({
 }
 
 function DataTablePaginationBar({ pagination }: { pagination: DataTablePagination }) {
-  const { page, pageSize, total, onPageChange, onPageSizeChange, pageSizeOptions } = pagination;
+  const { page, pageSize, total, onPageChange, onPageSizeChange, pageSizeOptions, persistenceKey } = pagination;
+
+  useEffect(() => {
+    if (!persistenceKey || !onPageSizeChange) return;
+    const stored = Number(localStorage.getItem(`nam-pagesize-${persistenceKey}`));
+    if (stored > 0 && stored !== pageSize) onPageSizeChange(stored);
+    // 仅在挂载时恢复一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persistenceKey]);
+
+  const handlePageSizeChange = (size: number) => {
+    if (persistenceKey) localStorage.setItem(`nam-pagesize-${persistenceKey}`, String(size));
+    onPageSizeChange?.(size);
+  };
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const pages = buildPageWindow(page, pageCount);
 
@@ -290,7 +305,7 @@ function DataTablePaginationBar({ pagination }: { pagination: DataTablePaginatio
                 onSelectionChange={(keys) => {
                   if (keys === 'all') return;
                   const [next] = keys;
-                  if (next != null) onPageSizeChange(Number(next));
+                  if (next != null) handlePageSizeChange(Number(next));
                 }}
               >
                 {(pageSizeOptions ?? [10, 20, 50, 100]).map((size) => (

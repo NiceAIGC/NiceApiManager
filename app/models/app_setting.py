@@ -8,6 +8,7 @@ from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.time import utcnow
+from app.core.crypto import EncryptedText
 from app.models.base import Base
 
 
@@ -24,10 +25,20 @@ class AppSetting(Base):
     scheduler_timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     sync_history_lookback_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     default_sync_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    shared_socks5_proxy_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    shared_socks5_proxy_url: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     default_instance_proxy_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     notification_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     notification_check_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rate_change_notify_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    rate_change_min_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rate_change_cooldown_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    announcement_sync_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    announcement_notify_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    retention_sync_runs_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retention_notification_logs_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retention_daily_usage_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retention_rate_changes_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retention_announcements_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     default_balance_alert_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
     default_notification_channel_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notification_channels_json: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)

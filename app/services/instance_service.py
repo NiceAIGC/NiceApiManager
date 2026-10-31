@@ -7,11 +7,11 @@ from datetime import timedelta
 import httpx
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.clients.newapi import NewAPIClient, NewAPIClientError, detect_program_type
-from app.models import DailyUsageStat, Instance
+from app.models import DailyUsageStat, Instance, NotificationRuleState
 from app.models.user_snapshot import UserSnapshot
 from app.schemas.instance import (
     BatchInstanceDeleteResponse,
@@ -349,7 +349,13 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
 
 
 def delete_instance(db: Session, instance: Instance) -> None:
-    """Delete one instance and all related rows through cascading FKs."""
+    """Delete one instance, cascading FK rows and its quick-alert rule states."""
+    db.execute(
+        delete(NotificationRuleState).where(
+            NotificationRuleState.rule_type == "instance_balance",
+            NotificationRuleState.target_key == f"instance:{instance.id}",
+        )
+    )
     db.delete(instance)
     db.commit()
 

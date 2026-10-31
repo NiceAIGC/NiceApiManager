@@ -839,6 +839,51 @@ def _resolve_channels(
     return [item for item in enabled_channels if item.id in selected]
 
 
+def notify_adhoc(
+    db: Session,
+    *,
+    title: str,
+    body: str,
+    notify_type: str,
+    source_type: str,
+    event_type: str,
+    instance_id: int | None = None,
+    target_key: str | None = None,
+) -> bool:
+    """Send an ad-hoc notification through the default channel and persist the log.
+
+    Returns whether at least one channel accepted the message. Never raises;
+    failures are logged and reported as False.
+    """
+    try:
+        runtime_settings = get_runtime_app_settings(db)
+        channels = _resolve_channels(
+            runtime_settings.notification_channels,
+            selected_channel_ids=[],
+            default_channel_id=runtime_settings.default_notification_channel_id,
+        )
+        if not channels:
+            return False
+        results = _deliver_message(channels, title=title, body=body, notify_type=notify_type)
+        _create_notification_log(
+            db,
+            context=_NotificationDispatchContext(
+                source_type=source_type,
+                event_type=event_type,
+                title=title,
+                body=body,
+                notify_type=notify_type,
+                instance_id=instance_id,
+                target_key=target_key,
+            ),
+            results=results,
+        )
+        return _has_successful_delivery(results)
+    except Exception as exc:  # pragma: no cover - defensive; sync must not break
+        logger.warning("Ad-hoc notification failed: %s", exc)
+        return False
+
+
 def _deliver_message(
     channels: list[NotificationChannelConfig],
     *,

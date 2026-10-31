@@ -8,7 +8,7 @@ import logging
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,10 +16,11 @@ from app.clients.newapi import NewAPIClient, NewAPIClientError, NewAPISessionDat
 from app.clients.sub2api import MICRO_USD_PER_UNIT, Sub2APIClient, Sub2APIClientError, Sub2APISessionData
 from app.core.database import SessionLocal, is_sqlite_locked_error, sqlite_write_lock
 from app.core.time import utcnow
-from app.models import DailyUsageStat, GroupRatio, Instance, InstanceSession, PricingModel, SyncRun, UserSnapshot
+from app.models import Announcement, DailyUsageStat, GroupRatio, Instance, InstanceSession, PricingModel, RateChangeEvent, SyncRun, UserSnapshot
 from app.schemas.instance import InstanceTestResponse
 from app.schemas.sync_run import BulkSyncInstanceResult, BulkSyncResponse
 from app.services.app_setting_service import RuntimeAppSettings, get_runtime_app_settings
+from app.services.notification_service import notify_adhoc
 from app.services.billing_expr import parse_billing_expr
 from app.services.proxy_utils import resolve_socks5_proxy_url
 from app.services.snapshot_metrics import quota_to_display_amount, resolve_timezone, uses_postpaid_billing
@@ -136,12 +137,28 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
             session_data.cookie_value,
             session_data.access_token,
         )
+        raw_announcements = (
+            client.get_notices(
+                session_data.remote_user_id,
+                session_data.cookie_value,
+                session_data.access_token,
+            )
+            if runtime_settings.announcement_sync_enabled
+            else []
+        )
 
         snapshot_at = utcnow()
         with _sqlite_write_context():
             instance.quota_per_unit = _extract_quota_per_unit(status_data) or instance.quota_per_unit
+            new_announcements = _sync_announcements(db, instance=instance, raw_items=raw_announcements, snapshot_at=snapshot_at)
             _persist_user_snapshot(db, instance_id, user_data, snapshot_at)
-            _replace_group_ratios(db, instance_id, group_data, snapshot_at)
+            rate_change_events = _replace_group_ratios(
+                db,
+                instance_id,
+                group_data,
+                snapshot_at,
+                min_change_percent=runtime_settings.rate_change_min_percent,
+            )
             _replace_pricing_models(
                 db,
                 instance_id,
@@ -189,6 +206,8 @@ def sync_single_instance(db: Session, instance: Instance, trigger_type: str = "m
                 instance.auto_disabled = False
                 dispatch_instance_health_event(db, instance=instance, event_type="recovery")
             db.commit()
+            _notify_rate_changes(db, instance=instance, events=rate_change_events, runtime_settings=runtime_settings)
+            _notify_announcements(db, instance=instance, new_rows=new_announcements, runtime_settings=runtime_settings)
         db.refresh(sync_run)
         return sync_run
 
@@ -381,13 +400,21 @@ def _sync_single_sub2api_instance(db: Session, instance: Instance, trigger_type:
         user_data = client.get_user_self(session_data)
         group_data = client.get_user_groups(session_data)
         pricing_payload = client.get_pricing(session_data)
+        raw_announcements = client.get_announcements(session_data) if runtime_settings.announcement_sync_enabled else []
 
         snapshot_at = utcnow()
         with _sqlite_write_context():
             # Sub2API money counters are always stored in micro-USD.
+            new_announcements = _sync_announcements(db, instance=instance, raw_items=raw_announcements, snapshot_at=snapshot_at)
             instance.quota_per_unit = MICRO_USD_PER_UNIT
             _persist_user_snapshot(db, instance_id, user_data, snapshot_at)
-            _replace_group_ratios(db, instance_id, group_data, snapshot_at)
+            rate_change_events = _replace_group_ratios(
+                db,
+                instance_id,
+                group_data,
+                snapshot_at,
+                min_change_percent=runtime_settings.rate_change_min_percent,
+            )
             _replace_pricing_models(
                 db,
                 instance_id,
@@ -435,6 +462,8 @@ def _sync_single_sub2api_instance(db: Session, instance: Instance, trigger_type:
                 instance.auto_disabled = False
                 dispatch_instance_health_event(db, instance=instance, event_type="recovery")
             db.commit()
+            _notify_rate_changes(db, instance=instance, events=rate_change_events, runtime_settings=runtime_settings)
+            _notify_announcements(db, instance=instance, new_rows=new_announcements, runtime_settings=runtime_settings)
         db.refresh(sync_run)
         return sync_run
 
@@ -791,20 +820,71 @@ def _replace_group_ratios(
     instance_id: int,
     group_data: dict[str, object],
     snapshot_at,
-) -> None:
-    """Replace the current stored group ratios for one instance."""
+    *,
+    min_change_percent: float = 0.0,
+) -> list[RateChangeEvent]:
+    """Replace the stored group ratios and record detected rate changes.
+
+    Returns the change events persisted during this replacement. Changes are
+    only recorded when there was a previous snapshot (first sync establishes
+    the baseline silently) and the absolute change percent reaches
+    `min_change_percent`.
+    """
+    previous_rows = db.scalars(select(GroupRatio).where(GroupRatio.instance_id == instance_id)).all()
+    previous_map = {(row.group_name, row.platform): row.ratio for row in previous_rows}
     db.execute(delete(GroupRatio).where(GroupRatio.instance_id == instance_id))
+
+    events: list[RateChangeEvent] = []
+    had_baseline = bool(previous_map)
+    current_keys: set[tuple[str, str | None]] = set()
 
     for group_name, payload in group_data.items():
         if not isinstance(payload, dict):
             continue
         row = payload
+        ratio = _coerce_float(row.get("ratio", 0))
+        platform = _optional_str(row.get("platform"))
+        key = (group_name, platform)
+        current_keys.add(key)
+
+        if had_baseline:
+            if key not in previous_map:
+                events.append(
+                    RateChangeEvent(
+                        instance_id=instance_id,
+                        group_name=group_name,
+                        platform=platform,
+                        change_type="added",
+                        old_ratio=None,
+                        new_ratio=ratio,
+                        change_percent=None,
+                        detected_at=snapshot_at,
+                    )
+                )
+            else:
+                old_ratio = previous_map[key]
+                if old_ratio != ratio:
+                    change_percent = ((ratio - old_ratio) / old_ratio * 100) if old_ratio else None
+                    if change_percent is None or abs(change_percent) >= min_change_percent:
+                        events.append(
+                            RateChangeEvent(
+                                instance_id=instance_id,
+                                group_name=group_name,
+                                platform=platform,
+                                change_type="changed",
+                                old_ratio=old_ratio,
+                                new_ratio=ratio,
+                                change_percent=change_percent,
+                                detected_at=snapshot_at,
+                            )
+                        )
+
         record = GroupRatio(
             instance_id=instance_id,
             group_name=group_name,
             group_desc=row.get("desc"),
-            ratio=_coerce_float(row.get("ratio", 0)),
-            platform=_optional_str(row.get("platform")),
+            ratio=ratio,
+            platform=platform,
             user_ratio=_coerce_optional_float(row.get("user_ratio")),
             peak_ratio=_coerce_optional_float(row.get("peak_ratio")),
             peak_start=_optional_str(row.get("peak_start")),
@@ -816,8 +896,181 @@ def _replace_group_ratios(
             record.extra_json = extra
         db.add(record)
 
+    if had_baseline:
+        for (group_name, platform), old_ratio in previous_map.items():
+            if (group_name, platform) not in current_keys:
+                events.append(
+                    RateChangeEvent(
+                        instance_id=instance_id,
+                        group_name=group_name,
+                        platform=platform,
+                        change_type="removed",
+                        old_ratio=old_ratio,
+                        new_ratio=None,
+                        change_percent=None,
+                        detected_at=snapshot_at,
+                    )
+                )
+
+    for event in events:
+        db.add(event)
+    return events
+
 
 NEWAPI_DEFAULT_QUOTA_PER_UNIT = 500_000.0
+
+
+def _normalize_announcement(item: dict[str, object]) -> tuple[str, str, str, datetime | None]:
+    """Normalize one raw upstream announcement into (source_id, title, content, published_at)."""
+    raw_id = item.get("id") or item.get("notice_id") or item.get("announcement_id")
+    title = str(item.get("title") or "").strip()
+    content = str(item.get("content") or item.get("body") or item.get("notice") or "").strip()
+    published_raw = item.get("published_at") or item.get("created_at") or item.get("create_time") or item.get("date")
+    published_at: datetime | None = None
+    if isinstance(published_raw, (int, float)) and published_raw > 0:
+        published_at = datetime.fromtimestamp(published_raw, tz=timezone.utc)
+    elif isinstance(published_raw, str) and published_raw.strip():
+        try:
+            parsed = datetime.fromisoformat(published_raw.replace("Z", "+00:00"))
+            published_at = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            published_at = None
+    if not title:
+        title = content[:40] or "上游公告"
+    source_id = str(raw_id).strip() if raw_id is not None else ""
+    if not source_id:
+        source_id = f"fp-{hash((title, content[:200])) & 0xFFFFFFFF:x}"
+    return source_id, title, content, published_at
+
+
+def _sync_announcements(
+    db: Session,
+    *,
+    instance: Instance,
+    raw_items: list[dict[str, object]],
+    snapshot_at,
+) -> list[Announcement]:
+    """Persist new upstream announcements; first sync only builds a baseline."""
+    if not raw_items:
+        return []
+    existing_ids = set(db.scalars(select(Announcement.source_id).where(Announcement.instance_id == instance.id)))
+    had_baseline = db.scalar(select(func.count(Announcement.id)).where(Announcement.instance_id == instance.id) ) or 0
+    new_rows: list[Announcement] = []
+    for item in raw_items:
+        source_id, title, content, published_at = _normalize_announcement(item)
+        if not source_id or source_id in existing_ids:
+            continue
+        row = Announcement(
+            instance_id=instance.id,
+            source_id=source_id,
+            title=title,
+            content=content,
+            published_at=published_at,
+            synced_at=snapshot_at,
+            # 首次同步只建基线，不推送历史公告。
+            notified=had_baseline == 0,
+        )
+        db.add(row)
+        existing_ids.add(source_id)
+        new_rows.append(row)
+    return new_rows
+
+
+def _notify_announcements(
+    db: Session,
+    *,
+    instance: Instance,
+    new_rows: list[Announcement],
+    runtime_settings: RuntimeAppSettings,
+) -> None:
+    """Push newly discovered announcements through the default channel."""
+    pending = [row for row in new_rows if not row.notified]
+    if not pending or not runtime_settings.announcement_notify_enabled:
+        return
+    try:
+        for row in pending[:5]:
+            body = row.content[:500] if row.content else row.title
+            sent = notify_adhoc(
+                db,
+                title=f"【上游公告】{instance.name}：{row.title}",
+                body=body,
+                notify_type="info",
+                source_type="announcement",
+                event_type="alert",
+                instance_id=instance.id,
+            )
+            if sent:
+                row.notified = True
+        db.commit()
+    except Exception as exc:  # pragma: no cover - notification must not break sync
+        logger.warning("Announcement notification failed for instance %s: %s", instance.id, exc)
+
+
+def _notify_rate_changes(
+    db: Session,
+    *,
+    instance: Instance,
+    events: list[RateChangeEvent],
+    runtime_settings: RuntimeAppSettings,
+) -> None:
+    """Merge one sync's rate changes into a single notification with cooldown."""
+    if not events or not runtime_settings.rate_change_notify_enabled:
+        return
+
+    try:
+        cooldown = timedelta(minutes=max(runtime_settings.rate_change_cooldown_minutes, 0))
+        now = utcnow()
+        deliverable: list[RateChangeEvent] = []
+        for event in events:
+            if event.change_type == "changed" and cooldown.total_seconds() > 0:
+                recent = db.scalar(
+                    select(RateChangeEvent)
+                    .where(
+                        RateChangeEvent.instance_id == event.instance_id,
+                        RateChangeEvent.group_name == event.group_name,
+                        RateChangeEvent.platform.isnot_distinct_from(event.platform),
+                        RateChangeEvent.change_type == "changed",
+                        RateChangeEvent.notified.is_(True),
+                        RateChangeEvent.detected_at >= now - cooldown,
+                        RateChangeEvent.id != event.id,
+                    )
+                    .limit(1)
+                )
+                if recent is not None:
+                    continue
+            deliverable.append(event)
+
+        if not deliverable:
+            return
+
+        lines: list[str] = []
+        for event in deliverable[:20]:
+            label = event.group_name + (f"（{event.platform}）" if event.platform else "")
+            if event.change_type == "added":
+                lines.append(f"新增分组 {label}：倍率 {event.new_ratio}")
+            elif event.change_type == "removed":
+                lines.append(f"移除分组 {label}：原倍率 {event.old_ratio}")
+            else:
+                percent = f"{event.change_percent:+.1f}%" if event.change_percent is not None else ""
+                lines.append(f"{label}：{event.old_ratio} → {event.new_ratio}（{percent}）")
+        if len(deliverable) > 20:
+            lines.append(f"……另有 {len(deliverable) - 20} 项变动")
+
+        sent = notify_adhoc(
+            db,
+            title=f"【倍率变更】{instance.name} 检测到 {len(deliverable)} 项变动",
+            body="\n".join(lines),
+            notify_type="warning",
+            source_type="rate_change",
+            event_type="alert",
+            instance_id=instance.id,
+        )
+        if sent:
+            for event in deliverable:
+                event.notified = True
+            db.commit()
+    except Exception as exc:  # pragma: no cover - notification must not break sync
+        logger.warning("Rate change notification failed for instance %s: %s", instance.id, exc)
 
 
 def _replace_pricing_models(

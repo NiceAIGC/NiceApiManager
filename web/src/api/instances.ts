@@ -79,3 +79,16 @@ export async function syncInstance(instanceId: number): Promise<SingleSyncRespon
   const { data } = await apiClient.post<SingleSyncResponse>(`/instances/${instanceId}/sync`);
   return data;
 }
+
+export interface BalanceHistoryPoint {
+  snapshot_at: string;
+  balance: number | null;
+  used_amount: number | null;
+}
+
+export async function fetchInstanceBalanceHistory(instanceId: number, days = 30): Promise<BalanceHistoryPoint[]> {
+  const { data } = await apiClient.get<{ items: BalanceHistoryPoint[] }>(`/instances/${instanceId}/balance-history`, {
+    params: { days },
+  });
+  return data.items;
+}

@@ -167,6 +167,30 @@ class NewAPIClient:
             response = client.get("/api/user/self")
             return self._decode_response(response).get("data") or {}
 
+    def get_notices(
+        self,
+        remote_user_id: int,
+        cookie_value: str,
+        access_token: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch upstream announcements from `/api/notice` (best effort)."""
+        try:
+            with self._build_client(
+                remote_user_id=remote_user_id,
+                cookie_value=cookie_value,
+                access_token=access_token,
+            ) as client:
+                response = client.get("/api/notice")
+                payload = self._decode_response(response)
+        except Exception:
+            return []
+        data = payload.get("data") if isinstance(payload, dict) else payload
+        if isinstance(data, dict):
+            data = data.get("items") or data.get("notices") or []
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
+
     def get_user_groups(
         self,
         remote_user_id: int,

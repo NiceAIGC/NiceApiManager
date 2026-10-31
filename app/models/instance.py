@@ -9,6 +9,7 @@ from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.time import utcnow
+from app.core.crypto import EncryptedText
 from app.models.base import Base
 
 if TYPE_CHECKING:
@@ -32,9 +33,9 @@ class Instance(Base):
     base_url: Mapped[str] = mapped_column(String(255))
     program_type: Mapped[str] = mapped_column(String(16), default="newapi", nullable=False)
     username: Mapped[str] = mapped_column(String(100), default="", nullable=False)
-    password: Mapped[str] = mapped_column(Text)
+    password: Mapped[str] = mapped_column(EncryptedText)
     remote_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_token: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     proxy_mode: Mapped[str] = mapped_column(String(16), default="direct", nullable=False)
     socks5_proxy_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
