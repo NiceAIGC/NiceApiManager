@@ -31,12 +31,14 @@ function FieldMessages({ error, description }: { error?: ReactNode; description?
 interface TextInputProps extends BaseFieldProps {
   inputProps: React.ComponentProps<typeof Input>;
   textarea?: boolean;
+  /** HeroUI 输入框是内部状态受控的，外部传入的初值需通过 defaultValue 交给 TextField */
+  defaultValue?: string;
 }
 
 /** 文本输入字段：Label + Input/TextArea + 错误/描述。inputProps 直接传 RHF 的 register() 返回值 */
-export function TextInput({ label, required, error, description, className, inputProps, textarea }: TextInputProps) {
+export function TextInput({ label, required, error, description, className, inputProps, textarea, defaultValue }: TextInputProps) {
   return (
-    <TextField className={className} isInvalid={Boolean(error)} isRequired={required}>
+    <TextField className={className} isInvalid={Boolean(error)} isRequired={required} defaultValue={defaultValue}>
       {label ? <Label>{label}</Label> : null}
       {textarea ? (
         // input 与 textarea 的 props 结构一致，仅事件目标元素类型不同；RHF register 返回值两者通用

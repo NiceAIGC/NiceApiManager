@@ -18,6 +18,7 @@ from app.schemas.instance import (
     BatchInstanceResponse,
     BatchInstanceUpdateItem,
     InstanceCreate,
+    InstanceDailyUsagePoint,
     InstanceListResponse,
     ProxyConnectivityTestRequest,
     ProxyConnectivityTestResponse,
@@ -105,6 +106,8 @@ def create_instance(db: Session, payload: InstanceCreate) -> Instance:
         balance_alert_threshold=payload.balance_alert_threshold,
         notification_channel_ids_json=list(dict.fromkeys(payload.notification_channel_ids)),
                 notification_channel_group_ids_json=list(dict.fromkeys(payload.notification_channel_group_ids)),
+                notify_rate_changes=payload.notify_rate_changes,
+                notify_announcements=payload.notify_announcements,
     )
     db.add(instance)
     db.commit()
@@ -143,6 +146,8 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
                 balance_alert_threshold=payload.balance_alert_threshold,
                 notification_channel_ids_json=list(dict.fromkeys(payload.notification_channel_ids)),
                 notification_channel_group_ids_json=list(dict.fromkeys(payload.notification_channel_group_ids)),
+                notify_rate_changes=payload.notify_rate_changes,
+                notify_announcements=payload.notify_announcements,
             )
         )
 
@@ -225,6 +230,8 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
     instance.balance_alert_threshold = payload.balance_alert_threshold
     instance.notification_channel_ids_json = list(dict.fromkeys(payload.notification_channel_ids))
     instance.notification_channel_group_ids_json = list(dict.fromkeys(payload.notification_channel_group_ids))
+    instance.notify_rate_changes = payload.notify_rate_changes
+    instance.notify_announcements = payload.notify_announcements
     instance.billing_mode = payload.billing_mode
     instance.quota_per_unit = payload.quota_per_unit
     instance.priority = payload.priority
@@ -316,6 +323,8 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         instance.balance_alert_threshold = payload.balance_alert_threshold
         instance.notification_channel_ids_json = list(dict.fromkeys(payload.notification_channel_ids))
         instance.notification_channel_group_ids_json = list(dict.fromkeys(payload.notification_channel_group_ids))
+        instance.notify_rate_changes = payload.notify_rate_changes
+        instance.notify_announcements = payload.notify_announcements
         instance.billing_mode = payload.billing_mode
         instance.quota_per_unit = payload.quota_per_unit
         instance.priority = payload.priority
@@ -571,6 +580,8 @@ def _instance_to_response(
             ),
             "notification_channel_ids": instance.notification_channel_ids_json or [],
                 "notification_channel_group_ids": instance.notification_channel_group_ids_json or [],
+                "notify_rate_changes": instance.notify_rate_changes is not False,
+                "notify_announcements": instance.notify_announcements is not False,
             "today_request_count": today_request_count(
                 db,
                 instance.id,
@@ -580,7 +591,7 @@ def _instance_to_response(
             ),
             "last_7d_display_used_amount": last_7d_display_used_amount,
             "last_7d_request_count": last_7d_request_count,
-            "last_7d_usage": last_7d_usage,
+            "last_7d_usage": [InstanceDailyUsagePoint(**item) for item in last_7d_usage],
             "today_display_used_amount": today_display_used_amount,
             "remote_user_id": instance.session.remote_user_id if instance.session else instance.remote_user_id,
             "has_access_token": bool(instance.access_token),

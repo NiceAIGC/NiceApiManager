@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 ProgramType = Literal["auto", "newapi", "rixapi", "shellapi", "sub2api"]
@@ -28,6 +28,8 @@ class InstanceCreate(BaseModel):
     balance_alert_threshold: float | None = Field(default=None, gt=0, le=1000000000)
     notification_channel_ids: list[str] = Field(default_factory=list)
     notification_channel_group_ids: list[str] = Field(default_factory=list)
+    notify_rate_changes: bool = True
+    notify_announcements: bool = True
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     quota_per_unit: float | None = Field(default=None, gt=0)
     priority: int = Field(default=3, ge=1, le=5)
@@ -70,6 +72,8 @@ class InstanceUpdate(BaseModel):
     balance_alert_threshold: float | None = Field(default=None, gt=0, le=1000000000)
     notification_channel_ids: list[str] = Field(default_factory=list)
     notification_channel_group_ids: list[str] = Field(default_factory=list)
+    notify_rate_changes: bool = True
+    notify_announcements: bool = True
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     quota_per_unit: float | None = Field(default=None, gt=0)
     priority: int = Field(default=3, ge=1, le=5)
@@ -97,6 +101,12 @@ class InstanceResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_validator("notify_rate_changes", "notify_announcements", mode="before")
+    @classmethod
+    def default_notify_toggles(cls, value: object) -> bool:
+        """Treat legacy NULL columns as enabled."""
+        return True if value is None else bool(value)
+
     id: int
     name: str
     remark: str | None = None
@@ -111,6 +121,8 @@ class InstanceResponse(BaseModel):
     effective_balance_alert_threshold: float | None = None
     notification_channel_ids: list[str] = Field(default_factory=list)
     notification_channel_group_ids: list[str] = Field(default_factory=list)
+    notify_rate_changes: bool = True
+    notify_announcements: bool = True
     billing_mode: Literal["prepaid", "postpaid"]
     priority: int
     tags: list[str] = Field(default_factory=list)

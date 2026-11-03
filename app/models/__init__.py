@@ -1,6 +1,7 @@
 """ORM model exports."""
 
 from app.models.announcement import Announcement
+from app.models.api_key import ApiKey
 from app.models.app_setting import AppSetting
 from app.models.base import Base
 from app.models.daily_usage_stat import DailyUsageStat
@@ -16,6 +17,7 @@ from app.models.user_snapshot import UserSnapshot
 
 __all__ = [
     "Announcement",
+    "ApiKey",
     "AppSetting",
     "Base",
     "DailyUsageStat",

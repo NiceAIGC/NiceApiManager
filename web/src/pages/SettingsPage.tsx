@@ -1,13 +1,14 @@
-import { Button, Card } from '@heroui/react';
+import { Button, Card, Chip } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
+import { createApiKey, deleteApiKey, fetchApiKeys, toggleApiKey, type ApiKeyItem } from '../api/apiKeys';
 import { changePassword } from '../api/auth';
 import { getErrorMessage } from '../api/client';
 import { fetchAppSettings, updateAppSettings } from '../api/settings';
 import { ChangePasswordModal } from '../components/ChangePasswordModal';
-import { NumberInput, PageHeader, SelectInput, SwitchInput, TextInput } from '../components/ui';
+import { AppModal, ConfirmPopover, NumberInput, PageHeader, SelectInput, SwitchInput, TextInput } from '../components/ui';
 import type { AppSettings } from '../types/api';
 import { formatDateTime, setDisplayTimezone } from '../utils/format';
 import { notify } from '../lib/toast';
@@ -122,6 +123,40 @@ export function SettingsPage() {
     onError: (error) => notify.error(getErrorMessage(error)),
   });
 
+  const [keyModalOpen, setKeyModalOpen] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const { data: apiKeys } = useQuery({ queryKey: ['api-keys'], queryFn: fetchApiKeys });
+  const createKeyMutation = useMutation({
+    mutationFn: createApiKey,
+    onSuccess: (result) => {
+      setCreatedKey(result.key);
+      setNewKeyName('');
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+      notify.success('API 密钥已生成，请立即复制保存');
+    },
+    onError: (error) => notify.error(getErrorMessage(error)),
+  });
+  const toggleKeyMutation = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) => toggleApiKey(id, enabled),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['api-keys'] }),
+    onError: (error) => notify.error(getErrorMessage(error)),
+  });
+  const deleteKeyMutation = useMutation({
+    mutationFn: deleteApiKey,
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['api-keys'] }); notify.success('API 密钥已吊销'); },
+    onError: (error) => notify.error(getErrorMessage(error)),
+  });
+  const copyKey = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      notify.success('已复制到剪贴板');
+    } catch {
+      notify.error('复制失败，请手动选择复制');
+    }
+  };
+  const keyRows = apiKeys ?? [];
+
   return (
     <form className="flex flex-col gap-4" onSubmit={handleSubmit((values) => updateMutation.mutate(buildSettingsPayload(values, data)))}>
       <Card><Card.Content className="flex flex-col gap-3 p-4">
@@ -167,7 +202,66 @@ export function SettingsPage() {
         </div>
       </Card.Content></Card>
 
+      <Card><Card.Content className="flex flex-col gap-4 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="m-0 text-base font-semibold">API 访问密钥</h2>
+            <p className="m-0 mt-1 text-sm text-muted">外部程序用这些 key 调用全部 API；请求头加 <code className="rounded bg-surface-secondary px-1">X-API-Key: nam-…</code> 或 <code className="rounded bg-surface-secondary px-1">Authorization: Bearer nam-…</code>。</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onPress={() => window.open('/api/docs.md', '_blank', 'noopener,noreferrer')}>API 文档</Button>
+            <Button variant="primary" size="sm" onPress={() => { setCreatedKey(null); setNewKeyName(''); setKeyModalOpen(true); }}>生成新密钥</Button>
+          </div>
+        </div>
+        {keyRows.length ? (
+          <div className="flex flex-col divide-y divide-border rounded-xl border border-border">
+            {keyRows.map((row: ApiKeyItem) => (
+              <div key={row.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <strong className="truncate text-sm">{row.name}</strong>
+                    {row.enabled ? <Chip size="sm" color="success" variant="soft"><Chip.Label>启用</Chip.Label></Chip> : <Chip size="sm" color="default" variant="soft"><Chip.Label>停用</Chip.Label></Chip>}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap gap-x-4 text-xs text-muted">
+                    <span className="font-mono">{row.key_prefix}…</span>
+                    <span>创建 {formatDateTime(row.created_at)}</span>
+                    <span>最近使用 {row.last_used_at ? formatDateTime(row.last_used_at) : '从未使用'}</span>
+                  </div>
+                </div>
+                <SwitchInput checked={row.enabled} onChange={(value) => toggleKeyMutation.mutate({ id: row.id, enabled: value })} />
+                <ConfirmPopover title={`吊销「${row.name}」？`} description="吊销后使用该 key 的外部程序会立即失效。" confirmText="吊销" onConfirm={() => deleteKeyMutation.mutateAsync(row.id)}>
+                  <Button size="sm" variant="danger" isPending={deleteKeyMutation.isPending}>吊销</Button>
+                </ConfirmPopover>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="m-0 text-sm text-muted">还没有 API 密钥。生成后即可让脚本或 AI 调用全部接口。</p>
+        )}
+      </Card.Content></Card>
+
       <div><Button type="submit" variant="primary" isPending={updateMutation.isPending} isDisabled={isLoading}>保存设置</Button></div>
+
+      <AppModal
+        open={keyModalOpen}
+        onOpenChange={(open) => { setKeyModalOpen(open); if (!open) { setCreatedKey(null); setNewKeyName(''); } }}
+        title={createdKey ? '密钥已生成' : '生成 API 密钥'}
+        size="sm"
+        footer={createdKey ? <Button variant="primary" onPress={() => { setKeyModalOpen(false); setCreatedKey(null); }}>完成</Button> : <div className="flex justify-end gap-2"><Button variant="secondary" onPress={() => setKeyModalOpen(false)}>取消</Button><Button variant="primary" isPending={createKeyMutation.isPending} isDisabled={!newKeyName.trim()} onPress={() => createKeyMutation.mutate(newKeyName.trim())}>生成</Button></div>}
+      >
+        {createdKey ? (
+          <div className="flex flex-col gap-3">
+            <p className="m-0 text-sm text-muted">完整密钥只显示这一次，请立即复制保存：</p>
+            <div className="flex items-center gap-2">
+              <input readOnly value={createdKey} className="w-full rounded-md border border-border bg-surface-secondary px-2 py-1.5 font-mono text-xs" onFocus={(event) => event.currentTarget.select()} />
+              <Button size="sm" variant="secondary" onPress={() => void copyKey(createdKey)}>复制</Button>
+            </div>
+            <p className="m-0 text-xs text-muted">用法：<code>curl -H "X-API-Key: {createdKey.slice(0, 10)}…" /api/instances</code></p>
+          </div>
+        ) : (
+          <TextInput label="密钥名称" required description="用于区分调用方，例如：监控脚本、AI 助手。" inputProps={{ placeholder: '例如：监控脚本', value: newKeyName, onChange: (event) => setNewKeyName(event.target.value) }} />
+        )}
+      </AppModal>
       <ChangePasswordModal open={passwordModalOpen} loading={changePasswordMutation.isPending} onCancel={() => setPasswordModalOpen(false)} onSubmit={(values) => changePasswordMutation.mutate(values)} />
     </form>
   );

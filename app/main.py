@@ -84,14 +84,37 @@ def _is_public_path(path: str) -> bool:
     return path in public_paths or path.startswith("/assets/")
 
 
+def _api_key_authenticated(request: Request) -> bool:
+    """Resolve `Authorization: Bearer <key>` or `X-API-Key` against stored keys."""
+    token = ""
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    if not token:
+        token = request.headers.get("x-api-key", "").strip()
+    if not token:
+        return False
+
+    from app.core.api_keys import verify_api_key
+    from app.core.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return verify_api_key(db, token) is not None
+    finally:
+        db.close()
+
+
 @app.middleware("http")
 async def require_application_auth(request: Request, call_next):
-    """Protect the admin UI and JSON API behind one password-based session."""
+    """Protect the admin UI and JSON API behind session or API-key auth."""
     path = request.url.path
     if _is_public_path(path) or is_authenticated_request(request):
         return await call_next(request)
 
     if path.startswith(settings.api_v1_prefix):
+        if _api_key_authenticated(request):
+            return await call_next(request)
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
     return RedirectResponse(url="/login", status_code=302)

@@ -86,6 +86,8 @@ def create_instance_route(
             "balance_alert_threshold": instance.balance_alert_threshold,
             "notification_channel_ids": instance.notification_channel_ids_json or [],
             "notification_channel_group_ids": instance.notification_channel_group_ids_json or [],
+            "notify_rate_changes": instance.notify_rate_changes is not False,
+            "notify_announcements": instance.notify_announcements is not False,
         }
     )
 
@@ -201,6 +203,8 @@ def update_instance_route(
             "balance_alert_threshold": instance.balance_alert_threshold,
             "notification_channel_ids": instance.notification_channel_ids_json or [],
             "notification_channel_group_ids": instance.notification_channel_group_ids_json or [],
+            "notify_rate_changes": instance.notify_rate_changes is not False,
+            "notify_announcements": instance.notify_announcements is not False,
         }
     )
 

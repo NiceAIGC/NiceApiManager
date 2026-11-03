@@ -987,6 +987,8 @@ def _notify_announcements(
     pending = [row for row in new_rows if not row.notified]
     if not pending or not runtime_settings.announcement_notify_enabled:
         return
+    if instance.notify_announcements is False:
+        return
     try:
         for row in pending[:5]:
             body = row.content[:500] if row.content else row.title
@@ -1015,6 +1017,8 @@ def _notify_rate_changes(
 ) -> None:
     """Merge one sync's rate changes into a single notification with cooldown."""
     if not events or not runtime_settings.rate_change_notify_enabled:
+        return
+    if instance.notify_rate_changes is False:
         return
 
     try:

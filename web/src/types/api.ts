@@ -86,6 +86,8 @@ export interface Instance {
   effective_balance_alert_threshold?: number | null;
   notification_channel_ids: string[];
   notification_channel_group_ids: string[];
+  notify_rate_changes: boolean;
+  notify_announcements: boolean;
   billing_mode: 'prepaid' | 'postpaid';
   priority: number;
   sync_interval_minutes: number;
@@ -134,6 +136,8 @@ export interface InstanceCreatePayload {
   balance_alert_threshold?: number | null;
   notification_channel_ids: string[];
   notification_channel_group_ids: string[];
+  notify_rate_changes: boolean;
+  notify_announcements: boolean;
   billing_mode: 'prepaid' | 'postpaid';
   quota_per_unit?: number | null;
   priority: number;
@@ -157,6 +161,8 @@ export interface InstanceUpdatePayload {
   balance_alert_threshold?: number | null;
   notification_channel_ids: string[];
   notification_channel_group_ids: string[];
+  notify_rate_changes: boolean;
+  notify_announcements: boolean;
   billing_mode: 'prepaid' | 'postpaid';
   quota_per_unit?: number | null;
   priority: number;
