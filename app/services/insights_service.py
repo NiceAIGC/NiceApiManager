@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,15 +16,12 @@ from app.services.snapshot_metrics import quota_to_display_amount
 
 logger = logging.getLogger(__name__)
 
-MAX_LOG_PAGES = 3
+MAX_LOG_PAGES = 8
 LOG_PAGE_SIZE = 100
 
 
 def build_instance_insights(db: Session, instance: Instance, *, days: int = 7) -> dict[str, object]:
-    """Collect group ratios, rate changes, announcements and upstream usage detail."""
-    runtime_settings = get_runtime_app_settings(db)
-    since = utcnow() - timedelta(days=days)
-
+    """DB-only insights (fast): groups, rate changes and announcements."""
     label_map = _group_label_map(db)
     groups = db.scalars(
         select(GroupRatio).where(GroupRatio.instance_id == instance.id).order_by(GroupRatio.ratio.desc())
@@ -42,7 +39,6 @@ def build_instance_insights(db: Session, instance: Instance, *, days: int = 7) -
         .limit(20)
     ).all()
 
-    usage, usage_error = _collect_upstream_usage(db, instance, runtime_settings, since=since)
     return {
         "instance_id": instance.id,
         "days": days,
@@ -84,10 +80,22 @@ def build_instance_insights(db: Session, instance: Instance, *, days: int = 7) -
             }
             for row in announcements
         ],
-        "model_usage": usage["models"],
-        "group_usage": usage["groups"],
-        "usage_error": usage_error,
     }
+
+
+def build_usage_breakdown(db: Session, instance: Instance, *, days: int = 7) -> dict[str, object]:
+    """Upstream usage breakdown (slower, best effort) aggregated by model and group."""
+    runtime_settings = get_runtime_app_settings(db)
+    since = utcnow() - timedelta(days=days)
+    try:
+        if instance.program_type == "sub2api":
+            usage = _collect_sub2api_usage(db, instance, runtime_settings)
+        else:
+            usage = _collect_newapi_usage(db, instance, runtime_settings, since=since)
+        return {"models": usage["models"], "groups": usage["groups"], "error": None}
+    except Exception as exc:  # pragma: no cover - upstream dependent
+        logger.info("Usage breakdown unavailable for instance %s: %s", instance.id, exc)
+        return {"models": [], "groups": [], "error": str(exc)[:200]}
 
 
 def _group_label_map(db: Session) -> dict[str, list[str]]:
@@ -103,22 +111,18 @@ def _group_label_map(db: Session) -> dict[str, list[str]]:
     return mapping
 
 
-def _collect_upstream_usage(
-    db: Session,
-    instance: Instance,
-    runtime_settings: RuntimeAppSettings,
-    *,
-    since,
-) -> tuple[dict[str, list[dict[str, object]]], str | None]:
-    """Best-effort per-model/group usage from the upstream site."""
-    empty: dict[str, list[dict[str, object]]] = {"models": [], "groups": []}
-    try:
-        if instance.program_type == "sub2api":
-            return _collect_sub2api_usage(db, instance, runtime_settings), None
-        return _collect_newapi_usage(db, instance, runtime_settings, since=since), None
-    except Exception as exc:  # pragma: no cover - upstream dependent
-        logger.info("Instance usage breakdown unavailable for %s: %s", instance.id, exc)
-        return empty, str(exc)[:200]
+def _row_created_at(row: dict[str, object]) -> datetime | None:
+    """Parse the upstream log timestamp into an aware datetime."""
+    raw = row.get("created_at") or row.get("created") or row.get("timestamp")
+    if isinstance(raw, (int, float)) and raw > 0:
+        return datetime.fromtimestamp(float(raw), tz=timezone.utc)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
 
 
 def _aggregate_rows(rows: list[dict[str, object]], quota_per_unit: float | None) -> dict[str, list[dict[str, object]]]:
@@ -160,13 +164,18 @@ def _aggregate_rows(rows: list[dict[str, object]], quota_per_unit: float | None)
 
 
 def _collect_newapi_usage(db: Session, instance: Instance, runtime_settings: RuntimeAppSettings, *, since) -> dict[str, list[dict[str, object]]]:
-    """Aggregate recent NewAPI self logs by model and group."""
+    """Aggregate recent NewAPI self logs by model and group.
+
+    Upstream timestamp filters are unreliable across NewAPI forks (some return
+    zero rows when `start_timestamp` is present), so we page newest-first and
+    filter locally by the row's `created_at`.
+    """
     from app.services.sync_service import _ensure_session, _prepare_instance_client
 
     client, _status = _prepare_instance_client(instance, runtime_settings)
     session_data = _ensure_session(db, instance, client)
-    start_ts = int(since.timestamp())
     rows: list[dict[str, object]] = []
+    total_seen = 0
     for page in range(1, MAX_LOG_PAGES + 1):
         payload = client.get_user_logs(
             session_data.remote_user_id,
@@ -174,14 +183,30 @@ def _collect_newapi_usage(db: Session, instance: Instance, runtime_settings: Run
             session_data.access_token,
             page=page,
             page_size=LOG_PAGE_SIZE,
-            start_timestamp=start_ts,
         )
         items = payload.get("items") or []
         if not isinstance(items, list) or not items:
             break
-        rows.extend(item for item in items if isinstance(item, dict))
+        total_seen += len(items)
+        oldest: datetime | None = None
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            created_at = _row_created_at(item)
+            if created_at is not None:
+                oldest = created_at if oldest is None else min(oldest, created_at)
+                if created_at < since:
+                    continue
+            rows.append(item)
         if len(items) < LOG_PAGE_SIZE:
             break
+        if oldest is not None and oldest < since:
+            break
+
+    if not total_seen:
+        raise RuntimeError("上游未开放用户日志接口，无法统计模型/分组消耗")
+    if not rows:
+        raise RuntimeError("上游日志里没有最近 %s 天的记录" % (since.date(),))
     return _aggregate_rows(rows, instance.quota_per_unit)
 
 

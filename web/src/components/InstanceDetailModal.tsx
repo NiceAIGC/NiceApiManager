@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowUpRight, Pencil, RotateCw } from 'lucide-react';
+import { ArrowUpRight, Loader2, Pencil, RotateCw } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { fetchInstanceBalanceHistory, fetchInstanceInsights } from '../api/instances';
+import { fetchInstanceBalanceHistory, fetchInstanceInsights, fetchInstanceUsageBreakdown } from '../api/instances';
 import {
   AppModal,
   Badge,
@@ -29,6 +29,15 @@ const CHANGE_META: Record<InstanceInsightRateChange['change_type'], { label: str
   removed: { label: '删除', tone: 'destructive' },
   changed: { label: '变动', tone: 'warning' },
 };
+
+function InlineLoading({ text = '加载中…' }: { text?: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-4 text-xs text-muted-foreground">
+      <Loader2 className="size-4 animate-spin" />
+      {text}
+    </div>
+  );
+}
 
 function Section({ title, extra, children }: { title: string; extra?: ReactNode; children: ReactNode }) {
   return (
@@ -137,6 +146,13 @@ export function InstanceDetailModal({
     queryFn: () => fetchInstanceInsights(instanceId, 7),
     enabled: open && Boolean(instance),
     staleTime: 30_000,
+  });
+  const { data: usage, isLoading: usageLoading } = useQuery({
+    queryKey: ['instance-usage-breakdown', instanceId],
+    queryFn: () => fetchInstanceUsageBreakdown(instanceId, 7),
+    enabled: open && Boolean(instance),
+    staleTime: 5 * 60_000,
+    retry: false,
   });
 
   const groupColumns: Array<DataTableColumn<InstanceInsightGroup>> = [
@@ -250,17 +266,21 @@ export function InstanceDetailModal({
           {/* 模型 / 分组消耗 */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Section title="模型消耗 Top（近 7 天）">
-              {isLoading ? <Skeleton className="h-24 w-full" /> : insights?.model_usage?.length ? (
-                <DataTable rows={insights.model_usage} columns={modelColumns} rowKey={(row) => row.model_name ?? row.group_name ?? ''} dense className="text-xs" />
+              {usageLoading ? (
+                <InlineLoading text="正在读取上游日志…" />
+              ) : usage?.models?.length ? (
+                <DataTable rows={usage.models} columns={modelColumns} rowKey={(row) => row.model_name ?? row.group_name ?? ''} dense className="text-xs" />
               ) : (
-                <p className="m-0 text-xs text-muted-foreground">{insights?.usage_error ? `上游明细不可用：${insights.usage_error}` : '上游暂无模型消耗明细'}</p>
+                <p className="m-0 text-xs text-muted-foreground">{usage?.error ?? '上游暂无模型消耗明细'}</p>
               )}
             </Section>
             <Section title="分组消耗 Top（近 7 天）">
-              {isLoading ? <Skeleton className="h-24 w-full" /> : insights?.group_usage?.length ? (
-                <DataTable rows={insights.group_usage} columns={modelColumns} rowKey={(row) => row.group_name ?? ''} dense className="text-xs" />
+              {usageLoading ? (
+                <InlineLoading text="正在读取上游日志…" />
+              ) : usage?.groups?.length ? (
+                <DataTable rows={usage.groups} columns={modelColumns} rowKey={(row) => row.group_name ?? ''} dense className="text-xs" />
               ) : (
-                <p className="m-0 text-xs text-muted-foreground">上游日志未提供分组维度（Sub2API 仅提供模型维度）</p>
+                <p className="m-0 text-xs text-muted-foreground">{usage?.error ? '上游日志未提供分组维度' : '上游暂无分组消耗明细（Sub2API 仅提供模型维度）'}</p>
               )}
             </Section>
           </div>

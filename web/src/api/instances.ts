@@ -138,12 +138,23 @@ export interface InstanceInsights {
   groups: InstanceInsightGroup[];
   rate_changes: InstanceInsightRateChange[];
   announcements: InstanceInsightAnnouncement[];
-  model_usage: InstanceInsightUsageRow[];
-  group_usage: InstanceInsightUsageRow[];
+  model_usage?: InstanceInsightUsageRow[];
+  group_usage?: InstanceInsightUsageRow[];
   usage_error?: string | null;
+}
+
+export interface InstanceUsageBreakdown {
+  models: InstanceInsightUsageRow[];
+  groups: InstanceInsightUsageRow[];
+  error?: string | null;
 }
 
 export async function fetchInstanceInsights(instanceId: number, days = 7): Promise<InstanceInsights> {
   const { data } = await apiClient.get<InstanceInsights>(`/instances/${instanceId}/insights`, { params: { days } });
+  return data;
+}
+
+export async function fetchInstanceUsageBreakdown(instanceId: number, days = 7): Promise<InstanceUsageBreakdown> {
+  const { data } = await apiClient.get<InstanceUsageBreakdown>(`/instances/${instanceId}/usage-breakdown`, { params: { days } });
   return data;
 }

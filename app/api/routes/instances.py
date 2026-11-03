@@ -37,7 +37,7 @@ from app.services.instance_service import (
     update_instance,
     update_instances_batch,
 )
-from app.services.insights_service import build_instance_insights
+from app.services.insights_service import build_instance_insights, build_usage_breakdown
 from app.services.sync_service import test_instance_connectivity
 
 
@@ -223,6 +223,17 @@ def delete_instance_route(
         delete_instance(db, instance)
     except OperationalError as exc:
         _raise_if_sqlite_locked(exc, db)
+
+
+@router.get("/instances/{instance_id}/usage-breakdown")
+def get_instance_usage_breakdown(
+    instance_id: int,
+    days: int = Query(default=7, ge=1, le=30, description="用量明细回看天数。"),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Return upstream per-model/group usage; may be slow or unavailable."""
+    instance = get_instance_or_404(db, instance_id)
+    return build_usage_breakdown(db, instance, days=days)
 
 
 @router.get("/instances/{instance_id}/insights")
