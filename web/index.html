@@ -7,15 +7,10 @@
     <title>NiceApiManager</title>
     <script>
       (function () {
-        var stored = localStorage.getItem('heroui-theme') || 'system';
-        var resolved =
-          stored === 'system'
-            ? window.matchMedia('(prefers-color-scheme: dark)').matches
-              ? 'dark'
-              : 'light'
-            : stored;
-        document.documentElement.classList.add(resolved);
-        document.documentElement.setAttribute('data-theme', resolved);
+        var stored = localStorage.getItem('nam-theme') || 'system';
+        var dark = stored === 'dark' || (stored === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('dark', dark);
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
       })();
     </script>
   </head>

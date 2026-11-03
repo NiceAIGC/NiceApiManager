@@ -7,22 +7,16 @@
     <title>NiceApiManager</title>
     <script>
       (function () {
-        var stored = localStorage.getItem('heroui-theme') || 'system';
-        var resolved =
-          stored === 'system'
-            ? window.matchMedia('(prefers-color-scheme: dark)').matches
-              ? 'dark'
-              : 'light'
-            : stored;
-        document.documentElement.classList.add(resolved);
-        document.documentElement.setAttribute('data-theme', resolved);
+        var stored = localStorage.getItem('nam-theme') || 'system';
+        var dark = stored === 'dark' || (stored === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('dark', dark);
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-pvFLWrz7.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/query-C_qoxMlX.js">
-    <link rel="modulepreload" crossorigin href="/assets/heroui-DG7Vk2-C.js">
-    <link rel="modulepreload" crossorigin href="/assets/router-CHKJoH99.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-DsPxktO2.css">
+    <script type="module" crossorigin src="/assets/index-DWH9WGEu.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/query-DgXAj4bV.js">
+    <link rel="modulepreload" crossorigin href="/assets/router-DUYRHDY4.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-pqylCKat.css">
   </head>
   <body>
     <div id="root"></div>

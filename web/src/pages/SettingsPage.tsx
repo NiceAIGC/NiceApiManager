@@ -1,6 +1,6 @@
-import { Button, Card, Chip } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { BookOpen, Copy, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
 import { createApiKey, deleteApiKey, fetchApiKeys, toggleApiKey, type ApiKeyItem } from '../api/apiKeys';
@@ -8,12 +8,28 @@ import { changePassword } from '../api/auth';
 import { getErrorMessage } from '../api/client';
 import { fetchAppSettings, updateAppSettings } from '../api/settings';
 import { ChangePasswordModal } from '../components/ChangePasswordModal';
-import { AppModal, ConfirmPopover, NumberInput, PageHeader, SelectInput, SwitchInput, TextInput } from '../components/ui';
+import {
+  AppModal,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  ConfirmPopover,
+  NumberField,
+  PageHeader,
+  SelectField,
+  StatusBadge,
+  SwitchField,
+  TextField,
+} from '../components/ui';
+import { notify } from '../lib/toast';
 import type { AppSettings } from '../types/api';
 import { formatDateTime, setDisplayTimezone } from '../utils/format';
-import { notify } from '../lib/toast';
 
-type RuntimeSettingsFormValues = Pick<AppSettings,
+type SettingsFormValues = Pick<
+  AppSettings,
   | 'sync_max_workers'
   | 'request_timeout'
   | 'sync_verify_ssl'
@@ -34,7 +50,7 @@ type RuntimeSettingsFormValues = Pick<AppSettings,
   | 'retention_announcements_days'
 >;
 
-const defaultRuntimeSettings: RuntimeSettingsFormValues = {
+const DEFAULTS: SettingsFormValues = {
   sync_max_workers: 5,
   request_timeout: 20,
   sync_verify_ssl: true,
@@ -55,8 +71,8 @@ const defaultRuntimeSettings: RuntimeSettingsFormValues = {
   retention_announcements_days: 90,
 };
 
-function normalizeRuntimeSettings(settings?: AppSettings): RuntimeSettingsFormValues {
-  if (!settings) return defaultRuntimeSettings;
+function toFormValues(settings?: AppSettings): SettingsFormValues {
+  if (!settings) return DEFAULTS;
   return {
     sync_max_workers: settings.sync_max_workers,
     request_timeout: settings.request_timeout,
@@ -79,75 +95,66 @@ function normalizeRuntimeSettings(settings?: AppSettings): RuntimeSettingsFormVa
   };
 }
 
-function buildSettingsPayload(values: RuntimeSettingsFormValues, current?: AppSettings): AppSettings {
-  return {
-    ...values,
-    notification_enabled: current?.notification_enabled ?? false,
-    notification_check_interval_minutes: current?.notification_check_interval_minutes ?? 5,
-    default_balance_alert_threshold: current?.default_balance_alert_threshold ?? 50,
-    default_notification_channel_id: current?.default_notification_channel_id,
-    notification_channels: current?.notification_channels ?? [],
-    notification_channel_groups: current?.notification_channel_groups ?? [],
-    notification_rules: current?.notification_rules ?? { low_balance_rules: [], aggregate_balance_rules: [], connectivity_failure_rules: [] },
-  };
-}
-
 export function SettingsPage() {
   const queryClient = useQueryClient();
-  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
-  const { register, control, handleSubmit, reset, formState: { errors } } = useForm<RuntimeSettingsFormValues>({ defaultValues: defaultRuntimeSettings });
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [keyModalOpen, setKeyModalOpen] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
+
+  const { register, control, handleSubmit, reset, formState: { errors, isDirty } } = useForm<SettingsFormValues>({ defaultValues: DEFAULTS });
   const { data, isLoading } = useQuery({ queryKey: ['app-settings'], queryFn: fetchAppSettings });
+  const { data: apiKeys } = useQuery({ queryKey: ['api-keys'], queryFn: fetchApiKeys });
 
-  useEffect(() => { reset(normalizeRuntimeSettings(data)); }, [data, reset]);
+  useEffect(() => {
+    reset(toFormValues(data));
+    setDisplayTimezone(data?.scheduler_timezone);
+  }, [data, reset]);
 
-  const updateMutation = useMutation({
-    mutationFn: (payload: AppSettings) => updateAppSettings(payload),
+  const saveMutation = useMutation({
+    mutationFn: (values: SettingsFormValues) =>
+      updateAppSettings({
+        ...(data as AppSettings),
+        ...values,
+      }),
     onSuccess: async (result) => {
-      reset(normalizeRuntimeSettings(result));
-      setDisplayTimezone(result.scheduler_timezone);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['app-settings'] }),
-        queryClient.invalidateQueries({ queryKey: ['instances'] }),
-        queryClient.invalidateQueries({ queryKey: ['dashboard-overview'] }),
-        queryClient.invalidateQueries({ queryKey: ['dashboard-trends'] }),
-        queryClient.invalidateQueries({ queryKey: ['sync-runs'] }),
-      ]);
+      reset(toFormValues(result));
+      await queryClient.invalidateQueries({ queryKey: ['app-settings'] });
       notify.success('系统设置已保存');
     },
     onError: (error) => notify.error(getErrorMessage(error)),
   });
 
-  const changePasswordMutation = useMutation({
+  const passwordMutation = useMutation({
     mutationFn: changePassword,
-    onSuccess: () => { setPasswordModalOpen(false); notify.success('登录密码修改成功'); },
+    onSuccess: () => { setPasswordOpen(false); notify.success('登录密码修改成功'); },
     onError: (error) => notify.error(getErrorMessage(error)),
   });
 
-  const [keyModalOpen, setKeyModalOpen] = useState(false);
-  const [newKeyName, setNewKeyName] = useState('');
-  const [createdKey, setCreatedKey] = useState<string | null>(null);
-  const { data: apiKeys } = useQuery({ queryKey: ['api-keys'], queryFn: fetchApiKeys });
   const createKeyMutation = useMutation({
     mutationFn: createApiKey,
     onSuccess: (result) => {
       setCreatedKey(result.key);
       setNewKeyName('');
       queryClient.invalidateQueries({ queryKey: ['api-keys'] });
-      notify.success('API 密钥已生成，请立即复制保存');
+      notify.success('API 密钥已生成');
     },
     onError: (error) => notify.error(getErrorMessage(error)),
   });
+
   const toggleKeyMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) => toggleApiKey(id, enabled),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['api-keys'] }),
     onError: (error) => notify.error(getErrorMessage(error)),
   });
+
   const deleteKeyMutation = useMutation({
     mutationFn: deleteApiKey,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['api-keys'] }); notify.success('API 密钥已吊销'); },
     onError: (error) => notify.error(getErrorMessage(error)),
   });
-  const copyKey = async (value: string) => {
+
+  const copyText = async (value: string) => {
     try {
       await navigator.clipboard.writeText(value);
       notify.success('已复制到剪贴板');
@@ -155,114 +162,200 @@ export function SettingsPage() {
       notify.error('复制失败，请手动选择复制');
     }
   };
-  const keyRows = apiKeys ?? [];
 
   return (
-    <form className="flex flex-col gap-4" onSubmit={handleSubmit((values) => updateMutation.mutate(buildSettingsPayload(values, data)))}>
-      <Card><Card.Content className="flex flex-col gap-3 p-4">
-        <PageHeader title="系统设置" subtitle="这里统一管理运行时配置，保存后新发起的同步和统计都会按新配置生效。" extra={<Button variant="secondary" onPress={() => setPasswordModalOpen(true)}>修改登录密码</Button>} />
-        {data?.updated_at ? <p className="m-0 text-sm text-muted">最近更新：{formatDateTime(data.updated_at)}</p> : null}
-      </Card.Content></Card>
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="系统设置"
+        subtitle={data?.updated_at ? `最近更新：${formatDateTime(data.updated_at)}` : '运行时配置，保存后新发起的同步与统计按新配置执行。'}
+        extra={
+          <>
+            <Button variant="outline" onClick={() => setPasswordOpen(true)}>
+              <KeyRound className="size-4" />
+              修改登录密码
+            </Button>
+            <Button isPending={saveMutation.isPending} disabled={isLoading} onClick={() => void handleSubmit((values) => saveMutation.mutate(values))()}>
+              保存设置
+            </Button>
+          </>
+        }
+      />
 
-      <Card><Card.Content className="flex flex-col gap-4 p-4">
-        <h2 className="m-0 text-base font-semibold">运行参数</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Controller control={control} name="sync_max_workers" rules={{ required: '请输入批量同步并发数' }} render={({ field }) => <NumberInput label="批量同步并发数" description="“同步全部”时后端同时跑多少个实例，默认建议 5。" required value={field.value} onChange={field.onChange} min={1} max={32} step={1} error={errors.sync_max_workers?.message} />} />
-          <Controller control={control} name="sync_history_lookback_days" rules={{ required: '请输入历史同步天数' }} render={({ field }) => <NumberInput label="历史同步天数" description="每次同步会回刷最近多少天的按日用量统计。" required value={field.value} onChange={field.onChange} min={1} max={365} step={1} error={errors.sync_history_lookback_days?.message} />} />
-          <Controller control={control} name="request_timeout" rules={{ required: '请输入请求超时' }} render={({ field }) => <NumberInput label="上游请求超时（秒）" description="用于访问各个站点的接口请求。" required value={field.value} onChange={field.onChange} min={0.1} max={300} step={1} error={errors.request_timeout?.message} />} />
-          <Controller control={control} name="default_sync_interval_minutes" rules={{ required: '请输入默认同步周期' }} render={({ field }) => <NumberInput label="默认实例同步周期（分钟）" description="新增实例时默认带上的自动同步周期。" required value={field.value} onChange={field.onChange} min={5} max={10080} step={1} error={errors.default_sync_interval_minutes?.message} />} />
-          <TextInput label="公用 SOCKS5 代理" description="实例选择“公用 SOCKS5”时统一走这里；留空则仍按直连处理。支持 `用户名:密码@主机:端口`，会自动补 `socks5://`。" inputProps={{ placeholder: '例如：user:password@127.0.0.1:1080', ...register('shared_socks5_proxy_url') }} />
-          <Controller control={control} name="default_instance_proxy_mode" rules={{ required: '请选择新增实例默认代理' }} render={({ field }) => <SelectInput label="新增实例默认代理" required value={field.value} onChange={(value) => field.onChange(value ?? 'direct')} options={[{ label: '本地直连', value: 'direct' }, { label: '公用 SOCKS5', value: 'global' }]} error={errors.default_instance_proxy_mode?.message} description="选择公用 SOCKS5 后，新建实例默认走上面的公用代理；仍可在实例表单里改回直连或自定义。" />} />
-          <TextInput label="统计时区" required description="影响今日请求数和按日统计边界，请填写标准 IANA 时区名。" inputProps={{ placeholder: '例如 Asia/Shanghai', ...register('scheduler_timezone', { required: '请输入统计时区' }) }} error={errors.scheduler_timezone?.message} />
-          <Controller control={control} name="sync_verify_ssl" render={({ field }) => <SwitchInput label="校验上游 SSL 证书" description="关闭后可连接自签名证书站点，但安全性会下降。" checked={field.value} onChange={field.onChange} />} />
+      <form className="flex flex-col gap-5" onSubmit={handleSubmit((values) => saveMutation.mutate(values))}>
+        <Card>
+          <CardHeader>
+            <CardTitle>运行参数</CardTitle>
+            <CardDescription>同步并发、超时、时区与代理等基础配置。</CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Controller control={control} name="sync_max_workers" rules={{ required: '请输入并发数' }} render={({ field }) => (
+              <NumberField label="批量同步并发数" description="同步全部时的并行请求数" error={errors.sync_max_workers?.message} value={field.value} onValueChange={field.onChange} min={1} max={32} />
+            )} />
+            <Controller control={control} name="sync_history_lookback_days" rules={{ required: '请输入历史天数' }} render={({ field }) => (
+              <NumberField label="历史同步天数" description="每次同步回补的每日用量天数" error={errors.sync_history_lookback_days?.message} value={field.value} onValueChange={field.onChange} min={1} max={365} />
+            )} />
+            <Controller control={control} name="request_timeout" rules={{ required: '请输入超时' }} render={({ field }) => (
+              <NumberField label="上游请求超时（秒）" error={errors.request_timeout?.message} value={field.value} onValueChange={field.onChange} min={1} max={300} />
+            )} />
+            <Controller control={control} name="default_sync_interval_minutes" rules={{ required: '请输入默认周期' }} render={({ field }) => (
+              <NumberField label="默认实例同步周期（分钟）" error={errors.default_sync_interval_minutes?.message} value={field.value} onValueChange={field.onChange} min={5} max={10080} />
+            )} />
+            <TextField label="公用 SOCKS5 代理" description="实例选择「公用 SOCKS5」时走这里；留空表示直连" inputProps={{ placeholder: '用户名:密码@主机:端口', ...register('shared_socks5_proxy_url') }} />
+            <Controller control={control} name="default_instance_proxy_mode" render={({ field }) => (
+              <SelectField label="新增实例默认代理" value={field.value} onValueChange={field.onChange} options={[{ value: 'direct', label: '本地直连' }, { value: 'global', label: '公用 SOCKS5' }]} />
+            )} />
+            <TextField label="统计时区" required description="影响今日请求数与按日统计边界（IANA 时区）" error={errors.scheduler_timezone?.message} inputProps={{ placeholder: 'Asia/Shanghai', ...register('scheduler_timezone', { required: '请输入时区' }) }} />
+            <Controller control={control} name="sync_verify_ssl" render={({ field }) => (
+              <SwitchField label="校验上游 SSL 证书" description="关闭后可连自签名站点，但安全性下降" checked={field.value} onCheckedChange={field.onChange} />
+            )} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>监控与通知</CardTitle>
+            <CardDescription>倍率变更与上游公告的检测和推送策略。</CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Controller control={control} name="rate_change_notify_enabled" render={({ field }) => (
+              <SwitchField label="倍率变更通知" description="检测到分组倍率新增/删除/变动时合并推送" checked={field.value} onCheckedChange={field.onChange} />
+            )} />
+            <Controller control={control} name="announcement_sync_enabled" render={({ field }) => (
+              <SwitchField label="上游公告同步" description="同步时顺带抓取上游公告；首次只建基线" checked={field.value} onCheckedChange={field.onChange} />
+            )} />
+            <Controller control={control} name="rate_change_min_percent" render={({ field }) => (
+              <NumberField label="倍率变动最小通知百分比" description="低于该百分比不记录不通知；0 表示全部记录" value={field.value} onValueChange={field.onChange} min={0} max={1000} step={0.1} />
+            )} />
+            <Controller control={control} name="rate_change_cooldown_minutes" render={({ field }) => (
+              <NumberField label="倍率变更冷却（分钟）" description="同分组同向变动冷却期内不重复通知" value={field.value} onValueChange={field.onChange} min={0} max={10080} />
+            )} />
+            <Controller control={control} name="announcement_notify_enabled" render={({ field }) => (
+              <SwitchField label="新公告推送" description="发现新公告时推送到默认渠道" checked={field.value} onCheckedChange={field.onChange} />
+            )} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>数据保留</CardTitle>
+            <CardDescription>超过保留天数的历史数据每小时自动清理，不影响当前快照。</CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <Controller control={control} name="retention_sync_runs_days" render={({ field }) => <NumberField label="同步日志（天）" value={field.value} onValueChange={field.onChange} min={1} max={3650} />} />
+            <Controller control={control} name="retention_notification_logs_days" render={({ field }) => <NumberField label="通知日志（天）" value={field.value} onValueChange={field.onChange} min={1} max={3650} />} />
+            <Controller control={control} name="retention_daily_usage_days" render={({ field }) => <NumberField label="每日用量统计（天）" value={field.value} onValueChange={field.onChange} min={7} max={3650} />} />
+            <Controller control={control} name="retention_rate_changes_days" render={({ field }) => <NumberField label="倍率变更记录（天）" value={field.value} onValueChange={field.onChange} min={1} max={3650} />} />
+            <Controller control={control} name="retention_announcements_days" render={({ field }) => <NumberField label="上游公告（天）" value={field.value} onValueChange={field.onChange} min={1} max={3650} />} />
+          </CardContent>
+        </Card>
+
+        <div className="flex items-center gap-2">
+          <Button type="submit" isPending={saveMutation.isPending} disabled={isLoading || !isDirty}>保存设置</Button>
+          {isDirty ? <span className="text-xs text-muted-foreground">有未保存的改动</span> : null}
         </div>
-        <p className="m-0 text-sm text-muted">告警通知已移动到左侧单独页面，运行参数保存不会改动已配置的通知渠道和规则。</p>
-      </Card.Content></Card>
+      </form>
 
-      <Card><Card.Content className="flex flex-col gap-4 p-4">
-        <h2 className="m-0 text-base font-semibold">监控与通知</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Controller control={control} name="rate_change_notify_enabled" render={({ field }) => <SwitchInput label="倍率变更通知" description="同步检测到分组倍率新增、删除或变动时，合并为一条通知推送到默认渠道。" checked={field.value} onChange={field.onChange} />} />
-          <Controller control={control} name="announcement_sync_enabled" render={({ field }) => <SwitchInput label="上游公告同步" description="每次同步实例时顺带抓取上游公告；首次同步只建基线不推送。" checked={field.value} onChange={field.onChange} />} />
-          <Controller control={control} name="rate_change_min_percent" render={({ field }) => <NumberInput label="倍率变动最小通知百分比" description="变动幅度低于该百分比不记录也不通知；0 表示全部记录。" value={field.value} onChange={field.onChange} min={0} max={1000} step={0.1} />} />
-          <Controller control={control} name="rate_change_cooldown_minutes" render={({ field }) => <NumberInput label="倍率变更冷却（分钟）" description="同一分组的同向变动在冷却期内不重复通知。" value={field.value} onChange={field.onChange} min={0} max={10080} />} />
-          <Controller control={control} name="announcement_notify_enabled" render={({ field }) => <SwitchInput label="新公告推送" description="发现新的上游公告时推送到默认通知渠道。" checked={field.value} onChange={field.onChange} />} />
-        </div>
-      </Card.Content></Card>
-
-      <Card><Card.Content className="flex flex-col gap-4 p-4">
-        <h2 className="m-0 text-base font-semibold">数据保留</h2>
-        <p className="m-0 text-sm text-muted">超过保留天数的历史数据每小时自动清理一次，清理不影响当前快照。</p>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Controller control={control} name="retention_sync_runs_days" rules={{ required: '请输入保留天数' }} render={({ field }) => <NumberInput label="同步日志（天）" error={errors.retention_sync_runs_days?.message} value={field.value} onChange={field.onChange} min={1} max={3650} />} />
-          <Controller control={control} name="retention_notification_logs_days" rules={{ required: '请输入保留天数' }} render={({ field }) => <NumberInput label="通知日志（天）" error={errors.retention_notification_logs_days?.message} value={field.value} onChange={field.onChange} min={1} max={3650} />} />
-          <Controller control={control} name="retention_daily_usage_days" rules={{ required: '请输入保留天数' }} render={({ field }) => <NumberInput label="每日用量统计（天）" error={errors.retention_daily_usage_days?.message} value={field.value} onChange={field.onChange} min={7} max={3650} />} />
-          <Controller control={control} name="retention_rate_changes_days" rules={{ required: '请输入保留天数' }} render={({ field }) => <NumberInput label="倍率变更记录（天）" error={errors.retention_rate_changes_days?.message} value={field.value} onChange={field.onChange} min={1} max={3650} />} />
-          <Controller control={control} name="retention_announcements_days" rules={{ required: '请输入保留天数' }} render={({ field }) => <NumberInput label="上游公告（天）" error={errors.retention_announcements_days?.message} value={field.value} onChange={field.onChange} min={1} max={3650} />} />
-        </div>
-      </Card.Content></Card>
-
-      <Card><Card.Content className="flex flex-col gap-4 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="m-0 text-base font-semibold">API 访问密钥</h2>
-            <p className="m-0 mt-1 text-sm text-muted">外部程序用这些 key 调用全部 API；请求头加 <code className="rounded bg-surface-secondary px-1">X-API-Key: nam-…</code> 或 <code className="rounded bg-surface-secondary px-1">Authorization: Bearer nam-…</code>。</p>
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <CardTitle>API 访问密钥</CardTitle>
+              <CardDescription>
+                外部程序用这些 key 调用全部 API：请求头 <code className="rounded bg-muted px-1">X-API-Key: nam-…</code> 或{' '}
+                <code className="rounded bg-muted px-1">Authorization: Bearer nam-…</code>
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => window.open('/api/docs.md', '_blank', 'noopener,noreferrer')}>
+                <BookOpen className="size-4" />
+                API 文档
+              </Button>
+              <Button size="sm" onClick={() => { setCreatedKey(null); setNewKeyName(''); setKeyModalOpen(true); }}>
+                <Plus className="size-4" />
+                生成新密钥
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onPress={() => window.open('/api/docs.md', '_blank', 'noopener,noreferrer')}>API 文档</Button>
-            <Button variant="primary" size="sm" onPress={() => { setCreatedKey(null); setNewKeyName(''); setKeyModalOpen(true); }}>生成新密钥</Button>
-          </div>
-        </div>
-        {keyRows.length ? (
-          <div className="flex flex-col divide-y divide-border rounded-xl border border-border">
-            {keyRows.map((row: ApiKeyItem) => (
-              <div key={row.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <strong className="truncate text-sm">{row.name}</strong>
-                    {row.enabled ? <Chip size="sm" color="success" variant="soft"><Chip.Label>启用</Chip.Label></Chip> : <Chip size="sm" color="default" variant="soft"><Chip.Label>停用</Chip.Label></Chip>}
+        </CardHeader>
+        <CardContent>
+          {apiKeys?.length ? (
+            <div className="flex flex-col divide-y rounded-lg border">
+              {apiKeys.map((row: ApiKeyItem) => (
+                <div key={row.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <strong className="truncate text-sm">{row.name}</strong>
+                      <StatusBadge tone={row.enabled ? 'success' : 'muted'}>{row.enabled ? '启用' : '停用'}</StatusBadge>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                      <span className="font-mono">{row.key_prefix}…</span>
+                      <span>创建 {formatDateTime(row.created_at)}</span>
+                      <span>最近使用 {row.last_used_at ? formatDateTime(row.last_used_at) : '从未使用'}</span>
+                    </div>
                   </div>
-                  <div className="mt-0.5 flex flex-wrap gap-x-4 text-xs text-muted">
-                    <span className="font-mono">{row.key_prefix}…</span>
-                    <span>创建 {formatDateTime(row.created_at)}</span>
-                    <span>最近使用 {row.last_used_at ? formatDateTime(row.last_used_at) : '从未使用'}</span>
-                  </div>
+                  <Button variant="ghost" size="icon-sm" aria-label="复制前缀" onClick={() => void copyText(row.key_prefix)}>
+                    <Copy className="size-4" />
+                  </Button>
+                  <SwitchField checked={row.enabled} onCheckedChange={(value) => toggleKeyMutation.mutate({ id: row.id, enabled: value })} />
+                  <ConfirmPopover title={`吊销「${row.name}」？`} description="使用该 key 的外部程序会立即失效。" confirmText="吊销" onConfirm={() => deleteKeyMutation.mutateAsync(row.id)}>
+                    <Button variant="outline" size="sm" className="text-destructive">
+                      <Trash2 className="size-4" />
+                      吊销
+                    </Button>
+                  </ConfirmPopover>
                 </div>
-                <SwitchInput checked={row.enabled} onChange={(value) => toggleKeyMutation.mutate({ id: row.id, enabled: value })} />
-                <ConfirmPopover title={`吊销「${row.name}」？`} description="吊销后使用该 key 的外部程序会立即失效。" confirmText="吊销" onConfirm={() => deleteKeyMutation.mutateAsync(row.id)}>
-                  <Button size="sm" variant="danger" isPending={deleteKeyMutation.isPending}>吊销</Button>
-                </ConfirmPopover>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="m-0 text-sm text-muted">还没有 API 密钥。生成后即可让脚本或 AI 调用全部接口。</p>
-        )}
-      </Card.Content></Card>
-
-      <div><Button type="submit" variant="primary" isPending={updateMutation.isPending} isDisabled={isLoading}>保存设置</Button></div>
+              ))}
+            </div>
+          ) : (
+            <p className="m-0 text-sm text-muted-foreground">还没有 API 密钥。生成后即可让脚本或 AI 调用全部接口。</p>
+          )}
+        </CardContent>
+      </Card>
 
       <AppModal
         open={keyModalOpen}
         onOpenChange={(open) => { setKeyModalOpen(open); if (!open) { setCreatedKey(null); setNewKeyName(''); } }}
         title={createdKey ? '密钥已生成' : '生成 API 密钥'}
+        description={createdKey ? '完整密钥只显示这一次，请立即复制保存。' : '用于区分调用方，例如：监控脚本、AI 助手。'}
         size="sm"
-        footer={createdKey ? <Button variant="primary" onPress={() => { setKeyModalOpen(false); setCreatedKey(null); }}>完成</Button> : <div className="flex justify-end gap-2"><Button variant="secondary" onPress={() => setKeyModalOpen(false)}>取消</Button><Button variant="primary" isPending={createKeyMutation.isPending} isDisabled={!newKeyName.trim()} onPress={() => createKeyMutation.mutate(newKeyName.trim())}>生成</Button></div>}
+        footer={
+          createdKey ? (
+            <Button onClick={() => { setKeyModalOpen(false); setCreatedKey(null); }}>完成</Button>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => setKeyModalOpen(false)}>取消</Button>
+              <Button isPending={createKeyMutation.isPending} disabled={!newKeyName.trim()} onClick={() => createKeyMutation.mutate(newKeyName.trim())}>
+                生成
+              </Button>
+            </>
+          )
+        }
       >
         {createdKey ? (
           <div className="flex flex-col gap-3">
-            <p className="m-0 text-sm text-muted">完整密钥只显示这一次，请立即复制保存：</p>
             <div className="flex items-center gap-2">
-              <input readOnly value={createdKey} className="w-full rounded-md border border-border bg-surface-secondary px-2 py-1.5 font-mono text-xs" onFocus={(event) => event.currentTarget.select()} />
-              <Button size="sm" variant="secondary" onPress={() => void copyKey(createdKey)}>复制</Button>
+              <input readOnly value={createdKey} className="w-full rounded-md border bg-muted px-2 py-1.5 font-mono text-xs" onFocus={(event) => event.currentTarget.select()} />
+              <Button variant="outline" size="sm" onClick={() => void copyText(createdKey)}>
+                <Copy className="size-4" />
+                复制
+              </Button>
             </div>
-            <p className="m-0 text-xs text-muted">用法：<code>curl -H "X-API-Key: {createdKey.slice(0, 10)}…" /api/instances</code></p>
+            <p className="m-0 text-xs text-muted-foreground">
+              用法：<code>curl -H "X-API-Key: {createdKey.slice(0, 10)}…" /api/instances</code>
+            </p>
           </div>
         ) : (
-          <TextInput label="密钥名称" required description="用于区分调用方，例如：监控脚本、AI 助手。" inputProps={{ placeholder: '例如：监控脚本', value: newKeyName, onChange: (event) => setNewKeyName(event.target.value) }} />
+          <TextField label="密钥名称" required inputProps={{ placeholder: '例如：监控脚本', value: newKeyName, onChange: (event) => setNewKeyName(event.target.value) }} />
         )}
       </AppModal>
-      <ChangePasswordModal open={passwordModalOpen} loading={changePasswordMutation.isPending} onCancel={() => setPasswordModalOpen(false)} onSubmit={(values) => changePasswordMutation.mutate(values)} />
-    </form>
+
+      <ChangePasswordModal
+        open={passwordOpen}
+        loading={passwordMutation.isPending}
+        onCancel={() => setPasswordOpen(false)}
+        onSubmit={(values) => passwordMutation.mutate(values)}
+      />
+      {saveMutation.isPending ? <Loader2 className="hidden" /> : null}
+    </div>
   );
 }

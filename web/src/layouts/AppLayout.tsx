@@ -1,4 +1,3 @@
-import { Button, useMediaQuery, useTheme } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
@@ -14,23 +13,25 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import type { ComponentType, ReactNode } from 'react';
+import type { ComponentType } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { logout } from '../api/auth';
 import { fetchAppSettings } from '../api/settings';
-import { AppDrawer } from '../components/ui';
+import { AppSheet, Button, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui';
+import { cn } from '../lib/utils';
 import { notify } from '../lib/toast';
+import { useThemeMode } from '../lib/theme';
+import { useBodyScrollLockFix } from '../lib/use-body-lock-fix';
 import { setDisplayTimezone } from '../utils/format';
-import { cx } from '../lib/cx';
 
 interface NavItem {
   key: string;
   label: string;
-  icon: ComponentType<{ size?: number | string; className?: string }>;
+  icon: ComponentType<{ className?: string }>;
 }
 
-const navItems: NavItem[] = [
+const NAV_ITEMS: NavItem[] = [
   { key: '/dashboard', label: '仪表盘', icon: LayoutDashboard },
   { key: '/instances', label: '实例管理', icon: Database },
   { key: '/groups', label: '分组倍率', icon: Network },
@@ -40,20 +41,40 @@ const navItems: NavItem[] = [
   { key: '/settings', label: '系统设置', icon: Settings },
 ];
 
-function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme();
-  const isDark = resolvedTheme === 'dark';
-
+function SidebarContent({ currentPath, onNavigate }: { currentPath: string; onNavigate: (path: string) => void }) {
   return (
-    <Button
-      isIconOnly
-      variant="ghost"
-      size="sm"
-      aria-label={isDark ? '切换到浅色模式' : '切换到深色模式'}
-      onPress={() => setTheme(isDark ? 'light' : 'dark')}
-    >
-      {isDark ? <Sun size={16} /> : <Moon size={16} />}
-    </Button>
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2.5 border-b px-4 py-4">
+        <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">N</div>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold">NiceApiManager</div>
+          <div className="truncate text-xs text-muted-foreground">中转站聚合管理</div>
+        </div>
+      </div>
+      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
+        {NAV_ITEMS.map((item) => {
+          const active = currentPath === item.key || (item.key === '/logs' && currentPath.startsWith('/logs'));
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => onNavigate(item.key)}
+              className={cn(
+                'flex items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors',
+                active
+                  ? 'bg-primary/10 font-medium text-primary'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+              )}
+            >
+              <Icon className="size-4" />
+              {item.label}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="p-2 text-[11px] text-muted-foreground">单密码管理后台 · 全部数据本地存储</div>
+    </div>
   );
 }
 
@@ -61,21 +82,22 @@ export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const isDesktop = useMediaQuery('(min-width: 1024px)');
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { resolved, toggle } = useThemeMode();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  useBodyScrollLockFix();
 
-  const { data: appSettingsData } = useQuery({
+  const { data: appSettings } = useQuery({
     queryKey: ['app-settings'],
     queryFn: fetchAppSettings,
     staleTime: 5 * 60 * 1000,
   });
 
   useEffect(() => {
-    setDisplayTimezone(appSettingsData?.scheduler_timezone);
-  }, [appSettingsData?.scheduler_timezone]);
+    setDisplayTimezone(appSettings?.scheduler_timezone);
+  }, [appSettings?.scheduler_timezone]);
 
   useEffect(() => {
-    setMobileMenuOpen(false);
+    setMobileOpen(false);
   }, [location.pathname]);
 
   const logoutMutation = useMutation({
@@ -84,84 +106,53 @@ export function AppLayout() {
       await queryClient.invalidateQueries({ queryKey: ['auth-status'] });
       navigate('/login', { replace: true });
     },
-    onError: () => {
-      notify.error('退出登录失败，请稍后重试。');
-    },
+    onError: () => notify.error('退出登录失败，请稍后重试'),
   });
 
   const pageTitle = useMemo(
-    () => navItems.find((item) => item.key === location.pathname)?.label || 'NiceApiManager',
+    () => NAV_ITEMS.find((item) => item.key === location.pathname)?.label ?? 'NiceApiManager',
     [location.pathname],
   );
 
-  const navigationMenu = (extra?: ReactNode) => (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-border px-5 py-4">
-        <div className="text-lg font-bold">NiceApiManager</div>
-        <div className="mt-0.5 text-xs text-muted">中转站聚合管理后台</div>
-      </div>
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
-        {navItems.map((item) => {
-          const active = location.pathname === item.key;
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => navigate(item.key)}
-              className={cx(
-                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors',
-                active ? 'bg-accent font-medium text-accent-foreground' : 'text-foreground hover:bg-surface-secondary',
-              )}
-            >
-              <Icon size={17} />
-              {item.label}
-            </button>
-          );
-        })}
-      </nav>
-      {extra}
-    </div>
-  );
-
   return (
-    <div className="flex min-h-screen items-start bg-background">
-      {isDesktop ? (
-        <aside className="sticky top-0 h-screen w-60 shrink-0 border-r border-border bg-surface">
-          {navigationMenu()}
+    <TooltipProvider delayDuration={300}>
+      <div className="flex min-h-screen bg-background">
+        <aside className="sticky top-0 hidden h-screen w-56 shrink-0 border-r bg-card lg:block">
+          <SidebarContent currentPath={location.pathname} onNavigate={navigate} />
         </aside>
-      ) : (
-        <AppDrawer open={mobileMenuOpen} onOpenChange={setMobileMenuOpen} placement="left">
-          {navigationMenu()}
-        </AppDrawer>
-      )}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-16 items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            {!isDesktop ? (
-              <Button isIconOnly variant="ghost" size="sm" aria-label="打开导航菜单" onPress={() => setMobileMenuOpen(true)}>
-                <MenuIcon size={18} />
+
+        <AppSheet open={mobileOpen} onOpenChange={setMobileOpen} side="left" className="w-64 p-0" >
+          <SidebarContent currentPath={location.pathname} onNavigate={navigate} />
+        </AppSheet>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b bg-background/95 px-4 backdrop-blur sm:px-6">
+            <div className="flex min-w-0 items-center gap-2">
+              <Button variant="ghost" size="icon-sm" className="lg:hidden" aria-label="打开导航" onClick={() => setMobileOpen(true)}>
+                <MenuIcon className="size-4" />
               </Button>
-            ) : null}
-            <h2 className="m-0 text-lg font-semibold">{pageTitle}</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            <Button
-              variant="outline"
-              size="sm"
-              isPending={logoutMutation.isPending}
-              onPress={() => logoutMutation.mutate()}
-            >
-              <LogOut size={15} />
-              退出登录
-            </Button>
-          </div>
-        </header>
-        <main className="min-w-0 flex-1 p-4 sm:p-6">
-          <Outlet />
-        </main>
+              <h2 className="m-0 truncate text-base font-semibold">{pageTitle}</h2>
+            </div>
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" aria-label="切换主题" onClick={toggle}>
+                    {resolved === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{resolved === 'dark' ? '切换到浅色' : '切换到深色'}</TooltipContent>
+              </Tooltip>
+              <Button variant="outline" size="sm" isPending={logoutMutation.isPending} onClick={() => logoutMutation.mutate()}>
+                <LogOut className="size-4" />
+                退出
+              </Button>
+            </div>
+          </header>
+          <main className="min-w-0 flex-1 p-4 sm:p-6">
+            <Outlet />
+          </main>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

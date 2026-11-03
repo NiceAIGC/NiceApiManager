@@ -1,22 +1,19 @@
-import { Alert, Button, ProgressBar } from '@heroui/react';
+import { useEffect, useState } from 'react';
+import { CheckCircle2, CircleDashed, Loader2, XCircle } from 'lucide-react';
 
-import { AppModal, DataTable, StatusChip } from './ui';
-import type { DataTableColumn } from './ui';
-
-export type SyncProgressStatus = 'pending' | 'running' | 'success' | 'failed';
+import { AppModal, Button, Progress, StatusBadge } from './ui';
+import { cn } from '@/lib/utils';
 
 export interface SyncProgressItem {
-  key: string | number;
+  key: number | string;
   name: string;
-  status: SyncProgressStatus;
-  errorMessage?: string | null;
-  detail?: string | null;
-  durationMs?: number | null;
+  status: 'pending' | 'running' | 'success' | 'failed';
+  error?: string | null;
 }
 
 interface SyncProgressModalProps {
   open: boolean;
-  title: string;
+  title?: string;
   running: boolean;
   total: number;
   completed: number;
@@ -24,26 +21,20 @@ interface SyncProgressModalProps {
   failedCount: number;
   activeNames?: string[];
   items: SyncProgressItem[];
-  onClose: () => void;
   onRetryFailed?: (items: SyncProgressItem[]) => void;
+  onClose: () => void;
 }
 
-function formatStatus(status: SyncProgressStatus) {
-  if (status === 'running') return { color: 'accent' as const, label: '同步中' };
-  if (status === 'success') return { color: 'success' as const, label: '成功' };
-  if (status === 'failed') return { color: 'danger' as const, label: '失败' };
-  return { color: 'default' as const, label: '等待中' };
-}
-
-function formatDuration(durationMs?: number | null) {
-  if (durationMs == null) return '-';
-  if (durationMs < 1000) return `${durationMs} ms`;
-  return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)} s`;
-}
+const statusMeta = {
+  pending: { label: '等待中', icon: CircleDashed, className: 'text-muted-foreground' },
+  running: { label: '同步中', icon: Loader2, className: 'animate-spin text-primary' },
+  success: { label: '成功', icon: CheckCircle2, className: 'text-emerald-500' },
+  failed: { label: '失败', icon: XCircle, className: 'text-destructive' },
+} as const;
 
 export function SyncProgressModal({
   open,
-  title,
+  title = '同步进度',
   running,
   total,
   completed,
@@ -51,64 +42,79 @@ export function SyncProgressModal({
   failedCount,
   activeNames = [],
   items,
-  onClose,
   onRetryFailed,
+  onClose,
 }: SyncProgressModalProps) {
+  const [showAll, setShowAll] = useState(false);
   const percent = total ? Math.round((completed / total) * 100) : 0;
   const failedItems = items.filter((item) => item.status === 'failed');
-  const columns: DataTableColumn<SyncProgressItem>[] = [
-    { id: 'name', title: '实例', width: 180, render: (item) => <strong>{item.name}</strong> },
-    {
-      id: 'status',
-      title: '状态',
-      width: 90,
-      render: (item) => {
-        const meta = formatStatus(item.status);
-        return <StatusChip color={meta.color}>{meta.label}</StatusChip>;
-      },
-    },
-    { id: 'duration', title: '耗时', width: 90, render: (item) => formatDuration(item.durationMs) },
-    {
-      id: 'detail',
-      title: '说明',
-      render: (item) => item.errorMessage ? <span className="text-danger">{item.errorMessage}</span> : item.detail || '-',
-    },
-  ];
+  const visibleItems = showAll ? items : items.slice(0, 8);
+
+  useEffect(() => {
+    if (open) setShowAll(false);
+  }, [open]);
 
   return (
     <AppModal
       open={open}
-      onOpenChange={(nextOpen) => { if (!nextOpen && !running) onClose(); }}
+      onOpenChange={(value) => {
+        if (!value && !running) onClose();
+      }}
       title={title}
-      size="lg"
-      isDismissable={!running}
-      footer={() => (
-        <div className="flex justify-end gap-2">
-          {!running && failedItems.length > 0 && onRetryFailed ? (
-            <Button variant="secondary" onPress={() => onRetryFailed(failedItems)}>重试失败实例（{failedItems.length}）</Button>
+      description={running ? '正在调用各上游站点，请勿关闭页面。' : '同步已完成，可查看结果或重试失败项。'}
+      size="md"
+      footer={
+        <>
+          {!running && failedItems.length && onRetryFailed ? (
+            <Button variant="outline" onClick={() => onRetryFailed(failedItems)}>
+              重试失败（{failedItems.length}）
+            </Button>
           ) : null}
-          <Button variant="primary" isDisabled={running} onPress={onClose}>关闭</Button>
-        </div>
-      )}
+          <Button variant={running ? 'secondary' : 'default'} disabled={running} onClick={onClose}>
+            {running ? '同步中…' : '完成'}
+          </Button>
+        </>
+      }
     >
-      <div className="sync-progress-stack flex flex-col gap-4">
-        <div className="flex flex-col gap-3">
-          <ProgressBar value={percent} minValue={0} maxValue={100} aria-label="同步进度">
-            <ProgressBar.Track><ProgressBar.Fill /></ProgressBar.Track>
-          </ProgressBar>
-          <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-            <div>总数：{total}</div><div>已完成：{completed}</div><div>成功：{successCount}</div><div>失败：{failedCount}</div>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium">
+              {completed}/{total} 已完成
+            </span>
+            <span className="text-muted-foreground tabular">{percent}%</span>
           </div>
-          <Alert status={running ? 'accent' : failedCount ? 'warning' : 'success'}>
-            <Alert.Indicator /><Alert.Content>
-              <Alert.Title>{running ? `正在同步 ${activeNames.length} 个实例` : failedCount ? `同步结束，失败 ${failedCount} 个` : '全部实例同步完成'}</Alert.Title>
-              <Alert.Description>
-                {activeNames.length ? <span className="flex flex-wrap gap-2">{activeNames.map((name) => <StatusChip key={name} color="accent">{name}</StatusChip>)}</span> : '详情见下方逐项结果表。'}
-              </Alert.Description>
-            </Alert.Content>
-          </Alert>
+          <Progress value={percent} />
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <StatusBadge tone="success">成功 {successCount}</StatusBadge>
+            <StatusBadge tone={failedCount ? 'destructive' : 'muted'}>失败 {failedCount}</StatusBadge>
+            {activeNames.length ? <span>进行中：{activeNames.join('、')}</span> : null}
+          </div>
         </div>
-        <DataTable rows={items} columns={columns} rowKey={(item) => item.key} emptyText="暂无同步记录" minWidth={600} />
+
+        <div className="flex flex-col divide-y rounded-lg border">
+          {visibleItems.map((item) => {
+            const meta = statusMeta[item.status];
+            const Icon = meta.icon;
+            return (
+              <div key={item.key} className="flex items-start gap-2 px-3 py-2 text-sm">
+                <Icon className={cn('mt-0.5 size-4 shrink-0', meta.className)} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate">{item.name}</div>
+                  {item.error ? <div className="mt-0.5 break-words text-xs text-destructive">{item.error}</div> : null}
+                </div>
+                <span className="shrink-0 text-xs text-muted-foreground">{meta.label}</span>
+              </div>
+            );
+          })}
+          {items.length > 8 ? (
+            <div className="px-3 py-2">
+              <Button variant="ghost" size="sm" onClick={() => setShowAll((value) => !value)}>
+                {showAll ? '收起列表' : `展开全部 ${items.length} 项`}
+              </Button>
+            </div>
+          ) : null}
+        </div>
       </div>
     </AppModal>
   );

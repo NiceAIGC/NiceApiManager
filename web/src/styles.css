@@ -1,74 +1,135 @@
 @import 'tailwindcss';
-@import '@heroui/styles';
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  font-family:
-    'PingFang SC',
-    'Microsoft YaHei',
-    'Helvetica Neue',
-    -apple-system,
-    sans-serif;
-}
+  --radius: 0.625rem;
+  --background: oklch(0.985 0.002 247);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  --primary: oklch(0.55 0.19 259);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.968 0.003 247);
+  --secondary-foreground: oklch(0.25 0.006 285.9);
+  --muted: oklch(0.968 0.003 247);
+  --muted-foreground: oklch(0.552 0.014 285.9);
+  --accent: oklch(0.955 0.01 255);
+  --accent-foreground: oklch(0.25 0.02 259);
+  --destructive: oklch(0.577 0.245 27.3);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0.005 247);
+  --input: oklch(0.922 0.005 247);
+  --ring: oklch(0.62 0.17 259);
+  --success: oklch(0.72 0.17 152);
+  --warning: oklch(0.77 0.15 75);
 
-html,
-body,
-#root {
-  min-height: 100%;
-  margin: 0;
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-}
-
-a {
-  color: inherit;
-}
-
-/* ---------- 自绘图表调色板（随主题切换） ---------- */
-:root {
-  --chart-grid: #f0f0f0;
-  --chart-grid-strong: #e2e8f0;
-  --chart-bar-hover: #fafafa;
-  --chart-accent: #2563eb;
-  --chart-accent-soft: rgba(37, 99, 235, 0.06);
-  --chart-quota-remaining: #95de64;
-  --chart-series-1: #2563eb;
-  --chart-series-2: #16a34a;
-  --chart-series-3: #d97706;
-  --chart-series-4: #dc2626;
-  --chart-series-5: #7c3aed;
-  --chart-series-6: #0891b2;
-  --chart-series-more: #94a3b8;
-  --accent-hover: var(--chart-accent);
+  /* 图表与既有组件使用的兼容别名 */
+  --surface: var(--card);
+  --surface-secondary: var(--secondary);
+  --accent-hover: var(--primary);
+  --chart-grid: oklch(0.94 0.004 247);
+  --chart-grid-strong: oklch(0.9 0.006 247);
+  --chart-bar-hover: oklch(0.97 0.003 247);
+  --chart-accent: var(--primary);
+  --chart-accent-soft: color-mix(in oklch, var(--primary) 10%, transparent);
+  --chart-quota-remaining: oklch(0.85 0.16 145);
+  --chart-series-1: oklch(0.55 0.19 259);
+  --chart-series-2: oklch(0.64 0.16 150);
+  --chart-series-3: oklch(0.72 0.15 70);
+  --chart-series-4: oklch(0.6 0.2 25);
+  --chart-series-5: oklch(0.55 0.2 300);
+  --chart-series-6: oklch(0.6 0.12 210);
+  --chart-series-more: oklch(0.7 0.01 250);
 }
 
 .dark {
-  --chart-grid: rgba(148, 163, 184, 0.16);
-  --chart-grid-strong: rgba(148, 163, 184, 0.28);
-  --chart-bar-hover: rgba(148, 163, 184, 0.08);
-  --chart-accent: #3b82f6;
-  --chart-accent-soft: rgba(59, 130, 246, 0.12);
-  --chart-quota-remaining: #4ade80;
-  --chart-series-more: #64748b;
-  --accent-hover: var(--chart-accent);
+  --background: oklch(0.16 0.006 285.9);
+  --foreground: oklch(0.96 0.002 247);
+  --card: oklch(0.21 0.006 285.9);
+  --card-foreground: oklch(0.96 0.002 247);
+  --popover: oklch(0.21 0.006 285.9);
+  --popover-foreground: oklch(0.96 0.002 247);
+  --primary: oklch(0.66 0.17 256);
+  --primary-foreground: oklch(0.16 0.006 285.9);
+  --secondary: oklch(0.27 0.006 286);
+  --secondary-foreground: oklch(0.96 0.002 247);
+  --muted: oklch(0.27 0.006 286);
+  --muted-foreground: oklch(0.71 0.01 250);
+  --accent: oklch(0.3 0.02 258);
+  --accent-foreground: oklch(0.96 0.002 247);
+  --destructive: oklch(0.65 0.2 25);
+  --destructive-foreground: oklch(0.16 0.006 285.9);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.62 0.15 256);
+  --success: oklch(0.72 0.17 152);
+  --warning: oklch(0.78 0.15 75);
+
+  --chart-grid: oklch(1 0 0 / 10%);
+  --chart-grid-strong: oklch(1 0 0 / 18%);
+  --chart-bar-hover: oklch(1 0 0 / 6%);
+  --chart-accent-soft: color-mix(in oklch, var(--primary) 18%, transparent);
+  --chart-quota-remaining: oklch(0.75 0.16 145);
+  --chart-series-1: oklch(0.66 0.17 256);
+  --chart-series-2: oklch(0.7 0.15 150);
+  --chart-series-3: oklch(0.78 0.15 75);
+  --chart-series-4: oklch(0.65 0.2 25);
+  --chart-series-5: oklch(0.66 0.18 300);
+  --chart-series-6: oklch(0.7 0.12 210);
+  --chart-series-more: oklch(0.6 0.01 250);
 }
 
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
 
-/* 紧凑表格密度 */
-.data-table-compact [data-slot='table-cell'],
-.data-table-compact [data-slot='table-column'] {
-  padding-top: 6px;
-  padding-bottom: 6px;
-}
-.data-table-compact [data-slot='table-cell'] {
-  white-space: nowrap;
-}
-.data-table-compact [data-slot='table-cell'] .cell-wrap {
-  white-space: normal;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', -apple-system, sans-serif;
+  }
+  a {
+    color: inherit;
+  }
+  /* 数字对齐 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 /* Dashboard and custom chart layouts */

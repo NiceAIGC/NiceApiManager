@@ -1,12 +1,9 @@
-import { toast } from '@heroui/react';
+import { toast } from 'sonner';
 
-/**
- * 全局轻提示，替代 antd 的 message.xxx。
- * 需要 <Toast.Provider /> 已挂载（见 main.tsx）。
- */
+/** 全局轻提示，统一入口 */
 export const notify = {
   success: (message: React.ReactNode) => toast.success(message),
-  error: (message: React.ReactNode) => toast.danger(message),
+  error: (message: React.ReactNode) => toast.error(message),
   warning: (message: React.ReactNode) => toast.warning(message),
   info: (message: React.ReactNode) => toast.info(message),
 };

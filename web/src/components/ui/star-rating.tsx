@@ -1,6 +1,6 @@
 import { Star } from 'lucide-react';
 
-import { cx } from '../../lib/cx';
+import { cn } from '@/lib/utils';
 
 interface StarRatingProps {
   value: number;
@@ -10,19 +10,17 @@ interface StarRatingProps {
   className?: string;
 }
 
-/** 优先级星级，替代 antd Rate；不传 onChange 为只读 */
-export function StarRating({ value, onChange, count = 5, size = 15, className }: StarRatingProps) {
+export function StarRating({ value, onChange, count = 5, size = 14, className }: StarRatingProps) {
   const readOnly = !onChange;
-
   return (
-    <div className={cx('inline-flex items-center gap-0.5', className)} role={readOnly ? 'img' : 'radiogroup'} aria-label={`优先级 ${value} 星`}>
+    <div className={cn('inline-flex items-center gap-0.5', className)} role={readOnly ? 'img' : 'radiogroup'} aria-label={`优先级 ${value} 星`}>
       {Array.from({ length: count }, (_, index) => index + 1).map((star) => {
         const filled = star <= value;
         const icon = (
           <Star
             size={size}
             strokeWidth={1.5}
-            className={filled ? 'fill-warning text-warning' : 'fill-transparent text-border'}
+            className={filled ? 'fill-amber-400 text-amber-400' : 'fill-transparent text-muted-foreground/40'}
           />
         );
         if (readOnly) return <span key={star}>{icon}</span>;

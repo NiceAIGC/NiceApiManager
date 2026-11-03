@@ -1,114 +1,584 @@
-import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
-import { Accordion, Alert, Button, Card, Chip, Tabs } from '@heroui/react';
-import { Controller, useForm } from 'react-hook-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleHelp, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Bell, CircleHelp, Pencil, Plus, Send, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { getErrorMessage } from '../api/client';
 import { fetchInstances } from '../api/instances';
 import { fetchAppSettings, sendTestNotification, updateAppSettings } from '../api/settings';
-import { AppDrawer, AppModal, ConfirmPopover, NumberInput, SelectInput, StatusChip, SwitchInput, TextInput } from '../components/ui';
+import {
+  AppModal,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  ConfirmPopover,
+  MultiSelect,
+  NumberField,
+  PageHeader,
+  SegmentedControl,
+  SelectField,
+  StatusBadge,
+  SwitchField,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  TextField,
+} from '../components/ui';
 import { notify } from '../lib/toast';
-import type { AppSettings, AggregateBalanceNotificationRule, BalanceNotificationRule, ConnectivityFailureNotificationRule, NotificationChannelConfig, NotificationChannelGroupConfig } from '../types/api';
+import { cn } from '../lib/utils';
+import type {
+  AggregateBalanceNotificationRule,
+  AppSettings,
+  BalanceNotificationRule,
+  ConnectivityFailureNotificationRule,
+  NotificationChannelConfig,
+  NotificationChannelGroupConfig,
+  NotificationRuleSet,
+} from '../types/api';
+import { formatDateTime } from '../utils/format';
 
 type ChannelType = 'wecombot' | 'bark' | 'telegram' | 'dingtalk' | 'custom';
-interface ChannelValue extends NotificationChannelConfig { channel_type: ChannelType; wecombot_key?: string; bark_host?: string; bark_targets?: string; bark_group?: string; bark_sound?: string; bark_use_https?: boolean; telegram_bot_token?: string; telegram_targets?: string; dingtalk_token?: string; dingtalk_secret?: string; dingtalk_targets?: string }
-type Values = Pick<AppSettings, 'notification_enabled' | 'notification_check_interval_minutes' | 'default_balance_alert_threshold' | 'default_notification_channel_id' | 'notification_rules'> & { notification_channels: ChannelValue[]; notification_channel_groups: NotificationChannelGroupConfig[] };
-type Options = Array<{ label: string; value: string }>;
-const types = [{ label: '企业微信机器人', value: 'wecombot' }, { label: 'Bark', value: 'bark' }, { label: 'Telegram Bot', value: 'telegram' }, { label: '钉钉机器人', value: 'dingtalk' }, { label: '自定义 Apprise URL', value: 'custom' }];
-const split = (value?: string) => (value ?? '').split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
-const encode = encodeURIComponent;
-const id = (prefix: string) => `${prefix}_${globalThis.crypto?.randomUUID?.().slice(0, 8) ?? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`}`;
-const newChannel = (): ChannelValue => ({ id: id('channel'), name: '', enabled: true, apprise_url: '', channel_type: 'wecombot', bark_host: 'api.day.app', bark_use_https: true });
-const balanceRule = (severity: 'warning' | 'critical'): BalanceNotificationRule => ({ id: id('rule'), name: severity === 'critical' ? '实例余额严重不足' : '实例余额预警', enabled: true, severity, threshold: severity === 'critical' ? 10 : 50, resolve_threshold: severity === 'critical' ? 20 : 80, min_consecutive_checks: 1, instance_ids: [], tags: [], include_disabled: false, notify_on_recovery: true, channel_ids: [], channel_group_ids: [] });
-const aggregateRule = (): AggregateBalanceNotificationRule => ({ ...balanceRule('warning'), name: '核心实例总余额', enabled: false, threshold: 100, resolve_threshold: 160 });
-const connectivityRule = (): ConnectivityFailureNotificationRule => ({ id: id('rule'), name: '实例连续连接失败', enabled: true, consecutive_failures: 3, instance_ids: [], tags: [], include_disabled: false, repeat_interval_minutes: 180, notify_on_recovery: true, channel_ids: [], channel_group_ids: [] });
+
+interface ChannelValue extends NotificationChannelConfig {
+  channel_type?: ChannelType;
+  wecombot_key?: string;
+  bark_host?: string;
+  bark_targets?: string;
+  bark_group?: string;
+  bark_sound?: string;
+  bark_use_https?: boolean;
+  telegram_bot_token?: string;
+  telegram_targets?: string;
+  dingtalk_token?: string;
+  dingtalk_secret?: string;
+  dingtalk_targets?: string;
+}
+
+type RuleKind = 'balance' | 'aggregate' | 'connectivity';
+type AnyRule = BalanceNotificationRule | AggregateBalanceNotificationRule | ConnectivityFailureNotificationRule;
+interface RuleTarget { kind: RuleKind; index: number; rule: AnyRule }
+
+const CHANNEL_TYPES = [
+  { value: 'wecombot', label: '企业微信机器人' },
+  { value: 'bark', label: 'Bark' },
+  { value: 'telegram', label: 'Telegram' },
+  { value: 'dingtalk', label: '钉钉机器人' },
+  { value: 'custom', label: '自定义 Apprise URL' },
+];
+
+const SEVERITY_OPTIONS = [
+  { value: 'warning', label: '预警' },
+  { value: 'critical', label: '严重' },
+];
+
+const encode = (value: string) => encodeURIComponent(value);
+const split = (value?: string) => (value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+
+function newChannelId() {
+  return `channel-${Math.random().toString(36).slice(2, 10)}`;
+}
+function newGroupId() {
+  return `group-${Math.random().toString(36).slice(2, 10)}`;
+}
+function newRuleId(prefix: string) {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function channelUrl(channel: ChannelValue): string {
+  if (channel.channel_type === 'custom') return channel.apprise_url ?? '';
   if (channel.channel_type === 'wecombot') return channel.wecombot_key?.trim() ? `wecombot://${encode(channel.wecombot_key.trim())}` : '';
-  if (channel.channel_type === 'bark') { const targets = split(channel.bark_targets); if (!channel.bark_host?.trim() || !targets.length) return ''; const p = new URLSearchParams(); if (channel.bark_group?.trim()) p.set('group', channel.bark_group.trim()); if (channel.bark_sound?.trim()) p.set('sound', channel.bark_sound.trim()); return `${channel.bark_use_https === false ? 'bark' : 'barks'}://${channel.bark_host.trim()}/${targets.map(encode).join('/')}${p.size ? `?${p}` : ''}`; }
-  if (channel.channel_type === 'telegram') { const targets = split(channel.telegram_targets); return channel.telegram_bot_token?.trim() && targets.length ? `tgram://${encode(channel.telegram_bot_token.trim())}/${targets.map(encode).join('/')}` : ''; }
-  if (channel.channel_type === 'dingtalk') { const token = channel.dingtalk_token?.trim(); return token ? `dingtalk://${channel.dingtalk_secret?.trim() ? `${encode(channel.dingtalk_secret.trim())}@` : ''}${encode(token)}${split(channel.dingtalk_targets).length ? `/${split(channel.dingtalk_targets).map(encode).join('/')}` : ''}/` : ''; }
-  return channel.apprise_url.trim();
+  if (channel.channel_type === 'bark') {
+    const targets = split(channel.bark_targets);
+    if (!channel.bark_host?.trim() || !targets.length) return '';
+    const params = new URLSearchParams();
+    if (channel.bark_group?.trim()) params.set('group', channel.bark_group.trim());
+    if (channel.bark_sound?.trim()) params.set('sound', channel.bark_sound.trim());
+    const scheme = channel.bark_use_https === false ? 'bark' : 'barks';
+    return `${scheme}://${channel.bark_host.trim()}/${targets.map(encode).join('/')}${params.size ? `?${params}` : ''}`;
+  }
+  if (channel.channel_type === 'telegram') {
+    const targets = split(channel.telegram_targets);
+    if (!channel.telegram_bot_token?.trim() || !targets.length) return '';
+    return `tgram://${encode(channel.telegram_bot_token.trim())}/${targets.map(encode).join('/')}`;
+  }
+  if (channel.channel_type === 'dingtalk') {
+    const token = channel.dingtalk_token?.trim();
+    if (!token) return '';
+    const targets = split(channel.dingtalk_targets);
+    return `dingtalk://${channel.dingtalk_secret?.trim() ? `${encode(channel.dingtalk_secret.trim())}@` : ''}${encode(token)}${targets.length ? `/${targets.map(encode).join('/')}` : ''}`;
+  }
+  return '';
 }
-function decode(value: string) { try { return decodeURIComponent(value); } catch { return value; } }
-function fromChannel(channel: NotificationChannelConfig): ChannelValue {
-  const fallback: ChannelValue = { ...channel, channel_type: 'custom', bark_host: 'api.day.app', bark_use_https: true }, url = channel.apprise_url.trim();
-  if (/^https:\/\/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send/i.test(url)) { try { const key = new URL(url).searchParams.get('key')?.trim(); if (key) return { ...fallback, channel_type: 'wecombot', wecombot_key: key }; } catch { return fallback; } }
-  if (/^wecombot:\/\//i.test(url)) { try { const u = new URL(url), key = decode(u.hostname || u.pathname.replace(/^\/+/, '')); return key ? { ...fallback, channel_type: 'wecombot', wecombot_key: key } : fallback; } catch { return fallback; } }
-  if (/^barks?:\/\//i.test(url)) { try { const u = new URL(url), targets = u.pathname.split('/').filter(Boolean).map(decode); if (u.username || u.password || [...u.searchParams.keys()].some((k) => !['group', 'sound'].includes(k)) || !targets.length) return fallback; return { ...fallback, channel_type: 'bark', bark_host: u.host, bark_targets: targets.join(', '), bark_group: u.searchParams.get('group') ?? '', bark_sound: u.searchParams.get('sound') ?? '', bark_use_https: u.protocol.toLowerCase() === 'barks:' }; } catch { return fallback; } }
-  if (/^tgram:\/\//i.test(url)) { const parts = (url.replace(/^tgram:\/\//i, '').split(/[?#]/, 1)[0] ?? '').replace(/\/+$/, '').split('/').filter(Boolean).map(decode); if (parts.length >= 2 && !url.includes('?')) return { ...fallback, channel_type: 'telegram', telegram_bot_token: parts[0], telegram_targets: parts.slice(1).join(', ') }; }
-  if (/^dingtalk:\/\//i.test(url)) { try { const u = new URL(url); if (u.search) return fallback; return { ...fallback, channel_type: 'dingtalk', dingtalk_token: decode(u.hostname), dingtalk_secret: decode(u.username), dingtalk_targets: u.pathname.split('/').filter(Boolean).map(decode).join(', ') }; } catch { return fallback; } }
-  return fallback;
+
+function detectChannelType(channel: NotificationChannelConfig): ChannelType {
+  const url = channel.apprise_url ?? '';
+  if (url.startsWith('wecombot://')) return 'wecombot';
+  if (url.startsWith('bark://') || url.startsWith('barks://')) return 'bark';
+  if (url.startsWith('tgram://')) return 'telegram';
+  if (url.startsWith('dingtalk://')) return 'dingtalk';
+  return 'custom';
 }
-const defaults: Values = { notification_enabled: false, notification_check_interval_minutes: 5, default_balance_alert_threshold: 50, default_notification_channel_id: undefined, notification_channels: [], notification_channel_groups: [], notification_rules: { low_balance_rules: [balanceRule('warning'), balanceRule('critical')], aggregate_balance_rules: [aggregateRule()], connectivity_failure_rules: [connectivityRule()] } };
-function normalize(s?: AppSettings): Values { return s ? { notification_enabled: s.notification_enabled, notification_check_interval_minutes: s.notification_check_interval_minutes, default_balance_alert_threshold: s.default_balance_alert_threshold, default_notification_channel_id: s.default_notification_channel_id ?? undefined, notification_channels: s.notification_channels.map(fromChannel), notification_channel_groups: s.notification_channel_groups ?? [], notification_rules: { low_balance_rules: s.notification_rules.low_balance_rules.map((r) => ({ ...r, channel_group_ids: r.channel_group_ids ?? [] })), aggregate_balance_rules: s.notification_rules.aggregate_balance_rules.map((r) => ({ ...r, channel_group_ids: r.channel_group_ids ?? [] })), connectivity_failure_rules: s.notification_rules.connectivity_failure_rules.map((r) => ({ ...r, channel_group_ids: r.channel_group_ids ?? [] })) } } : defaults; }
-function toPayload(v: Values, s?: AppSettings): AppSettings { return { sync_max_workers: s?.sync_max_workers ?? 5, request_timeout: s?.request_timeout ?? 20, sync_verify_ssl: s?.sync_verify_ssl ?? true, scheduler_timezone: s?.scheduler_timezone ?? 'Asia/Shanghai', sync_history_lookback_days: s?.sync_history_lookback_days ?? 30, default_sync_interval_minutes: s?.default_sync_interval_minutes ?? 120, shared_socks5_proxy_url: s?.shared_socks5_proxy_url ?? '', default_instance_proxy_mode: s?.default_instance_proxy_mode ?? 'direct', rate_change_notify_enabled: s?.rate_change_notify_enabled ?? true, rate_change_min_percent: s?.rate_change_min_percent ?? 0, rate_change_cooldown_minutes: s?.rate_change_cooldown_minutes ?? 60, announcement_sync_enabled: s?.announcement_sync_enabled ?? true, announcement_notify_enabled: s?.announcement_notify_enabled ?? true, retention_sync_runs_days: s?.retention_sync_runs_days ?? 30, retention_notification_logs_days: s?.retention_notification_logs_days ?? 90, retention_daily_usage_days: s?.retention_daily_usage_days ?? 180, retention_rate_changes_days: s?.retention_rate_changes_days ?? 180, retention_announcements_days: s?.retention_announcements_days ?? 90, notification_enabled: v.notification_enabled, default_balance_alert_threshold: v.default_balance_alert_threshold, default_notification_channel_id: v.default_notification_channel_id, notification_check_interval_minutes: v.notification_check_interval_minutes, notification_rules: v.notification_rules, notification_channels: v.notification_channels.map((c) => ({ id: c.id, name: c.name.trim(), enabled: c.enabled, apprise_url: channelUrl(c) })), notification_channel_groups: v.notification_channel_groups };
+
+function topChannelType(url: string): string {
+  if (url.startsWith('wecombot://')) return '企业微信';
+  if (url.startsWith('barks://') || url.startsWith('bark://')) return 'Bark';
+  if (url.startsWith('tgram://')) return 'Telegram';
+  if (url.startsWith('dingtalk://')) return '钉钉';
+  return 'Apprise';
+}
+
+const newRuleBase = () => ({ enabled: true, instance_ids: [] as number[], tags: [] as string[], include_disabled: false, notify_on_recovery: true, channel_ids: [] as string[], channel_group_ids: [] as string[] });
+
+function newBalanceRule(): BalanceNotificationRule {
+  return { ...newRuleBase(), id: newRuleId('balance'), name: '实例余额预警', severity: 'warning', threshold: 50, resolve_threshold: null, min_consecutive_checks: 1 };
+}
+function newAggregateRule(): AggregateBalanceNotificationRule {
+  return { ...newRuleBase(), id: newRuleId('aggregate'), name: '聚合余额预警', severity: 'warning', threshold: 100, resolve_threshold: null, min_consecutive_checks: 1 };
+}
+function newConnectivityRule(): ConnectivityFailureNotificationRule {
+  return { ...newRuleBase(), id: newRuleId('connectivity'), name: '实例连接失败', consecutive_failures: 3, repeat_interval_minutes: 180 };
 }
 
 export function NotificationsPage() {
   const queryClient = useQueryClient();
+  const [tab, setTab] = useState('channels');
+  const [draft, setDraft] = useState<AppSettings | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [channelOpen, setChannelOpen] = useState(false);
+  const [channelDraft, setChannelDraft] = useState<ChannelValue | null>(null);
+  const [groupOpen, setGroupOpen] = useState(false);
+  const [groupDraft, setGroupDraft] = useState<NotificationChannelGroupConfig | null>(null);
+  const [ruleTarget, setRuleTarget] = useState<RuleTarget | null>(null);
+  const [ruleDraft, setRuleDraft] = useState<AnyRule | null>(null);
+  const [testChannels, setTestChannels] = useState<string[]>([]);
+  const [testGroups, setTestGroups] = useState<string[]>([]);
+
   const { data, isLoading } = useQuery({ queryKey: ['app-settings'], queryFn: fetchAppSettings });
-  const { data: instances } = useQuery({ queryKey: ['instances'], queryFn: () => fetchInstances() });
-  const [tab, setTab] = useState('channels'); const [guide, setGuide] = useState(false);
-  const [channelModal, setChannelModal] = useState(false); const [editingChannel, setEditingChannel] = useState<ChannelValue | null>(null);
-  const [groupModal, setGroupModal] = useState(false); const [editingGroup, setEditingGroup] = useState<NotificationChannelGroupConfig | null>(null);
-  const [ruleModal, setRuleModal] = useState(false); const [ruleTarget, setRuleTarget] = useState<{ kind: 'balance' | 'aggregate' | 'connectivity'; index: number; value: BalanceNotificationRule | AggregateBalanceNotificationRule | ConnectivityFailureNotificationRule } | null>(null);
-  const [testChannels, setTestChannels] = useState<string[]>([]); const [testGroups, setTestGroups] = useState<string[]>([]);
-  const { control, handleSubmit, reset, watch, setValue } = useForm<Values>({ defaultValues: defaults });
-  useEffect(() => { if (data) reset(normalize(data)); }, [data, reset]);
-  const values = watch(); const channels = values.notification_channels ?? []; const groups = values.notification_channel_groups ?? [];
-  const channelOptions = channels.filter((c) => c.id && c.name).map((c) => ({ label: `${c.name}${c.enabled ? '' : '（已停用）'}`, value: c.id }));
-  const groupOptions = groups.map((g) => ({ label: g.name, value: g.id }));
-  const instanceOptions = useMemo(() => (instances?.items ?? []).slice().sort((a, b) => a.name.localeCompare(b.name)).map((i) => ({ label: i.name, value: String(i.id) })), [instances?.items]);
-  const tagOptions = useMemo(() => Array.from(new Set((instances?.items ?? []).flatMap((i) => i.tags))).sort().map((t) => ({ label: t, value: t })), [instances?.items]);
-  const saveMutation = useMutation({ mutationFn: (v: Values) => updateAppSettings(toPayload(v, data)), onSuccess: async (result) => { reset(normalize(result)); await Promise.all(['app-settings', 'instances', 'dashboard-overview', 'dashboard-trends', 'sync-runs', 'notification-logs'].map((key) => queryClient.invalidateQueries({ queryKey: [key] }))); notify.success('告警通知设置已保存'); }, onError: (error) => notify.error(getErrorMessage(error)) });
-  const mutateValues = (next: Values) => saveMutation.mutate(next);
+  const { data: instanceData } = useQuery({ queryKey: ['instances'], queryFn: () => fetchInstances() });
+
+  useEffect(() => {
+    if (data) setDraft(data);
+  }, [data]);
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: AppSettings) => updateAppSettings(payload),
+    onSuccess: async (result) => {
+      setDraft(result);
+      await Promise.all(['app-settings', 'instances', 'dashboard-overview', 'sync-runs'].map((key) => queryClient.invalidateQueries({ queryKey: [key] })));
+      notify.success('告警通知设置已保存');
+    },
+    onError: (error) => notify.error(getErrorMessage(error)),
+  });
+
   const testMutation = useMutation({
     mutationFn: () => sendTestNotification({ channel_ids: testChannels, group_ids: testGroups }),
     onSuccess: (result) => {
       if (result.failed_count) {
-        const failedNames = result.items.filter((item) => !item.success).map((item) => item.channel_name).join('、');
-        notify.warning(`测试消息已发出，成功 ${result.success_count} 个，失败 ${result.failed_count} 个：${failedNames}`);
+        const failed = result.items.filter((item) => !item.success).map((item) => item.channel_name).join('、');
+        notify.warning(`测试消息已发出，成功 ${result.success_count} 个，失败 ${result.failed_count} 个：${failed}`);
         return;
       }
       notify.success(`测试消息发送成功，共 ${result.success_count} 个通知渠道`);
     },
     onError: (error) => notify.error(getErrorMessage(error)),
   });
-  const modify = (fn: (v: Values) => Values) => setValue('notification_channels', fn({ ...values }).notification_channels, { shouldDirty: true });
-  const editChannel = (item?: ChannelValue) => { setEditingChannel(item ?? newChannel()); setChannelModal(true); };
-  const saveChannel = (item: ChannelValue) => { modify((v) => ({ ...v, notification_channels: item.id && v.notification_channels.some((c) => c.id === item.id) ? v.notification_channels.map((c) => c.id === item.id ? item : c) : [...v.notification_channels, item] })); setChannelModal(false); };
-  const editGroup = (item?: NotificationChannelGroupConfig) => { setEditingGroup(item ?? { id: id('group'), name: '', channel_ids: [] }); setGroupModal(true); };
-  const setGroups = (next: NotificationChannelGroupConfig[]) => setValue('notification_channel_groups', next, { shouldDirty: true });
-  const openRule = (kind: 'balance' | 'aggregate' | 'connectivity', index: number, value: BalanceNotificationRule | AggregateBalanceNotificationRule | ConnectivityFailureNotificationRule) => { setRuleTarget({ kind, index, value: structuredClone(value) }); setRuleModal(true); };
-  const updateRule = (next: typeof ruleTarget extends infer _ ? BalanceNotificationRule | AggregateBalanceNotificationRule | ConnectivityFailureNotificationRule : never) => { if (!ruleTarget) return; const key = ruleTarget.kind === 'balance' ? 'low_balance_rules' : ruleTarget.kind === 'aggregate' ? 'aggregate_balance_rules' : 'connectivity_failure_rules'; const rules = [...values.notification_rules[key]]; rules[ruleTarget.index] = next as never; setValue(`notification_rules.${key}`, rules as never, { shouldDirty: true }); setRuleModal(false); };
-  return <form className="flex flex-col gap-4" onSubmit={handleSubmit(mutateValues)}>
-    <Card><Card.Header className="flex flex-row flex-wrap items-center justify-between gap-3"><div><Card.Title>告警通知</Card.Title><Card.Description>集中管理通知渠道、告警规则与巡检设置。</Card.Description></div><Button variant="secondary" onPress={() => setGuide(true)}><CircleHelp size={16} />使用说明</Button></Card.Header></Card>
-    <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key))}>
-      <Tabs.ListContainer><Tabs.List aria-label="告警通知设置"><Tabs.Tab id="channels">通知渠道<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="groups">渠道分组<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="rules">告警规则<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="settings">全局设置<Tabs.Indicator /></Tabs.Tab></Tabs.List></Tabs.ListContainer>
-      <Tabs.Panel id="channels"><Section title="通知渠道" description="管理推送服务和发送目标。" action={<Button variant="primary" onPress={() => editChannel()}><Plus size={16} />新增渠道</Button>}><div className="grid grid-cols-1 gap-4 md:grid-cols-2">{channels.map((c) => <Card key={c.id}><Card.Content className="flex flex-col gap-3 p-4"><div className="flex items-start justify-between gap-2"><div><h3 className="m-0 font-semibold">{c.name || '未命名渠道'}</h3><div className="mt-2 flex gap-2"><Chip size="sm" variant="soft">{types.find((x) => x.value === c.channel_type)?.label ?? '自定义'}</Chip><StatusChip color={c.enabled ? 'success' : 'default'}>{c.enabled ? '启用' : '停用'}</StatusChip></div></div><SwitchInput label="启用" checked={c.enabled} onChange={(enabled) => modify((v) => ({ ...v, notification_channels: v.notification_channels.map((x) => x.id === c.id ? { ...x, enabled } : x) }))} /></div><div className="flex justify-end gap-2"><Button variant="ghost" size="sm" onPress={() => editChannel(c)}><Pencil size={15} />编辑</Button><ConfirmPopover title="删除通知渠道？" description="相关规则中的渠道选择也需要重新确认。" onConfirm={() => modify((v) => ({ ...v, notification_channels: v.notification_channels.filter((x) => x.id !== c.id) }))}><Button variant="danger-soft" size="sm"><Trash2 size={15} />删除</Button></ConfirmPopover></div></Card.Content></Card>)}</div></Section></Tabs.Panel>
-      <Tabs.Panel id="groups"><Section title="渠道分组" description="将多个通知渠道组合使用，规则和测试发送均可选择分组。" action={<Button variant="primary" onPress={() => editGroup()}><Plus size={16} />新增分组</Button>}><div className="grid grid-cols-1 gap-4 md:grid-cols-2">{groups.map((g) => <Card key={g.id}><Card.Content className="flex flex-col gap-3 p-4"><div className="flex items-center justify-between"><h3 className="m-0 font-semibold">{g.name}</h3><Chip size="sm" variant="soft">{g.channel_ids.length} 个成员</Chip></div><div className="flex flex-wrap gap-2">{g.channel_ids.map((cid) => <Chip key={cid} size="sm" variant="soft">{channels.find((c) => c.id === cid)?.name ?? '已删除渠道'}</Chip>)}</div><div className="flex justify-end gap-2"><Button variant="ghost" size="sm" onPress={() => editGroup(g)}><Pencil size={15} />编辑</Button><ConfirmPopover title="删除渠道分组？" onConfirm={() => setGroups(groups.filter((x) => x.id !== g.id))}><Button variant="danger-soft" size="sm"><Trash2 size={15} />删除</Button></ConfirmPopover></div></Card.Content></Card>)}</div></Section></Tabs.Panel>
-      <Tabs.Panel id="rules"><div className="flex flex-col gap-5">{ruleSection('实例余额规则', '逐个实例判断余额阈值。', values.notification_rules.low_balance_rules, 'balance', (r) => `${r.threshold} 阈值 · ${r.instance_ids.length || '全部'} 实例 · ${r.channel_ids.length + r.channel_group_ids.length} 通知目标`, (r) => setValue('notification_rules.low_balance_rules', [...values.notification_rules.low_balance_rules, r as BalanceNotificationRule], { shouldDirty: true }))}{ruleSection('聚合余额规则', '统计作用范围内实例余额总和。', values.notification_rules.aggregate_balance_rules, 'aggregate', (r) => `合计阈值 ${r.threshold} · ${r.instance_ids.length} 实例 · ${r.channel_ids.length + r.channel_group_ids.length} 通知目标`, (r) => setValue('notification_rules.aggregate_balance_rules', [...values.notification_rules.aggregate_balance_rules, r as AggregateBalanceNotificationRule], { shouldDirty: true }))}{ruleSection('连接失败规则', '连续同步失败达到次数后通知。', values.notification_rules.connectivity_failure_rules, 'connectivity', (r) => `${r.consecutive_failures} 次连续失败 · ${r.instance_ids.length || '全部'} 实例 · ${r.channel_ids.length + r.channel_group_ids.length} 通知目标`, (r) => setValue('notification_rules.connectivity_failure_rules', [...values.notification_rules.connectivity_failure_rules, r as ConnectivityFailureNotificationRule], { shouldDirty: true }))}</div></Tabs.Panel>
-      <Tabs.Panel id="settings"><div className="flex flex-col gap-4"><Card><Card.Header><div><Card.Title>全局设置</Card.Title><Card.Description>巡检开关、默认告警参数和默认通知渠道。</Card.Description></div></Card.Header><Card.Content className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2"><Controller control={control} name="notification_enabled" render={({ field }) => <SwitchInput label="启用通知巡检" description="控制余额、聚合和连接失败规则的定时巡检。" checked={field.value} onChange={field.onChange} />} /><Controller control={control} name="notification_check_interval_minutes" rules={{ required: '请输入通知巡检间隔' }} render={({ field }) => <NumberInput label="通知巡检间隔（分钟）" required value={field.value} onChange={field.onChange} min={1} max={1440} step={1} />} /><Controller control={control} name="default_balance_alert_threshold" rules={{ required: '请输入默认余额阈值' }} render={({ field }) => <NumberInput label="快捷余额默认阈值" description="实例未单独填写时使用。" required value={field.value} onChange={field.onChange} min={0.01} />} /><Controller control={control} name="default_notification_channel_id" render={({ field }) => <SelectInput label="默认通知渠道" description="留空时自动使用第一个启用渠道。" options={channelOptions} value={field.value ?? ''} onChange={(v) => field.onChange(v || undefined)} placeholder="第一个启用渠道" />} /></Card.Content></Card><Card><Card.Header><div><Card.Title>测试发送</Card.Title><Card.Description>选择渠道和分组；留空则按服务端默认行为发送。</Card.Description></div></Card.Header><Card.Content className="flex flex-col gap-4 p-4"><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><SelectInput label="通知渠道" multiple options={channelOptions} value={testChannels} onChange={setTestChannels} placeholder="选择通知渠道" /><SelectInput label="渠道分组" multiple options={groupOptions} value={testGroups} onChange={setTestGroups} placeholder="选择渠道分组" /></div><div><Button variant="secondary" isPending={testMutation.isPending} onPress={() => testMutation.mutate()}><CircleHelp size={16} />发送测试通知</Button></div></Card.Content></Card><Alert status="accent"><Alert.Indicator /><Alert.Content><Alert.Description>{data?.notification_enabled ? `通知巡检已开启，后台约每 ${data.notification_check_interval_minutes} 分钟检查一次。` : '高级规则巡检当前关闭；实例管理中的快捷余额告警仍会执行。'} 此开关控制高级规则；实例快捷余额告警独立生效。</Alert.Description></Alert.Content></Alert></div></Tabs.Panel>
-    </Tabs>
-    <div className="flex justify-end"><Button type="submit" variant="primary" isPending={saveMutation.isPending} isDisabled={isLoading}>保存告警通知</Button></div>
-    <ChannelEditor open={channelModal} value={editingChannel} onClose={() => setChannelModal(false)} onSave={saveChannel} />
-    <GroupEditor open={groupModal} value={editingGroup} channels={channels} onClose={() => setGroupModal(false)} onSave={(g) => { setGroups(g.id && groups.some((x) => x.id === g.id) ? groups.map((x) => x.id === g.id ? g : x) : [...groups, g]); setGroupModal(false); }} />
-    <RuleEditor open={ruleModal} target={ruleTarget} channels={channelOptions} groups={groupOptions} instances={instanceOptions} tags={tagOptions} onClose={() => setRuleModal(false)} onSave={updateRule} />
-    <AppDrawer open={guide} onOpenChange={setGuide} title="告警通知使用说明" placement="right"><div className="flex flex-col gap-3"><Alert status="success"><Alert.Indicator /><Alert.Content><Alert.Title>余额与连接告警</Alert.Title><Alert.Description>实例余额规则逐个实例判断；聚合余额规则统计总余额；连接失败规则按连续失败次数触发。</Alert.Description></Alert.Content></Alert><Accordion><Accordion.Item id="scope"><Accordion.Heading><Accordion.Trigger>作用范围与渠道<Tabs.Indicator /></Accordion.Trigger></Accordion.Heading><Accordion.Panel><Accordion.Body><p>指定实例和标签范围取并集；都不填表示匹配全部实例。规则可同时选择通知渠道与渠道分组，留空时按默认渠道规则发送。</p><p>余额恢复阈值用于减少阈值附近的重复告警；恢复通知开启后，恢复时会发送通知。</p></Accordion.Body></Accordion.Panel></Accordion.Item><Accordion.Item id="test"><Accordion.Heading><Accordion.Trigger>测试与巡检<Tabs.Indicator /></Accordion.Trigger></Accordion.Heading><Accordion.Panel><Accordion.Body>全局设置中的测试发送可同时选择渠道和分组。保存后配置生效，通知历史可在通知日志页查看。</Accordion.Body></Accordion.Panel></Accordion.Item></Accordion></div></AppDrawer>
-  </form>;
-  function ruleSection<T extends BalanceNotificationRule | AggregateBalanceNotificationRule | ConnectivityFailureNotificationRule>(title: string, desc: string, rules: T[], kind: 'balance' | 'aggregate' | 'connectivity', summary: (r: T) => string, add: (r: T) => void) { return <Section key={kind} title={title} description={desc} action={<Button variant="secondary" onPress={() => add((kind === 'balance' ? balanceRule('warning') : kind === 'aggregate' ? aggregateRule() : connectivityRule()) as T)}><Plus size={16} />新增规则</Button>}><div className="grid grid-cols-1 gap-4 md:grid-cols-2">{rules.map((r, index) => <Card key={r.id}><Card.Content className="flex flex-col gap-3 p-4"><div className="flex items-start justify-between gap-2"><div><h3 className="m-0 font-semibold">{r.name}</h3><div className="mt-2 flex gap-2">{'severity' in r ? <StatusChip color={r.severity === 'critical' ? 'danger' : 'warning'}>{r.severity === 'critical' ? '严重' : '预警'}</StatusChip> : <Chip size="sm" variant="soft">连接失败</Chip>}<span className="text-sm text-muted">{summary(r)}</span></div></div><SwitchInput label="启用" checked={r.enabled} onChange={(enabled) => { const next = [...rules]; next[index] = { ...r, enabled }; const key = kind === 'balance' ? 'low_balance_rules' : kind === 'aggregate' ? 'aggregate_balance_rules' : 'connectivity_failure_rules'; setValue(`notification_rules.${key}`, next as never, { shouldDirty: true }); }} /></div><div className="flex justify-end gap-2"><Button variant="ghost" size="sm" onPress={() => openRule(kind, index, r)}><Pencil size={15} />编辑</Button><ConfirmPopover title="删除这条规则？" onConfirm={() => { const key = kind === 'balance' ? 'low_balance_rules' : kind === 'aggregate' ? 'aggregate_balance_rules' : 'connectivity_failure_rules'; setValue(`notification_rules.${key}`, rules.filter((_, i) => i !== index) as never, { shouldDirty: true }); }}><Button variant="danger-soft" size="sm"><Trash2 size={15} />删除</Button></ConfirmPopover></div></Card.Content></Card>)}</div></Section>; }
-}
-function Section({ title, description, action, children }: { title: string; description: string; action: ReactNode; children: ReactNode }) { return <Card><Card.Header className="flex flex-row flex-wrap items-center justify-between gap-3"><div><Card.Title>{title}</Card.Title><Card.Description>{description}</Card.Description></div>{action}</Card.Header><Card.Content className="p-4">{children}</Card.Content></Card>; }
-function ChannelEditor({ open, value, onClose, onSave }: { open: boolean; value: ChannelValue | null; onClose: () => void; onSave: (v: ChannelValue) => void }) {
-  const { register, control, handleSubmit, reset, watch } = useForm<ChannelValue>({ defaultValues: newChannel() }); useEffect(() => { if (open && value) reset(value); }, [open, value, reset]); const type = watch('channel_type'), channel = watch(), generated = channelUrl(channel);
-  return <AppModal open={open} onOpenChange={(v) => !v && onClose()} title={value?.name ? '编辑通知渠道' : '新增通知渠道'} size="lg" footer={<><Button variant="ghost" onPress={onClose}>取消</Button><Button variant="primary" onPress={() => { void handleSubmit(onSave)(); }}>保存渠道</Button></>}><form className="flex flex-col gap-4" onSubmit={handleSubmit(onSave)}><input type="hidden" {...register('id')} /><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><TextInput label="渠道名称" required inputProps={{ placeholder: '例如：Telegram 管理群', ...register('name', { required: '请输入渠道名称' }) }} /><Controller control={control} name="channel_type" render={({ field }) => <SelectInput label="渠道类型" options={types} value={field.value} onChange={(v) => field.onChange(v ?? 'custom')} />} /><Controller control={control} name="enabled" render={({ field }) => <SwitchInput label="启用" checked={field.value} onChange={field.onChange} />} /></div>{type === 'wecombot' ? <><TextInput label="Webhook Key" required description="填写企业微信群机器人地址中 key= 后的值。" inputProps={{ ...register('wecombot_key', { required: '请输入企业微信机器人 key' }) }} /><TextInput label="生成的 Apprise URL" inputProps={{ readOnly: true, value: generated }} /></> : null}{type === 'bark' ? <div className="grid grid-cols-1 gap-4 md:grid-cols-2"><TextInput label="Bark 服务器" required inputProps={{ placeholder: 'api.day.app', ...register('bark_host', { required: '请输入 Bark 服务器地址' }) }} /><TextInput label="Device Key" required description="支持多个，使用逗号分隔。" inputProps={{ ...register('bark_targets', { required: '请输入至少一个 Bark Device Key' }) }} /><Controller control={control} name="bark_use_https" render={({ field }) => <SwitchInput label="使用 HTTPS" checked={field.value ?? true} onChange={field.onChange} />} /><TextInput label="分组名称" inputProps={{ ...register('bark_group') }} /><TextInput label="提示音" inputProps={{ ...register('bark_sound') }} /><TextInput label="生成的 Apprise URL" inputProps={{ readOnly: true, value: generated }} /></div> : null}{type === 'telegram' ? <div className="grid grid-cols-1 gap-4 md:grid-cols-2"><TextInput label="Bot Token" required description="从 BotFather 创建机器人后获取。" inputProps={{ ...register('telegram_bot_token', { required: '请输入 Telegram Bot Token' }) }} /><TextInput label="Chat ID / 用户名" required description="支持多个，使用逗号分隔。" inputProps={{ ...register('telegram_targets', { required: '请输入至少一个 Telegram Chat ID 或用户名' }) }} /><TextInput label="生成的 Apprise URL" inputProps={{ readOnly: true, value: generated }} /></div> : null}{type === 'dingtalk' ? <div className="grid grid-cols-1 gap-4 md:grid-cols-2"><TextInput label="Access Token" required inputProps={{ ...register('dingtalk_token', { required: '请输入钉钉机器人 access token' }) }} /><TextInput label="加签 Secret" inputProps={{ ...register('dingtalk_secret') }} /><TextInput label="@手机号" description="可选，多个用逗号分隔。" inputProps={{ ...register('dingtalk_targets') }} /><TextInput label="生成的 Apprise URL" inputProps={{ readOnly: true, value: generated }} /></div> : null}{type === 'custom' ? <TextInput label="Apprise URL" required inputProps={{ ...register('apprise_url', { required: '请输入 Apprise URL' }) }} /> : null}</form></AppModal>;
-}
-function GroupEditor({ open, value, channels, onClose, onSave }: { open: boolean; value: NotificationChannelGroupConfig | null; channels: ChannelValue[]; onClose: () => void; onSave: (v: NotificationChannelGroupConfig) => void }) { const { register, control, handleSubmit, reset } = useForm<NotificationChannelGroupConfig>({ defaultValues: { id: '', name: '', channel_ids: [] } }); useEffect(() => { if (open && value) reset(value); }, [open, value, reset]); return <AppModal open={open} onOpenChange={(v) => !v && onClose()} title={value?.name ? '编辑渠道分组' : '新增渠道分组'} footer={<><Button variant="ghost" onPress={onClose}>取消</Button><Button variant="primary" onPress={() => { void handleSubmit(onSave)(); }}>保存分组</Button></>}><form className="flex flex-col gap-4" onSubmit={handleSubmit(onSave)}><input type="hidden" {...register('id')} /><TextInput label="分组名称" required inputProps={{ ...register('name', { required: '请输入分组名称' }) }} /><Controller control={control} name="channel_ids" render={({ field }) => <SelectInput label="成员渠道" multiple options={channels.map((c) => ({ label: `${c.name}${c.enabled ? '' : '（已停用）'}`, value: c.id }))} value={field.value} onChange={field.onChange} placeholder="选择渠道" />} /></form></AppModal>; }
 
-type RuleTarget = { kind: 'balance' | 'aggregate' | 'connectivity'; index: number; value: BalanceNotificationRule | AggregateBalanceNotificationRule | ConnectivityFailureNotificationRule } | null;
-function RuleEditor({ open, target, channels, groups, instances, tags, onClose, onSave }: { open: boolean; target: RuleTarget; channels: Options; groups: Options; instances: Options; tags: Options; onClose: () => void; onSave: (v: BalanceNotificationRule | AggregateBalanceNotificationRule | ConnectivityFailureNotificationRule) => void }) {
-  const { register, control, handleSubmit, reset, watch } = useForm<BalanceNotificationRule | AggregateBalanceNotificationRule | ConnectivityFailureNotificationRule>(); useEffect(() => { if (open && target) reset(target.value); }, [open, target, reset]); const rule = watch();
-  return <AppModal open={open} onOpenChange={(v) => !v && onClose()} title="编辑告警规则" size="lg" footer={<><Button variant="ghost" onPress={onClose}>取消</Button><Button variant="primary" onPress={() => { void handleSubmit(onSave)(); }}>保存规则</Button></>}><form className="grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={handleSubmit(onSave)}><input type="hidden" {...register('id')} /><TextInput label="规则名称" required inputProps={{ ...register('name', { required: '请输入规则名称' }) }} />{target?.kind !== 'connectivity' ? <Controller control={control} name="severity" render={({ field }) => <SelectInput label="级别" options={[{ label: '预警', value: 'warning' }, { label: '严重', value: 'critical' }]} value={field.value} onChange={(v) => field.onChange(v ?? 'warning')} />} /> : null}<Controller control={control} name="enabled" render={({ field }) => <SwitchInput label="启用" checked={field.value ?? false} onChange={field.onChange} />} />{target?.kind === 'connectivity' ? <><Controller control={control} name="consecutive_failures" render={({ field }) => <NumberInput label="连续失败次数" value={field.value} onChange={field.onChange} min={1} step={1} />} /><Controller control={control} name="repeat_interval_minutes" render={({ field }) => <NumberInput label="重复提醒间隔（分钟）" value={field.value} onChange={field.onChange} min={1} step={1} />} /></> : <><Controller control={control} name="threshold" render={({ field }) => <NumberInput label={target?.kind === 'aggregate' ? '总余额阈值' : '触发阈值'} value={field.value} onChange={field.onChange} min={0.01} />} /><Controller control={control} name="resolve_threshold" render={({ field }) => <NumberInput label="恢复阈值" value={field.value ?? undefined} onChange={field.onChange} min={0.01} />} /><Controller control={control} name="min_consecutive_checks" render={({ field }) => <NumberInput label="连续命中次数" value={field.value} onChange={field.onChange} min={1} max={10} step={1} />} /></>}<Controller control={control} name="instance_ids" render={({ field }) => <SelectInput label="指定实例" multiple options={instances} value={(field.value ?? []).map(String)} onChange={(v) => field.onChange(v.map(Number))} placeholder="不选表示匹配全部实例" />} /><Controller control={control} name="tags" render={({ field }) => <SelectInput label="标签筛选" multiple options={tags} value={field.value ?? []} onChange={field.onChange} placeholder="按标签匹配实例" />} /><Controller control={control} name="include_disabled" render={({ field }) => <SwitchInput label="包含停用实例" checked={field.value ?? false} onChange={field.onChange} />} /><Controller control={control} name="notify_on_recovery" render={({ field }) => <SwitchInput label="恢复通知" checked={field.value ?? true} onChange={field.onChange} />} /><Controller control={control} name="channel_ids" render={({ field }) => <SelectInput label="通知渠道" multiple options={channels} value={field.value ?? []} onChange={field.onChange} placeholder="不选表示发送到默认渠道" />} /><Controller control={control} name="channel_group_ids" render={({ field }) => <SelectInput label="渠道分组" multiple options={groups} value={field.value ?? []} onChange={field.onChange} placeholder="选择渠道分组" />} />{target?.kind === 'aggregate' && !((rule.instance_ids?.length ?? 0) || (rule.tags?.length ?? 0)) ? <p className="m-0 text-sm text-danger">至少选择一个实例或标签</p> : null}</form></AppModal>;
+  const channels = draft?.notification_channels ?? [];
+  const groups = draft?.notification_channel_groups ?? [];
+  const rules: NotificationRuleSet = draft?.notification_rules ?? { low_balance_rules: [], aggregate_balance_rules: [], connectivity_failure_rules: [] };
+
+  const channelOptions = useMemo(() => channels.map((item) => ({ label: `${item.name}${item.enabled ? '' : '（停用）'}`, value: item.id })), [channels]);
+  const groupOptions = useMemo(() => groups.map((item) => ({ label: `${item.name}（${item.channel_ids.length} 渠道）`, value: item.id })), [groups]);
+  const instanceOptions = useMemo(() => (instanceData?.items ?? []).map((item) => ({ label: item.name, value: String(item.id) })), [instanceData]);
+  const tagOptions = useMemo(() => {
+    const tags = new Set<string>();
+    for (const item of instanceData?.items ?? []) for (const tag of item.tags) tags.add(tag);
+    return Array.from(tags).sort().map((tag) => ({ label: tag, value: tag }));
+  }, [instanceData]);
+
+  const patchDraft = (changes: Partial<AppSettings>) => setDraft((current) => (current ? { ...current, ...changes } : current));
+  const patchRules = (next: Partial<NotificationRuleSet>) => setDraft((current) => (current ? { ...current, notification_rules: { ...current.notification_rules, ...next } } : current));
+
+  const saveChannel = () => {
+    if (!channelDraft || !draft) return;
+    const url = channelUrl(channelDraft);
+    if (!url) { notify.warning('请先补全渠道参数'); return; }
+    const record: NotificationChannelConfig = { id: channelDraft.id, name: channelDraft.name.trim(), enabled: channelDraft.enabled, apprise_url: url };
+    const exists = channels.some((item) => item.id === record.id);
+    patchDraft({ notification_channels: exists ? channels.map((item) => (item.id === record.id ? record : item)) : [...channels, record] });
+    setChannelOpen(false);
+    setChannelDraft(null);
+  };
+
+  const saveGroup = () => {
+    if (!groupDraft || !draft) return;
+    if (!groupDraft.name.trim()) { notify.warning('请填写分组名称'); return; }
+    const exists = groups.some((item) => item.id === groupDraft.id);
+    patchDraft({ notification_channel_groups: exists ? groups.map((item) => (item.id === groupDraft.id ? groupDraft : item)) : [...groups, groupDraft] });
+    setGroupOpen(false);
+    setGroupDraft(null);
+  };
+
+  const saveRule = () => {
+    if (!ruleDraft || !ruleTarget || !draft) return;
+    if (!ruleDraft.name.trim()) { notify.warning('请填写规则名称'); return; }
+    const listKey = ruleTarget.kind === 'balance' ? 'low_balance_rules' : ruleTarget.kind === 'aggregate' ? 'aggregate_balance_rules' : 'connectivity_failure_rules';
+    const list = [...rules[listKey]];
+    list[ruleTarget.index] = ruleDraft as never;
+    patchRules({ [listKey]: list } as Partial<NotificationRuleSet>);
+    setRuleTarget(null);
+    setRuleDraft(null);
+  };
+
+  const removeRule = (kind: RuleKind, index: number) => {
+    const listKey = kind === 'balance' ? 'low_balance_rules' : kind === 'aggregate' ? 'aggregate_balance_rules' : 'connectivity_failure_rules';
+    patchRules({ [listKey]: rules[listKey].filter((_, i) => i !== index) } as Partial<NotificationRuleSet>);
+  };
+
+  const addRule = (kind: RuleKind) => {
+    const rule = kind === 'balance' ? newBalanceRule() : kind === 'aggregate' ? newAggregateRule() : newConnectivityRule();
+    const listKey = kind === 'balance' ? 'low_balance_rules' : kind === 'aggregate' ? 'aggregate_balance_rules' : 'connectivity_failure_rules';
+    const list = [...rules[listKey], rule] as AnyRule[];
+    patchRules({ [listKey]: list } as Partial<NotificationRuleSet>);
+    setRuleTarget({ kind, index: list.length - 1, rule });
+    setRuleDraft(rule);
+  };
+
+  const ruleSection = (kind: RuleKind, title: string, description: string, list: AnyRule[]) => (
+    <Card key={kind}>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <CardTitle>{title}</CardTitle>
+            <CardDescription>{description}</CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => addRule(kind)}>
+            <Plus className="size-4" />
+            新增规则
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {list.length ? list.map((rule, index) => {
+          const balance = rule as BalanceNotificationRule;
+          const connectivity = rule as ConnectivityFailureNotificationRule;
+          const targetCount = rule.channel_ids.length + rule.channel_group_ids.length;
+          return (
+            <div key={rule.id} className="flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <strong className="truncate text-sm">{rule.name}</strong>
+                  {'severity' in rule ? <StatusBadge tone={rule.severity === 'critical' ? 'destructive' : 'warning'}>{rule.severity === 'critical' ? '严重' : '预警'}</StatusBadge> : null}
+                  <StatusBadge tone={rule.enabled ? 'success' : 'muted'}>{rule.enabled ? '启用' : '停用'}</StatusBadge>
+                </div>
+                <div className="mt-0.5 flex flex-wrap gap-x-4 text-xs text-muted-foreground">
+                  {'threshold' in rule ? <span>阈值 {balance.threshold}{kind === 'aggregate' ? '（合计）' : ''}</span> : null}
+                  {'consecutive_failures' in rule ? <span>连续失败 {connectivity.consecutive_failures} 次</span> : null}
+                  <span>{rule.instance_ids.length ? `${rule.instance_ids.length} 个实例` : '全部实例'}{rule.tags.length ? ` · 标签 ${rule.tags.join('/')}` : ''}</span>
+                  <span>{targetCount ? `${targetCount} 个通知目标` : '默认渠道'}</span>
+                </div>
+              </div>
+              <Button variant="ghost" size="icon-sm" aria-label="编辑规则" onClick={() => { setRuleTarget({ kind, index, rule }); setRuleDraft(rule); }}>
+                <Pencil className="size-4" />
+              </Button>
+              <ConfirmPopover title={`删除规则「${rule.name}」？`} confirmText="删除" onConfirm={() => removeRule(kind, index)}>
+                <Button variant="ghost" size="icon-sm" aria-label="删除规则" className="text-destructive">
+                  <Trash2 className="size-4" />
+                </Button>
+              </ConfirmPopover>
+            </div>
+          );
+        }) : <p className="m-0 text-sm text-muted-foreground">暂无规则</p>}
+      </CardContent>
+    </Card>
+  );
+
+  const ruleDraftBalance = ruleDraft && ruleTarget?.kind !== 'connectivity' ? (ruleDraft as BalanceNotificationRule) : null;
+  const ruleDraftConnectivity = ruleDraft && ruleTarget?.kind === 'connectivity' ? (ruleDraft as ConnectivityFailureNotificationRule) : null;
+
+  return (
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="告警通知"
+        subtitle={data?.updated_at ? `最近更新：${formatDateTime(data.updated_at)}` : '集中管理通知渠道、渠道分组与三类告警规则。'}
+        extra={
+          <>
+            <Button variant="outline" onClick={() => setGuideOpen(true)}>
+              <CircleHelp className="size-4" />
+              使用说明
+            </Button>
+            <Button isPending={saveMutation.isPending} disabled={!draft || isLoading} onClick={() => draft && saveMutation.mutate(draft)}>
+              保存告警通知
+            </Button>
+          </>
+        }
+      />
+
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="mb-4">
+          <TabsTrigger value="channels">通知渠道</TabsTrigger>
+          <TabsTrigger value="groups">渠道分组</TabsTrigger>
+          <TabsTrigger value="rules">告警规则</TabsTrigger>
+          <TabsTrigger value="settings">全局设置</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="channels">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-col gap-1">
+                  <CardTitle>通知渠道</CardTitle>
+                  <CardDescription>每个渠道对应一个 Apprise 推送目标。</CardDescription>
+                </div>
+                <Button size="sm" onClick={() => { setChannelDraft({ id: newChannelId(), name: '', enabled: true, apprise_url: '', channel_type: 'wecombot', bark_host: 'api.day.app', bark_use_https: true }); setChannelOpen(true); }}>
+                  <Plus className="size-4" />
+                  新增渠道
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {channels.length ? channels.map((channel) => (
+                <div key={channel.id} className="flex flex-col gap-2 rounded-lg border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Bell className="size-4 text-muted-foreground" />
+                    <strong className="min-w-0 flex-1 truncate text-sm">{channel.name}</strong>
+                    <StatusBadge tone="muted">{topChannelType(channel.apprise_url)}</StatusBadge>
+                    <StatusBadge tone={channel.enabled ? 'success' : 'muted'}>{channel.enabled ? '启用' : '停用'}</StatusBadge>
+                  </div>
+                  <div className="truncate font-mono text-xs text-muted-foreground" title={channel.apprise_url}>{channel.apprise_url}</div>
+                  <div className="flex items-center justify-end gap-1">
+                    <SwitchField checked={channel.enabled} onCheckedChange={(value) => patchDraft({ notification_channels: channels.map((item) => (item.id === channel.id ? { ...item, enabled: value } : item)) })} />
+                    <Button variant="ghost" size="icon-sm" aria-label="编辑渠道" onClick={() => { setChannelDraft({ ...channel, channel_type: detectChannelType(channel) }); setChannelOpen(true); }}>
+                      <Pencil className="size-4" />
+                    </Button>
+                    <ConfirmPopover title={`删除渠道「${channel.name}」？`} confirmText="删除" onConfirm={() => patchDraft({ notification_channels: channels.filter((item) => item.id !== channel.id) })}>
+                      <Button variant="ghost" size="icon-sm" aria-label="删除渠道" className="text-destructive">
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </ConfirmPopover>
+                  </div>
+                </div>
+              )) : <p className="m-0 text-sm text-muted-foreground">暂无通知渠道，先新增一个。</p>}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="groups">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-col gap-1">
+                  <CardTitle>渠道分组</CardTitle>
+                  <CardDescription>把多个渠道打包成一个目标，规则和测试发送都可直接选分组。</CardDescription>
+                </div>
+                <Button size="sm" onClick={() => { setGroupDraft({ id: newGroupId(), name: '', channel_ids: [] }); setGroupOpen(true); }}>
+                  <Plus className="size-4" />
+                  新增分组
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {groups.length ? groups.map((group) => (
+                <div key={group.id} className="flex flex-col gap-2 rounded-lg border p-3">
+                  <div className="flex items-center gap-2">
+                    <strong className="min-w-0 flex-1 truncate text-sm">{group.name}</strong>
+                    <StatusBadge tone="secondary">{group.channel_ids.length} 个渠道</StatusBadge>
+                    <Button variant="ghost" size="icon-sm" aria-label="编辑分组" onClick={() => { setGroupDraft(group); setGroupOpen(true); }}>
+                      <Pencil className="size-4" />
+                    </Button>
+                    <ConfirmPopover title={`删除分组「${group.name}」？`} confirmText="删除" onConfirm={() => patchDraft({ notification_channel_groups: groups.filter((item) => item.id !== group.id) })}>
+                      <Button variant="ghost" size="icon-sm" aria-label="删除分组" className="text-destructive">
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </ConfirmPopover>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {group.channel_ids.map((id) => (
+                      <StatusBadge key={id} tone="muted">{channels.find((item) => item.id === id)?.name ?? id}</StatusBadge>
+                    ))}
+                  </div>
+                </div>
+              )) : <p className="m-0 text-sm text-muted-foreground">暂无渠道分组。</p>}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="rules">
+          <div className="flex flex-col gap-4">
+            {ruleSection('balance', '实例余额规则', '逐个实例判断余额阈值，低于阈值即告警。', rules.low_balance_rules as AnyRule[])}
+            {ruleSection('aggregate', '聚合余额规则', '把作用范围内实例余额加总，总额低于阈值才告警。', rules.aggregate_balance_rules as AnyRule[])}
+            {ruleSection('connectivity', '连接失败规则', '连续探测失败达到次数后告警，可设置重复提醒间隔。', rules.connectivity_failure_rules as AnyRule[])}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="settings">
+          <div className="flex flex-col gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>全局设置</CardTitle>
+                <CardDescription>巡检开关、默认阈值与默认渠道。</CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <SwitchField label="启用通知巡检" description="控制余额、聚合与连接失败规则的定时巡检" checked={Boolean(draft?.notification_enabled)} onCheckedChange={(value) => patchDraft({ notification_enabled: value })} />
+                <NumberField label="巡检间隔（分钟）" value={draft?.notification_check_interval_minutes ?? 5} onValueChange={(value) => patchDraft({ notification_check_interval_minutes: value })} min={1} max={1440} />
+                <NumberField label="快捷余额默认阈值" description="实例未单独填写时使用" value={draft?.default_balance_alert_threshold ?? 50} onValueChange={(value) => patchDraft({ default_balance_alert_threshold: value })} min={0.01} />
+                <SelectField label="默认通知渠道" value={draft?.default_notification_channel_id ?? '__none__'} onValueChange={(value) => patchDraft({ default_notification_channel_id: value === '__none__' ? null : value })} options={[{ label: '自动（第一个启用渠道）', value: '__none__' }, ...channelOptions]} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>测试发送</CardTitle>
+                <CardDescription>选择渠道或分组发送一条测试消息；留空则按服务端默认行为发送。</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <MultiSelect label="通知渠道" options={channelOptions} value={testChannels} onChange={setTestChannels} placeholder="选择渠道" />
+                  <MultiSelect label="渠道分组" options={groupOptions} value={testGroups} onChange={setTestGroups} placeholder="选择分组" />
+                </div>
+                <Button className="w-fit" isPending={testMutation.isPending} onClick={() => testMutation.mutate()}>
+                  <Send className="size-4" />
+                  发送测试通知
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      <AppModal
+        open={channelOpen}
+        onOpenChange={(open) => { setChannelOpen(open); if (!open) setChannelDraft(null); }}
+        title={channelDraft && channels.some((item) => item.id === channelDraft.id) ? '编辑通知渠道' : '新增通知渠道'}
+        description="选择渠道类型后填写对应参数，系统会自动生成 Apprise URL。"
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setChannelOpen(false); setChannelDraft(null); }}>取消</Button>
+            <Button onClick={saveChannel}>保存渠道</Button>
+          </>
+        }
+      >
+        {channelDraft ? (
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <TextField label="渠道名称" required inputProps={{ placeholder: '例如：运维群', value: channelDraft.name, onChange: (event) => setChannelDraft({ ...channelDraft, name: event.target.value }) }} />
+              <SelectField label="渠道类型" value={channelDraft.channel_type ?? 'wecombot'} onValueChange={(value) => setChannelDraft({ ...channelDraft, channel_type: value as ChannelType })} options={CHANNEL_TYPES} />
+            </div>
+            {(channelDraft.channel_type ?? 'wecombot') === 'wecombot' ? (
+              <TextField label="Webhook Key" required description="企业微信群机器人地址里 key= 后面的值" inputProps={{ placeholder: 'xxxxxxxx-xxxx-xxxx', value: channelDraft.wecombot_key ?? '', onChange: (event) => setChannelDraft({ ...channelDraft, wecombot_key: event.target.value }) }} />
+            ) : null}
+            {channelDraft.channel_type === 'bark' ? (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <TextField label="Bark 服务器" required description="默认官方云 api.day.app" inputProps={{ placeholder: 'api.day.app', value: channelDraft.bark_host ?? '', onChange: (event) => setChannelDraft({ ...channelDraft, bark_host: event.target.value }) }} />
+                <TextField label="Device Key" required description="多个用逗号分隔" inputProps={{ placeholder: 'abc123def456', value: channelDraft.bark_targets ?? '', onChange: (event) => setChannelDraft({ ...channelDraft, bark_targets: event.target.value }) }} />
+                <TextField label="分组" inputProps={{ placeholder: '可选', value: channelDraft.bark_group ?? '', onChange: (event) => setChannelDraft({ ...channelDraft, bark_group: event.target.value }) }} />
+                <TextField label="提示音" inputProps={{ placeholder: '可选，如 alarm', value: channelDraft.bark_sound ?? '', onChange: (event) => setChannelDraft({ ...channelDraft, bark_sound: event.target.value }) }} />
+                <SwitchField label="使用 HTTPS" checked={channelDraft.bark_use_https !== false} onCheckedChange={(value) => setChannelDraft({ ...channelDraft, bark_use_https: value })} />
+              </div>
+            ) : null}
+            {channelDraft.channel_type === 'telegram' ? (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <TextField label="Bot Token" required inputProps={{ placeholder: '123456789:AA...', value: channelDraft.telegram_bot_token ?? '', onChange: (event) => setChannelDraft({ ...channelDraft, telegram_bot_token: event.target.value }) }} />
+                <TextField label="Chat ID / 用户名" required description="多个用逗号分隔" inputProps={{ placeholder: '-1001234567890 或 @channel', value: channelDraft.telegram_targets ?? '', onChange: (event) => setChannelDraft({ ...channelDraft, telegram_targets: event.target.value }) }} />
+              </div>
+            ) : null}
+            {channelDraft.channel_type === 'dingtalk' ? (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <TextField label="Access Token" required inputProps={{ placeholder: 'xxxxxxxx', value: channelDraft.dingtalk_token ?? '', onChange: (event) => setChannelDraft({ ...channelDraft, dingtalk_token: event.target.value }) }} />
+                <TextField label="加签 Secret" description="开启加签时填写" inputProps={{ placeholder: 'SECxxxx', value: channelDraft.dingtalk_secret ?? '', onChange: (event) => setChannelDraft({ ...channelDraft, dingtalk_secret: event.target.value }) }} />
+                <TextField label="@手机号" description="可选，多个用逗号分隔" inputProps={{ placeholder: '13800138000', value: channelDraft.dingtalk_targets ?? '', onChange: (event) => setChannelDraft({ ...channelDraft, dingtalk_targets: event.target.value }) }} />
+              </div>
+            ) : null}
+            {channelDraft.channel_type === 'custom' ? (
+              <TextField label="Apprise URL" required inputProps={{ placeholder: 'apprise://...', value: channelDraft.apprise_url, onChange: (event) => setChannelDraft({ ...channelDraft, apprise_url: event.target.value }) }} />
+            ) : null}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium leading-none">生成的 Apprise URL</span>
+              <input readOnly value={channelUrl(channelDraft)} className={cn('w-full rounded-md border bg-muted px-2 py-1.5 font-mono text-xs', !channelUrl(channelDraft) && 'text-muted-foreground')} placeholder="填写完成后自动生成" />
+            </div>
+            <SwitchField label="启用该渠道" checked={channelDraft.enabled} onCheckedChange={(value) => setChannelDraft({ ...channelDraft, enabled: value })} />
+          </div>
+        ) : null}
+      </AppModal>
+
+      <AppModal
+        open={groupOpen}
+        onOpenChange={(open) => { setGroupOpen(open); if (!open) setGroupDraft(null); }}
+        title={groupDraft && groups.some((item) => item.id === groupDraft.id) ? '编辑渠道分组' : '新增渠道分组'}
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setGroupOpen(false); setGroupDraft(null); }}>取消</Button>
+            <Button onClick={saveGroup}>保存分组</Button>
+          </>
+        }
+      >
+        {groupDraft ? (
+          <div className="flex flex-col gap-4">
+            <TextField label="分组名称" required inputProps={{ placeholder: '例如：运维组', value: groupDraft.name, onChange: (event) => setGroupDraft({ ...groupDraft, name: event.target.value }) }} />
+            <MultiSelect label="成员渠道" options={channelOptions} value={groupDraft.channel_ids} onChange={(value) => setGroupDraft({ ...groupDraft, channel_ids: value })} placeholder="选择渠道" emptyText="先创建通知渠道" />
+          </div>
+        ) : null}
+      </AppModal>
+
+      <AppModal
+        open={Boolean(ruleDraft)}
+        onOpenChange={(open) => { if (!open) { setRuleDraft(null); setRuleTarget(null); } }}
+        title="编辑告警规则"
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setRuleDraft(null); setRuleTarget(null); }}>取消</Button>
+            <Button onClick={saveRule}>保存规则</Button>
+          </>
+        }
+      >
+        {ruleDraft ? (
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <TextField label="规则名称" required inputProps={{ placeholder: '例如：主力站余额预警', value: ruleDraft.name, onChange: (event) => setRuleDraft({ ...ruleDraft, name: event.target.value }) }} />
+              <SwitchField label="启用规则" checked={ruleDraft.enabled} onCheckedChange={(value) => setRuleDraft({ ...ruleDraft, enabled: value })} />
+              {ruleDraftBalance ? (
+                <>
+                  <SelectField label="严重级别" value={ruleDraftBalance.severity} onValueChange={(value) => setRuleDraft({ ...ruleDraftBalance, severity: value as BalanceNotificationRule['severity'] })} options={SEVERITY_OPTIONS} />
+                  <NumberField label={ruleTarget?.kind === 'aggregate' ? '合计余额阈值' : '触发阈值'} value={ruleDraftBalance.threshold} onValueChange={(value) => setRuleDraft({ ...ruleDraftBalance, threshold: value })} min={0.01} />
+                  <NumberField label="恢复阈值" description="留空为触发阈值 1.2 倍" value={ruleDraftBalance.resolve_threshold ?? undefined} onValueChange={(value) => setRuleDraft({ ...ruleDraftBalance, resolve_threshold: value })} min={0} />
+                  <NumberField label="连续命中次数" value={ruleDraftBalance.min_consecutive_checks} onValueChange={(value) => setRuleDraft({ ...ruleDraftBalance, min_consecutive_checks: Math.max(1, Math.round(value)) })} min={1} max={100} />
+                </>
+              ) : null}
+              {ruleDraftConnectivity ? (
+                <>
+                  <NumberField label="连续失败次数" value={ruleDraftConnectivity.consecutive_failures} onValueChange={(value) => setRuleDraft({ ...ruleDraftConnectivity, consecutive_failures: Math.max(1, Math.round(value)) })} min={1} max={100} />
+                  <NumberField label="重复提醒间隔（分钟）" value={ruleDraftConnectivity.repeat_interval_minutes} onValueChange={(value) => setRuleDraft({ ...ruleDraftConnectivity, repeat_interval_minutes: Math.max(1, Math.round(value)) })} min={1} max={10080} />
+                </>
+              ) : null}
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <MultiSelect label="作用实例" description="留空表示全部实例" options={instanceOptions} value={(ruleDraft.instance_ids ?? []).map(String)} onChange={(value) => setRuleDraft({ ...ruleDraft, instance_ids: value.map(Number) })} placeholder="全部实例" />
+              <MultiSelect label="作用标签" description="与实例条件同时生效" options={tagOptions} value={ruleDraft.tags ?? []} onChange={(value) => setRuleDraft({ ...ruleDraft, tags: value })} placeholder="不限标签" />
+              <MultiSelect label="通知渠道" options={channelOptions} value={ruleDraft.channel_ids ?? []} onChange={(value) => setRuleDraft({ ...ruleDraft, channel_ids: value })} placeholder="默认通知渠道" />
+              <MultiSelect label="渠道分组" options={groupOptions} value={ruleDraft.channel_group_ids ?? []} onChange={(value) => setRuleDraft({ ...ruleDraft, channel_group_ids: value })} placeholder="不选分组" />
+              <SwitchField label="包含已停用实例" checked={ruleDraft.include_disabled} onCheckedChange={(value) => setRuleDraft({ ...ruleDraft, include_disabled: value })} />
+              <SwitchField label="恢复时通知" checked={ruleDraft.notify_on_recovery} onCheckedChange={(value) => setRuleDraft({ ...ruleDraft, notify_on_recovery: value })} />
+            </div>
+          </div>
+        ) : null}
+      </AppModal>
+
+      <AppModal open={guideOpen} onOpenChange={setGuideOpen} title="使用说明" size="md">
+        <div className="flex flex-col gap-3 text-sm text-muted-foreground">
+          <p className="m-0">1. 在「通知渠道」创建至少一个渠道（企业微信机器人 / Bark / Telegram / 钉钉 / 自定义 Apprise URL）。</p>
+          <p className="m-0">2. 需要一次通知多处时，在「渠道分组」把多个渠道打包，规则里勾选分组即可。</p>
+          <p className="m-0">3. 在「告警规则」配置三类规则：实例余额、聚合余额、连接失败。作用实例/标签留空表示全部。</p>
+          <p className="m-0">4. 每个实例还可单独控制是否推送倍率变更与上游公告（实例编辑 → 高级设置）。</p>
+          <p className="m-0">5. 保存后由后台巡检按间隔执行；测试发送可在「全局设置」页签验证渠道连通性。</p>
+          <p className="m-0">6. 所有推送均写入「日志记录 → 通知日志」，可排查投递失败原因。</p>
+        </div>
+      </AppModal>
+    </div>
+  );
 }
