@@ -106,6 +106,7 @@ export function InstanceCreateModal({
       notification_channel_group_ids: initialValues?.notification_channel_group_ids ?? [],
       notify_rate_changes: initialValues?.notify_rate_changes ?? true,
       notify_announcements: initialValues?.notify_announcements ?? true,
+      health_alert_enabled: initialValues?.health_alert_enabled ?? false,
       billing_mode: initialValues?.billing_mode ?? 'prepaid',
       quota_per_unit: initialValues?.quota_per_unit ?? undefined,
       priority: initialValues?.priority ?? 3,
@@ -243,6 +244,7 @@ export function InstanceCreateModal({
 
           <section className="flex flex-col gap-4 rounded-lg border p-3">
             <Controller control={control} name="balance_alert_enabled" render={({ field }) => <SwitchField label="余额告警" description="开启后余额低于阈值会按下方渠道推送" checked={field.value} onCheckedChange={field.onChange} />} />
+            <Controller control={control} name="health_alert_enabled" render={({ field }) => <SwitchField label="连接失败告警" description="默认关闭；开启后连续探测失败会通知（与告警规则里的连接失败规则共同生效）" checked={field.value} onCheckedChange={field.onChange} />} />
             {balanceAlertEnabled ? (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <Controller

@@ -46,7 +46,9 @@ def get_api_docs() -> str:
     """Serve the Markdown API documentation bundled with the app."""
     for candidate in (
         Path(__file__).resolve().parents[3] / "docs" / "api.md",
+        Path(__file__).resolve().parents[2] / "docs" / "api.md",
         Path.cwd() / "docs" / "api.md",
+        Path.cwd().parent / "docs" / "api.md",
     ):
         if candidate.exists():
             return candidate.read_text(encoding="utf-8")

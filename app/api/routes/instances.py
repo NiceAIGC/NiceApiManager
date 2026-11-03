@@ -37,6 +37,7 @@ from app.services.instance_service import (
     update_instance,
     update_instances_batch,
 )
+from app.services.insights_service import build_instance_insights
 from app.services.sync_service import test_instance_connectivity
 
 
@@ -88,6 +89,7 @@ def create_instance_route(
             "notification_channel_group_ids": instance.notification_channel_group_ids_json or [],
             "notify_rate_changes": instance.notify_rate_changes is not False,
             "notify_announcements": instance.notify_announcements is not False,
+            "health_alert_enabled": instance.health_alert_enabled is True,
         }
     )
 
@@ -205,6 +207,7 @@ def update_instance_route(
             "notification_channel_group_ids": instance.notification_channel_group_ids_json or [],
             "notify_rate_changes": instance.notify_rate_changes is not False,
             "notify_announcements": instance.notify_announcements is not False,
+            "health_alert_enabled": instance.health_alert_enabled is True,
         }
     )
 
@@ -220,6 +223,17 @@ def delete_instance_route(
         delete_instance(db, instance)
     except OperationalError as exc:
         _raise_if_sqlite_locked(exc, db)
+
+
+@router.get("/instances/{instance_id}/insights")
+def get_instance_insights(
+    instance_id: int,
+    days: int = Query(default=7, ge=1, le=30, description="用量明细回看天数。"),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Return groups, rate changes, announcements and upstream usage for one instance."""
+    instance = get_instance_or_404(db, instance_id)
+    return build_instance_insights(db, instance, days=days)
 
 
 @router.get("/instances/{instance_id}/balance-history")

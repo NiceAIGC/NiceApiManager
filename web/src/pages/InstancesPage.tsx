@@ -25,8 +25,10 @@ import {
 import { fetchAppSettings } from '../api/settings';
 import { InstanceBatchModal } from '../components/InstanceBatchModal';
 import { InstanceCreateModal } from '../components/InstanceCreateModal';
+import { InstanceDetailModal } from '../components/InstanceDetailModal';
 import { SyncProgressModal, type SyncProgressItem } from '../components/SyncProgressModal';
 import {
+  Badge,
   Button,
   Card,
   CardContent,
@@ -100,6 +102,7 @@ function buildUpdate(instance: Instance, overrides: Partial<InstanceUpdatePayloa
     notification_channel_group_ids: instance.notification_channel_group_ids ?? [],
     notify_rate_changes: instance.notify_rate_changes ?? true,
     notify_announcements: instance.notify_announcements ?? true,
+    health_alert_enabled: instance.health_alert_enabled ?? false,
     billing_mode: instance.billing_mode,
     quota_per_unit: instance.quota_per_unit,
     priority: instance.priority,
@@ -191,9 +194,9 @@ export function InstancesPage() {
   const [healthStatus, setHealthStatus] = useState<string>('all');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
-  const [sort, setSort] = useState<DataTableSort>({ column: 'last_sync_at', direction: 'descending' });
+  const [sort, setSort] = useState<DataTableSort>({ column: 'last_7d_display_used_amount', direction: 'descending' });
   const [selected, setSelected] = useState<Set<number | string>>(new Set());
-  const [expanded, setExpanded] = useState<Set<number | string>>(new Set());
+  const [detail, setDetail] = useState<Instance | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [batchCreateOpen, setBatchCreateOpen] = useState(false);
@@ -347,6 +350,14 @@ export function InstancesPage() {
             {formatProgramType(item.program_type)} · {formatBillingMode(item.billing_mode)}
             {item.auto_disabled ? ' · 系统禁用' : ''}
           </span>
+          {item.tags.length ? (
+            <span className="flex flex-wrap gap-1">
+              {item.tags.slice(0, 3).map((tag) => (
+                <Badge key={tag} variant="secondary" className="max-w-[92px] truncate px-1.5 py-0 text-[10px]">{tag}</Badge>
+              ))}
+              {item.tags.length > 3 ? <Badge variant="muted" className="px-1.5 py-0 text-[10px]">+{item.tags.length - 3}</Badge> : null}
+            </span>
+          ) : null}
         </div>
       ),
     },
@@ -434,14 +445,6 @@ export function InstancesPage() {
       ),
     },
   ];
-
-  const toggleExpanded = (id: number | string) =>
-    setExpanded((keys) => {
-      const next = new Set(keys);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   const resetFilters = () => {
     setSearch('');
@@ -538,59 +541,7 @@ export function InstancesPage() {
             onSortChange={setSort}
             selectedKeys={selected}
             onSelectionChange={setSelected}
-            onRowDoubleClick={(item) => syncOne(item)}
-            expandable={{
-              expandedKeys: expanded,
-              onToggle: toggleExpanded,
-              render: (item) => (
-                <div className="flex flex-col gap-4">
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                    <DescriptionList columns={1} items={[
-                      { label: '实例地址', value: <a className="break-all text-primary hover:underline" href={item.base_url} target="_blank" rel="noreferrer">{item.base_url}</a> },
-                      { label: '备注', value: item.remark || '-' },
-                      { label: '认证信息', value: item.username ? `用户：${item.username}` : `远端用户 ID：${item.remote_user_id ?? '-'}` },
-                      { label: '程序类型', value: formatProgramType(item.program_type) },
-                    ]} />
-                    <DescriptionList columns={1} items={[
-                      { label: '启停来源', value: item.enabled ? '已启用' : item.auto_disabled ? '系统自动禁用（定时同步会继续探测）' : '手动禁用' },
-                      { label: 'Session / Token', value: item.has_access_token ? 'Access Token' : '-' },
-                      { label: '当前分组', value: item.latest_group_name || '-' },
-                      { label: '同步周期', value: `${item.sync_interval_minutes} 分钟` },
-                    ]} />
-                    <DescriptionList columns={1} items={[
-                      { label: '兑换比', value: formatNumber(item.quota_per_unit) },
-                      { label: '周期已用', value: formatMoney(item.latest_display_used_quota) },
-                      { label: '累计请求数', value: formatNumber(item.latest_request_count) },
-                      { label: '最近更新', value: formatShortDateTime(item.updated_at) },
-                    ]} />
-                  </div>
-                  {item.last_health_error ? (
-                    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
-                      <span className="font-medium text-destructive">最近错误：</span>
-                      {item.last_health_error}
-                    </div>
-                  ) : null}
-                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                    <UsageTrend points={item.last_7d_usage ?? []} />
-                    <BalanceTrend instanceId={item.id} />
-                  </div>
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button variant="outline" size="sm" onClick={() => setEditing(item)}>
-                      <Pencil className="size-4" />
-                      编辑
-                    </Button>
-                    <Button size="sm" onClick={() => syncOne(item)}>
-                      <RotateCw className="size-4" />
-                      同步
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => toggleExpanded(item.id)}>
-                      <X className="size-4" />
-                      收起
-                    </Button>
-                  </div>
-                </div>
-              ),
-            }}
+            onRowClick={(item) => setDetail(item)}
             pagination={{
               page,
               pageSize,
@@ -650,6 +601,14 @@ export function InstancesPage() {
         notificationChannelGroupOptions={channelGroupOptions}
         onCancel={() => setBatchEditOpen(false)}
         onSubmit={(items) => batchUpdateMutation.mutate(items as BatchInstanceUpdatePayload[])}
+      />
+      <InstanceDetailModal
+        instance={detail}
+        open={Boolean(detail)}
+        onOpenChange={(value) => { if (!value) setDetail(null); }}
+        onEdit={(item) => { setDetail(null); setEditing(item); }}
+        onSync={(item) => syncOne(item)}
+        syncing={syncMutation.isPending}
       />
       <SyncProgressModal
         open={progress.open}

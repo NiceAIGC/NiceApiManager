@@ -108,6 +108,7 @@ def create_instance(db: Session, payload: InstanceCreate) -> Instance:
                 notification_channel_group_ids_json=list(dict.fromkeys(payload.notification_channel_group_ids)),
                 notify_rate_changes=payload.notify_rate_changes,
                 notify_announcements=payload.notify_announcements,
+                health_alert_enabled=payload.health_alert_enabled,
     )
     db.add(instance)
     db.commit()
@@ -148,6 +149,7 @@ def create_instances_batch(db: Session, payloads: list[InstanceCreate]) -> Batch
                 notification_channel_group_ids_json=list(dict.fromkeys(payload.notification_channel_group_ids)),
                 notify_rate_changes=payload.notify_rate_changes,
                 notify_announcements=payload.notify_announcements,
+                health_alert_enabled=payload.health_alert_enabled,
             )
         )
 
@@ -232,6 +234,7 @@ def update_instance(db: Session, instance: Instance, payload: InstanceUpdate) ->
     instance.notification_channel_group_ids_json = list(dict.fromkeys(payload.notification_channel_group_ids))
     instance.notify_rate_changes = payload.notify_rate_changes
     instance.notify_announcements = payload.notify_announcements
+    instance.health_alert_enabled = payload.health_alert_enabled
     instance.billing_mode = payload.billing_mode
     instance.quota_per_unit = payload.quota_per_unit
     instance.priority = payload.priority
@@ -325,6 +328,7 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         instance.notification_channel_group_ids_json = list(dict.fromkeys(payload.notification_channel_group_ids))
         instance.notify_rate_changes = payload.notify_rate_changes
         instance.notify_announcements = payload.notify_announcements
+        instance.health_alert_enabled = payload.health_alert_enabled
         instance.billing_mode = payload.billing_mode
         instance.quota_per_unit = payload.quota_per_unit
         instance.priority = payload.priority
@@ -491,6 +495,8 @@ def list_instances(
         )
         for instance in instances
     ]
+    # 默认按近 7 日消耗倒序，便于优先看到正在消耗的实例。
+    items.sort(key=lambda item: (-(item.last_7d_display_used_amount or 0), item.id))
 
     return InstanceListResponse(total=len(items), items=items)
 
@@ -582,6 +588,7 @@ def _instance_to_response(
                 "notification_channel_group_ids": instance.notification_channel_group_ids_json or [],
                 "notify_rate_changes": instance.notify_rate_changes is not False,
                 "notify_announcements": instance.notify_announcements is not False,
+                "health_alert_enabled": instance.health_alert_enabled is True,
             "today_request_count": today_request_count(
                 db,
                 instance.id,

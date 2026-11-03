@@ -80,6 +80,7 @@ function buildEmptyItem(defaultProxyMode: InstanceCreatePayload['proxy_mode'], s
     notification_channel_group_ids: [],
     notify_rate_changes: true,
     notify_announcements: true,
+    health_alert_enabled: false,
     billing_mode: 'prepaid',
     quota_per_unit: undefined,
     priority: 3,
@@ -227,6 +228,7 @@ export function InstanceBatchModal({
                 ) : null}
                 <SwitchField label="倍率变更推送" description="关闭后只记录不推送" checked={item.notify_rate_changes} onCheckedChange={(value) => patch(index, { notify_rate_changes: value })} />
                 <SwitchField label="上游公告推送" description="关闭后只入库不推送" checked={item.notify_announcements} onCheckedChange={(value) => patch(index, { notify_announcements: value })} />
+                <SwitchField label="连接失败告警" description="默认关闭，显式开启才通知" checked={item.health_alert_enabled ?? false} onCheckedChange={(value) => patch(index, { health_alert_enabled: value })} />
                 <Collapsible className="md:col-span-2">
                   <CollapsibleTrigger asChild>
                     <Button variant="ghost" size="sm" className="w-fit">

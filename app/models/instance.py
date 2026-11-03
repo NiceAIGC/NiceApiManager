@@ -46,6 +46,8 @@ class Instance(Base):
     notification_channel_group_ids_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     # 为 False 时该实例的倍率变更 / 上游公告不推送（仍照常记录）。
     notify_rate_changes: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # 连接失败/健康告警为逐实例显式开启，默认不告警。
+    health_alert_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     notify_announcements: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     billing_mode: Mapped[str] = mapped_column(String(16), default="prepaid", nullable=False)
     priority: Mapped[int] = mapped_column(Integer, default=3, nullable=False)

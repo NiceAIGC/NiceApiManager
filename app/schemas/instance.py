@@ -30,6 +30,7 @@ class InstanceCreate(BaseModel):
     notification_channel_group_ids: list[str] = Field(default_factory=list)
     notify_rate_changes: bool = True
     notify_announcements: bool = True
+    health_alert_enabled: bool = False
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     quota_per_unit: float | None = Field(default=None, gt=0)
     priority: int = Field(default=3, ge=1, le=5)
@@ -74,6 +75,7 @@ class InstanceUpdate(BaseModel):
     notification_channel_group_ids: list[str] = Field(default_factory=list)
     notify_rate_changes: bool = True
     notify_announcements: bool = True
+    health_alert_enabled: bool = False
     billing_mode: Literal["prepaid", "postpaid"] = "prepaid"
     quota_per_unit: float | None = Field(default=None, gt=0)
     priority: int = Field(default=3, ge=1, le=5)
@@ -123,6 +125,7 @@ class InstanceResponse(BaseModel):
     notification_channel_group_ids: list[str] = Field(default_factory=list)
     notify_rate_changes: bool = True
     notify_announcements: bool = True
+    health_alert_enabled: bool = False
     billing_mode: Literal["prepaid", "postpaid"]
     priority: int
     tags: list[str] = Field(default_factory=list)

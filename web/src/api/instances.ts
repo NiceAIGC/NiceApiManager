@@ -92,3 +92,58 @@ export async function fetchInstanceBalanceHistory(instanceId: number, days = 30)
   });
   return data.items;
 }
+
+export interface InstanceInsightGroup {
+  group_name: string;
+  group_desc?: string | null;
+  ratio: number;
+  platform?: string | null;
+  user_ratio?: number | null;
+  peak_ratio?: number | null;
+  peak_start?: string | null;
+  peak_end?: string | null;
+  labels: string[];
+  snapshot_at?: string | null;
+}
+
+export interface InstanceInsightRateChange {
+  id: number;
+  group_name: string;
+  platform?: string | null;
+  change_type: 'added' | 'removed' | 'changed';
+  old_ratio?: number | null;
+  new_ratio?: number | null;
+  change_percent?: number | null;
+  detected_at?: string | null;
+}
+
+export interface InstanceInsightAnnouncement {
+  id: number;
+  title: string;
+  content: string;
+  published_at?: string | null;
+  synced_at?: string | null;
+}
+
+export interface InstanceInsightUsageRow {
+  model_name?: string;
+  group_name?: string;
+  requests: number;
+  used_amount: number;
+}
+
+export interface InstanceInsights {
+  instance_id: number;
+  days: number;
+  groups: InstanceInsightGroup[];
+  rate_changes: InstanceInsightRateChange[];
+  announcements: InstanceInsightAnnouncement[];
+  model_usage: InstanceInsightUsageRow[];
+  group_usage: InstanceInsightUsageRow[];
+  usage_error?: string | null;
+}
+
+export async function fetchInstanceInsights(instanceId: number, days = 7): Promise<InstanceInsights> {
+  const { data } = await apiClient.get<InstanceInsights>(`/instances/${instanceId}/insights`, { params: { days } });
+  return data;
+}

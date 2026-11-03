@@ -545,6 +545,9 @@ def _evaluate_connectivity_failure_rules(
         for instance in instances:
             if not _instance_matches_rule(instance, rule):
                 continue
+            # 健康/连接失败告警需要实例显式开启，默认不告警。
+            if instance.health_alert_enabled is not True:
+                continue
 
             target_key = f"instance:{instance.id}"
             seen_target_keys.add(target_key)

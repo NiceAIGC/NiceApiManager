@@ -223,6 +223,15 @@ class Sub2APIClient:
             return []
         return [item for item in data if isinstance(item, dict)]
 
+    def get_model_usage(self, session_data: Sub2APISessionData) -> list[dict[str, Any]]:
+        """Fetch per-model usage counters from the Sub2API dashboard endpoint."""
+        payload = self._safe_get("/api/v1/usage/dashboard/models", session_data.access_token)
+        data = self._extract_data(payload)
+        items = data.get("items") if isinstance(data, dict) else data
+        if not isinstance(items, list):
+            return []
+        return [item for item in items if isinstance(item, dict)]
+
     def get_pricing(self, session_data: Sub2APISessionData) -> dict[str, Any]:
         """Build pricing rows from the model plaza (usage-stats fallback)."""
         plaza = self.get_model_plaza(session_data)

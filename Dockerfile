@@ -37,6 +37,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY alembic.ini ./
 COPY alembic ./alembic
+COPY docs ./docs
 COPY app ./app
 COPY .env.example ./
 COPY docker-compose.yml ./

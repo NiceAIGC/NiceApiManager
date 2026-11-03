@@ -42,7 +42,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '../components/ui';
-import type { DataTableColumn } from '../components/ui';
+import type { DataTableColumn, DataTableSort } from '../components/ui';
 import { notify } from '../lib/toast';
 import type { GroupCompareRow, GroupLabelItem, GroupRatioItem } from '../types/api';
 import { formatDateTime } from '../utils/format';
@@ -166,6 +166,8 @@ export function GroupsPage() {
   const [selectedKeys, setSelectedKeys] = useState<Set<number | string>>(new Set());
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [detailSort, setDetailSort] = useState<DataTableSort>({ column: 'ratio', direction: 'descending' });
+  const [compareSort, setCompareSort] = useState<DataTableSort>({ column: 'spread_value', direction: 'descending' });
 
   const { data: instanceData } = useQuery({ queryKey: ['instances'], queryFn: () => fetchInstances() });
   const { data: labelData } = useQuery({ queryKey: ['group-labels'], queryFn: fetchGroupLabels });
@@ -221,7 +223,16 @@ export function GroupsPage() {
     return Array.from(platforms).sort().map((value) => ({ label: value, value }));
   }, [rows]);
 
-  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  const sortedRows = useMemo(() => {
+    const direction = detailSort.direction === 'ascending' ? 1 : -1;
+    return [...rows].sort((left, right) => {
+      const a = left[detailSort.column as keyof GroupRatioItem];
+      const b = right[detailSort.column as keyof GroupRatioItem];
+      if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b, 'zh-Hans-CN') * direction;
+      return ((Number(a) || 0) - (Number(b) || 0)) * direction;
+    });
+  }, [rows, detailSort]);
+  const pagedRows = sortedRows.slice((page - 1) * pageSize, page * pageSize);
   const selectedRows = useMemo(() => rows.filter((row) => selectedKeys.has(row.id)), [rows, selectedKeys]);
   const selectedGroupNames = useMemo(() => Array.from(new Set(selectedRows.map((row) => row.group_name))), [selectedRows]);
   const batchAssigned = useMemo(
@@ -245,6 +256,7 @@ export function GroupsPage() {
       id: 'instance_name',
       header: '实例',
       width: 170,
+      sortable: true,
       cell: (row) => (
         <div className="flex items-center gap-1">
           <span className="truncate">{row.instance_name}</span>
@@ -256,6 +268,7 @@ export function GroupsPage() {
       id: 'group_name',
       header: '分组名',
       width: 200,
+      sortable: true,
       cell: (row) => (
         <div className="flex flex-col gap-1">
           <span className="font-medium">{row.group_name}</span>
@@ -317,7 +330,14 @@ export function GroupsPage() {
 
   const compareInstances = compareData?.instances ?? [];
   const compareRows = compareData?.rows ?? [];
-  const pagedCompareRows = compareRows.slice((page - 1) * pageSize, page * pageSize);
+  const sortedCompareRows = useMemo(() => {
+    const direction = compareSort.direction === 'ascending' ? 1 : -1;
+    return [...compareRows].sort((left, right) => {
+      if (compareSort.column === 'group_name') return left.group_name.localeCompare(right.group_name, 'zh-Hans-CN') * direction;
+      return (((left.spread ?? 0) - (right.spread ?? 0)) || 0) * direction;
+    });
+  }, [compareRows, compareSort]);
+  const pagedCompareRows = sortedCompareRows.slice((page - 1) * pageSize, page * pageSize);
   const compareColumns: DataTableColumn<GroupCompareRow>[] = [
     { id: 'group_name', header: '分组', width: 200, cell: (row) => <span className="font-medium">{row.group_name}</span> },
     ...compareInstances.map((instance) => ({
@@ -454,6 +474,8 @@ export function GroupsPage() {
           minWidth={1240}
           selectedKeys={selectedKeys}
           onSelectionChange={setSelectedKeys}
+          sort={detailSort}
+          onSortChange={(next) => { setDetailSort(next); setPage(1); }}
           pagination={{ page, pageSize, total: rows.length, onPageChange: setPage, onPageSizeChange: (size) => { setPageSize(size); setPage(1); }, pageSizeOptions: [50, 100], persistenceKey: 'groups' }}
         />
       ) : compareLabelId === 'all' ? (
@@ -480,6 +502,8 @@ export function GroupsPage() {
             ariaLabel="分组倍率对比"
             emptyText="该标签下暂无可对比的分组"
             minWidth={720}
+            sort={compareSort}
+            onSortChange={(next) => { setCompareSort(next); setPage(1); }}
             pagination={{ page, pageSize, total: compareRows.length, onPageChange: setPage, onPageSizeChange: (size) => { setPageSize(size); setPage(1); }, pageSizeOptions: [50, 100], persistenceKey: 'groups' }}
           />
         </div>

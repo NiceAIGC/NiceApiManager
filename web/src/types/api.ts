@@ -88,6 +88,7 @@ export interface Instance {
   notification_channel_group_ids: string[];
   notify_rate_changes: boolean;
   notify_announcements: boolean;
+  health_alert_enabled: boolean;
   billing_mode: 'prepaid' | 'postpaid';
   priority: number;
   sync_interval_minutes: number;
@@ -138,6 +139,7 @@ export interface InstanceCreatePayload {
   notification_channel_group_ids: string[];
   notify_rate_changes: boolean;
   notify_announcements: boolean;
+  health_alert_enabled: boolean;
   billing_mode: 'prepaid' | 'postpaid';
   quota_per_unit?: number | null;
   priority: number;
@@ -163,6 +165,7 @@ export interface InstanceUpdatePayload {
   notification_channel_group_ids: string[];
   notify_rate_changes: boolean;
   notify_announcements: boolean;
+  health_alert_enabled: boolean;
   billing_mode: 'prepaid' | 'postpaid';
   quota_per_unit?: number | null;
   priority: number;
