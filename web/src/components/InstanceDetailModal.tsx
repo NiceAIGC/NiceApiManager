@@ -264,6 +264,12 @@ export function InstanceDetailModal({
           </div>
 
           {/* 模型 / 分组消耗 */}
+          {usage?.window_start ? (
+            <p className="m-0 text-xs text-muted-foreground">
+              统计窗口：{usage.window_start.slice(0, 16).replace('T', ' ')} ~ {usage.window_end?.slice(0, 16).replace('T', ' ')}
+              {usage.fallback ? '（近 7 天无日志，展示最近一批记录）' : ''}
+            </p>
+          ) : null}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Section title="模型消耗 Top（近 7 天）">
               {usageLoading ? (

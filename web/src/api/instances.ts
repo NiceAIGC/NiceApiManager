@@ -146,6 +146,10 @@ export interface InstanceInsights {
 export interface InstanceUsageBreakdown {
   models: InstanceInsightUsageRow[];
   groups: InstanceInsightUsageRow[];
+  window_start?: string | null;
+  window_end?: string | null;
+  /** true 表示近 N 天无日志，展示的是最近一批记录 */
+  fallback?: boolean;
   error?: string | null;
 }
 

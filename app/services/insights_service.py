@@ -16,7 +16,7 @@ from app.services.snapshot_metrics import quota_to_display_amount
 
 logger = logging.getLogger(__name__)
 
-MAX_LOG_PAGES = 8
+MAX_LOG_PAGES = 5
 LOG_PAGE_SIZE = 100
 
 
@@ -92,10 +92,17 @@ def build_usage_breakdown(db: Session, instance: Instance, *, days: int = 7) -> 
             usage = _collect_sub2api_usage(db, instance, runtime_settings)
         else:
             usage = _collect_newapi_usage(db, instance, runtime_settings, since=since)
-        return {"models": usage["models"], "groups": usage["groups"], "error": None}
+        return {
+            "models": usage["models"],
+            "groups": usage["groups"],
+            "window_start": usage.get("window_start"),
+            "window_end": usage.get("window_end"),
+            "fallback": usage.get("fallback", False),
+            "error": None,
+        }
     except Exception as exc:  # pragma: no cover - upstream dependent
         logger.info("Usage breakdown unavailable for instance %s: %s", instance.id, exc)
-        return {"models": [], "groups": [], "error": str(exc)[:200]}
+        return {"models": [], "groups": [], "window_start": None, "window_end": None, "fallback": False, "error": str(exc)[:200]}
 
 
 def _group_label_map(db: Session) -> dict[str, list[str]]:
@@ -175,6 +182,7 @@ def _collect_newapi_usage(db: Session, instance: Instance, runtime_settings: Run
     client, _status = _prepare_instance_client(instance, runtime_settings)
     session_data = _ensure_session(db, instance, client)
     rows: list[dict[str, object]] = []
+    page_rows: list[dict[str, object]] = []
     total_seen = 0
     for page in range(1, MAX_LOG_PAGES + 1):
         payload = client.get_user_logs(
@@ -187,6 +195,8 @@ def _collect_newapi_usage(db: Session, instance: Instance, runtime_settings: Run
         items = payload.get("items") or []
         if not isinstance(items, list) or not items:
             break
+        if not page_rows:
+            page_rows = [item for item in items if isinstance(item, dict)]
         total_seen += len(items)
         oldest: datetime | None = None
         for item in items:
@@ -205,9 +215,21 @@ def _collect_newapi_usage(db: Session, instance: Instance, runtime_settings: Run
 
     if not total_seen:
         raise RuntimeError("上游未开放用户日志接口，无法统计模型/分组消耗")
+
+    fallback = False
     if not rows:
-        raise RuntimeError("上游日志里没有最近 %s 天的记录" % (since.date(),))
-    return _aggregate_rows(rows, instance.quota_per_unit)
+        # 窗口内没有日志：回退展示最近一批记录，并标注真实时间范围
+        fallback = True
+        rows = [item for item in page_rows if isinstance(item, dict)]
+
+    timestamps = [ts for ts in (_row_created_at(item) for item in rows if isinstance(item, dict)) if ts is not None]
+    window = _aggregate_rows(rows, instance.quota_per_unit)
+    window_start = min(timestamps).isoformat() if timestamps else None
+    window_end = max(timestamps).isoformat() if timestamps else None
+    window["window_start"] = window_start
+    window["window_end"] = window_end
+    window["fallback"] = fallback
+    return window
 
 
 def _collect_sub2api_usage(db: Session, instance: Instance, runtime_settings: RuntimeAppSettings) -> dict[str, list[dict[str, object]]]:
