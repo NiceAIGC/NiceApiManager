@@ -86,7 +86,7 @@ def build_instance_insights(db: Session, instance: Instance, *, days: int = 7) -
 def build_usage_breakdown(db: Session, instance: Instance, *, days: int = 7) -> dict[str, object]:
     """Upstream usage breakdown (slower, best effort) aggregated by model and group."""
     runtime_settings = get_runtime_app_settings(db)
-    since = utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
     try:
         if instance.program_type == "sub2api":
             usage = _collect_sub2api_usage(db, instance, runtime_settings)
