@@ -109,6 +109,12 @@ class InstanceResponse(BaseModel):
         """Treat legacy NULL columns as enabled."""
         return True if value is None else bool(value)
 
+    @field_validator("health_alert_enabled", mode="before")
+    @classmethod
+    def default_health_toggle(cls, value: object) -> bool:
+        """Treat legacy NULL columns as disabled (alerts are opt-in)."""
+        return False if value is None else bool(value)
+
     id: int
     name: str
     remark: str | None = None
