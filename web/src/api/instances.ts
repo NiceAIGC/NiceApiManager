@@ -1,4 +1,5 @@
 import type {
+  BatchInstanceBulkUpdatePayload,
   BatchInstanceDeleteResponse,
   BatchInstanceResponse,
   BatchInstanceUpdatePayload,
@@ -65,6 +66,11 @@ export async function updateInstancesBatch(payloads: BatchInstanceUpdatePayload[
   const { data } = await apiClient.patch<BatchInstanceResponse>('/instances/batch-update', {
     items: payloads,
   });
+  return data;
+}
+
+export async function bulkUpdateInstances(payload: BatchInstanceBulkUpdatePayload): Promise<BatchInstanceResponse> {
+  const { data } = await apiClient.patch<BatchInstanceResponse>('/instances/bulk-update', payload);
   return data;
 }
 

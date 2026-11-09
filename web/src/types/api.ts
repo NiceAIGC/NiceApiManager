@@ -177,6 +177,23 @@ export interface BatchInstanceUpdatePayload extends InstanceUpdatePayload {
   id: number;
 }
 
+/** Partial changes applied identically to every selected instance. */
+export interface BatchInstanceBulkUpdatePayload {
+  ids: number[];
+  enabled?: boolean;
+  balance_alert_enabled?: boolean;
+  /** `null` clears the per-instance threshold and falls back to the global default. */
+  balance_alert_threshold?: number | null;
+  notification_channel_ids?: string[];
+  notification_channel_group_ids?: string[];
+  notify_rate_changes?: boolean;
+  notify_announcements?: boolean;
+  health_alert_enabled?: boolean;
+  priority?: number;
+  sync_interval_minutes?: number;
+  tags?: string[];
+}
+
 export interface InstanceTestResponse {
   success: boolean;
   instance_id: number;

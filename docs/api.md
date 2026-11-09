@@ -168,6 +168,27 @@ X-API-Key: nam-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 { "items": [ { "id": 1, /* ...其余同创建 */ } ] }
 ```
 
+### PATCH /api/instances/bulk-update
+
+对多个实例应用同一组局部修改；未出现的字段保持不变，`balance_alert_threshold` 传 `null` 表示清除实例阈值并用全局默认值。
+
+```json
+{
+  "ids": [1, 2, 3],
+  "enabled": true,
+  "balance_alert_enabled": true,
+  "balance_alert_threshold": 20,
+  "notify_rate_changes": false,
+  "notify_announcements": false,
+  "health_alert_enabled": false,
+  "notification_channel_ids": ["channel_default"],
+  "notification_channel_group_ids": [],
+  "priority": 4,
+  "sync_interval_minutes": 60,
+  "tags": ["主力"]
+}
+```
+
 ### POST /api/instances/batch-delete
 
 ```json

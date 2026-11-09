@@ -232,6 +232,48 @@ class BatchInstanceUpdateRequest(BaseModel):
     items: list[BatchInstanceUpdateItem] = Field(default_factory=list)
 
 
+class BatchInstanceBulkUpdateRequest(BaseModel):
+    """Payload for applying the same partial changes to multiple instances.
+
+    Only fields present in the request are applied, so callers can flip one
+    toggle without resending the complete instance configuration. An explicit
+    ``null`` for ``balance_alert_threshold`` clears the per-instance override
+    and falls back to the global default.
+    """
+
+    ids: list[int] = Field(min_length=1)
+    enabled: bool | None = None
+    balance_alert_enabled: bool | None = None
+    balance_alert_threshold: float | None = Field(default=None, gt=0, le=1000000000)
+    notification_channel_ids: list[str] | None = None
+    notification_channel_group_ids: list[str] | None = None
+    notify_rate_changes: bool | None = None
+    notify_announcements: bool | None = None
+    health_alert_enabled: bool | None = None
+    priority: int | None = Field(default=None, ge=1, le=5)
+    sync_interval_minutes: int | None = Field(default=None, ge=5, le=10080)
+    tags: list[str] | None = None
+
+    @model_validator(mode="after")
+    def validate_has_changes(self) -> "BatchInstanceBulkUpdateRequest":
+        mutableViews = {
+            "enabled",
+            "balance_alert_enabled",
+            "balance_alert_threshold",
+            "notification_channel_ids",
+            "notification_channel_group_ids",
+            "notify_rate_changes",
+            "notify_announcements",
+            "health_alert_enabled",
+            "priority",
+            "sync_interval_minutes",
+            "tags",
+        }
+        if not (self.model_fields_set & mutableViews):
+            raise ValueError("请至少指定一个要批量修改的字段。")
+        return self
+
+
 class BatchInstanceDeleteRequest(BaseModel):
     """Payload for deleting multiple instances in one request."""
 

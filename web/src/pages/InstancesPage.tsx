@@ -6,6 +6,7 @@ import {
   RefreshCw,
   RotateCw,
   Search,
+  SlidersHorizontal,
   Trash2,
   X,
 } from 'lucide-react';
@@ -13,6 +14,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { getErrorMessage } from '../api/client';
 import {
+  bulkUpdateInstances,
   createInstance,
   createInstancesBatch,
   deleteInstancesBatch,
@@ -24,6 +26,7 @@ import {
 } from '../api/instances';
 import { fetchAppSettings } from '../api/settings';
 import { InstanceBatchModal } from '../components/InstanceBatchModal';
+import { InstanceBulkActionModal } from '../components/InstanceBulkActionModal';
 import { InstanceCreateModal } from '../components/InstanceCreateModal';
 import { InstanceDetailModal } from '../components/InstanceDetailModal';
 import { SyncProgressModal, type SyncProgressItem } from '../components/SyncProgressModal';
@@ -201,6 +204,7 @@ export function InstancesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [batchCreateOpen, setBatchCreateOpen] = useState(false);
   const [batchEditOpen, setBatchEditOpen] = useState(false);
+  const [bulkActionOpen, setBulkActionOpen] = useState(false);
   const [editing, setEditing] = useState<Instance | null>(null);
   const [progress, setProgress] = useState<SyncProgressState>(INITIAL_PROGRESS);
 
@@ -258,6 +262,11 @@ export function InstancesPage() {
   const batchUpdateMutation = useMutation({
     mutationFn: updateInstancesBatch,
     onSuccess: async (result) => { setBatchEditOpen(false); setSelected(new Set()); await refresh(); notify.success(`批量更新完成，共更新 ${result.count} 个实例`); },
+    onError: (error) => notify.error(getErrorMessage(error)),
+  });
+  const bulkActionMutation = useMutation({
+    mutationFn: bulkUpdateInstances,
+    onSuccess: async (result) => { setBulkActionOpen(false); setSelected(new Set()); await refresh(); notify.success(`批量操作完成，共更新 ${result.count} 个实例`); },
     onError: (error) => notify.error(getErrorMessage(error)),
   });
   const deleteMutation = useMutation({
@@ -496,6 +505,10 @@ export function InstancesPage() {
                 <Plus className="size-4" />
                 批量新增
               </Button>
+              <Button variant="outline" size="sm" disabled={!selectedInstances.length} onClick={() => setBulkActionOpen(true)}>
+                <SlidersHorizontal className="size-4" />
+                批量操作
+              </Button>
               <Button variant="outline" size="sm" disabled={!selectedInstances.length} onClick={() => setBatchEditOpen(true)}>
                 <Pencil className="size-4" />
                 批量编辑
@@ -601,6 +614,17 @@ export function InstancesPage() {
         notificationChannelGroupOptions={channelGroupOptions}
         onCancel={() => setBatchEditOpen(false)}
         onSubmit={(items) => batchUpdateMutation.mutate(items as BatchInstanceUpdatePayload[])}
+      />
+      <InstanceBulkActionModal
+        open={bulkActionOpen}
+        loading={bulkActionMutation.isPending}
+        instanceIds={selectedInstances.map((item) => item.id)}
+        defaultSyncIntervalMinutes={settings?.default_sync_interval_minutes ?? 120}
+        tagOptions={tagOptions}
+        notificationChannelOptions={channelOptions}
+        notificationChannelGroupOptions={channelGroupOptions}
+        onCancel={() => setBulkActionOpen(false)}
+        onSubmit={(payload) => bulkActionMutation.mutate(payload)}
       />
       <InstanceDetailModal
         instance={detail}

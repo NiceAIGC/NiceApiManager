@@ -14,6 +14,7 @@ from app.clients.newapi import NewAPIClient, NewAPIClientError, detect_program_t
 from app.models import DailyUsageStat, Instance, NotificationRuleState
 from app.models.user_snapshot import UserSnapshot
 from app.schemas.instance import (
+    BatchInstanceBulkUpdateRequest,
     BatchInstanceDeleteResponse,
     BatchInstanceResponse,
     BatchInstanceUpdateItem,
@@ -336,6 +337,81 @@ def update_instances_batch(db: Session, payloads: list[BatchInstanceUpdateItem])
         instance.tags_json = _normalize_tags(payload.tags)
         if auth_changed:
             _clear_cached_session(db, instance)
+
+    db.commit()
+
+    refreshed_instances = db.scalars(
+        select(Instance)
+        .options(selectinload(Instance.session))
+        .where(Instance.id.in_(ids))
+        .order_by(Instance.id.asc())
+    ).all()
+    runtime_settings = get_runtime_app_settings(db)
+    scheduler_timezone = runtime_settings.scheduler_timezone
+    day_start_utc = current_day_start_utc(scheduler_timezone)
+    items = [
+        _instance_to_response(
+            db,
+            instance,
+            day_start_utc=day_start_utc,
+            scheduler_timezone=scheduler_timezone,
+            default_balance_alert_threshold=runtime_settings.default_balance_alert_threshold,
+        )
+        for instance in refreshed_instances
+    ]
+    return BatchInstanceResponse(count=len(items), items=items)
+
+
+def bulk_update_instances(
+    db: Session,
+    payload: BatchInstanceBulkUpdateRequest,
+) -> BatchInstanceResponse:
+    """Apply the same partial changes to multiple instances in one transaction."""
+    ids = list(dict.fromkeys(payload.ids))
+    instances = db.scalars(
+        select(Instance)
+        .options(selectinload(Instance.session))
+        .where(Instance.id.in_(ids))
+        .order_by(Instance.id.asc())
+    ).all()
+    instances_by_id = {instance.id: instance for instance in instances}
+
+    missing_ids = [instance_id for instance_id in ids if instance_id not in instances_by_id]
+    if missing_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Instances not found: {', '.join(str(item) for item in missing_ids)}.",
+        )
+
+    changed_fields = payload.model_fields_set
+    for instance in instances:
+        was_enabled = instance.enabled
+        if payload.enabled is not None:
+            instance.enabled = payload.enabled
+            if payload.enabled or was_enabled:
+                instance.auto_disabled = False
+        if payload.balance_alert_enabled is not None:
+            instance.balance_alert_enabled = payload.balance_alert_enabled
+        if "balance_alert_threshold" in changed_fields:
+            instance.balance_alert_threshold = payload.balance_alert_threshold
+        if payload.notification_channel_ids is not None:
+            instance.notification_channel_ids_json = list(dict.fromkeys(payload.notification_channel_ids))
+        if payload.notification_channel_group_ids is not None:
+            instance.notification_channel_group_ids_json = list(
+                dict.fromkeys(payload.notification_channel_group_ids)
+            )
+        if payload.notify_rate_changes is not None:
+            instance.notify_rate_changes = payload.notify_rate_changes
+        if payload.notify_announcements is not None:
+            instance.notify_announcements = payload.notify_announcements
+        if payload.health_alert_enabled is not None:
+            instance.health_alert_enabled = payload.health_alert_enabled
+        if payload.priority is not None:
+            instance.priority = payload.priority
+        if payload.sync_interval_minutes is not None:
+            instance.sync_interval_minutes = payload.sync_interval_minutes
+        if payload.tags is not None:
+            instance.tags_json = _normalize_tags(payload.tags)
 
     db.commit()
 

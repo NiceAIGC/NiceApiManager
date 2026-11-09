@@ -13,6 +13,7 @@ from app.core.time import utcnow
 from app.models import UserSnapshot
 from app.services.snapshot_metrics import quota_to_display_amount
 from app.schemas.instance import (
+    BatchInstanceBulkUpdateRequest,
     BatchInstanceCreateRequest,
     BatchInstanceDeleteRequest,
     BatchInstanceDeleteResponse,
@@ -27,6 +28,7 @@ from app.schemas.instance import (
     ProxyConnectivityTestResponse,
 )
 from app.services.instance_service import (
+    bulk_update_instances,
     create_instance,
     create_instances_batch,
     delete_instance,
@@ -147,6 +149,18 @@ def batch_update_instances_route(
             status_code=status.HTTP_409_CONFLICT,
             detail="One or more instance names already exist.",
         ) from exc
+    except OperationalError as exc:
+        _raise_if_sqlite_locked(exc, db)
+
+
+@router.patch("/instances/bulk-update", response_model=BatchInstanceResponse)
+def bulk_update_instances_route(
+    payload: BatchInstanceBulkUpdateRequest,
+    db: Session = Depends(get_db),
+) -> BatchInstanceResponse:
+    """Apply the same partial changes to multiple instances at once."""
+    try:
+        return bulk_update_instances(db, payload)
     except OperationalError as exc:
         _raise_if_sqlite_locked(exc, db)
 
