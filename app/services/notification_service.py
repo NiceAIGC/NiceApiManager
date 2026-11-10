@@ -105,6 +105,13 @@ def dispatch_instance_health_event(
     error_message: str | None = None,
 ) -> bool:
     """Send one immediate health event through the default notification channel."""
+    if instance.health_alert_enabled is not True:
+        logger.info(
+            "Instance health event skipped because health alerts are disabled for instance %s.",
+            instance.id,
+        )
+        return False
+
     runtime_settings = get_runtime_app_settings(db)
     channels = _resolve_channels(
         runtime_settings.notification_channels,

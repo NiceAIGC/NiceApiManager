@@ -217,6 +217,33 @@ class NotificationFeatureTests(unittest.TestCase):
                     self.assertEqual({"low_balance", "aggregate_balance"}, {item.rule_type for item in logs})
         self.assertEqual(4, send.call_count)
 
+    def test_health_event_is_skipped_when_instance_has_not_opted_in(self) -> None:
+        with self.session_factory() as db:
+            instance = Instance(
+                name="health-opt-out",
+                base_url="https://example.com",
+                program_type="newapi",
+                username="user",
+                password="password",
+                enabled=True,
+                billing_mode="prepaid",
+                health_alert_enabled=False,
+            )
+            db.add(instance)
+            db.commit()
+            db.refresh(instance)
+
+            with patch.object(notification_service, "_resolve_channels") as resolve:
+                sent = notification_service.dispatch_instance_health_event(
+                    db,
+                    instance=instance,
+                    event_type="alert",
+                    error_message="unreachable",
+                )
+
+            self.assertFalse(sent)
+            resolve.assert_not_called()
+
     def test_five_scheduled_failures_mark_instance_as_auto_disabled(self) -> None:
         with self.session_factory() as db:
             instance = Instance(
