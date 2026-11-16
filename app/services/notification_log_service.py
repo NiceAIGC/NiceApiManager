@@ -12,6 +12,8 @@ def list_notification_logs(
     *,
     instance_id: int | None = None,
     source_type: str | None = None,
+    event_type: str | None = None,
+    delivery_status: str | None = None,
     offset: int = 0,
     limit: int = 50,
 ) -> NotificationLogListResponse:
@@ -32,6 +34,14 @@ def list_notification_logs(
     if source_type:
         stmt = stmt.where(NotificationLog.source_type == source_type)
         count_stmt = count_stmt.where(NotificationLog.source_type == source_type)
+
+    if event_type:
+        stmt = stmt.where(NotificationLog.event_type == event_type)
+        count_stmt = count_stmt.where(NotificationLog.event_type == event_type)
+
+    if delivery_status:
+        stmt = stmt.where(NotificationLog.delivery_status == delivery_status)
+        count_stmt = count_stmt.where(NotificationLog.delivery_status == delivery_status)
 
     rows = db.execute(stmt).all()
     total = db.scalar(count_stmt) or 0

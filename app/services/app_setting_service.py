@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
 import logging
 
 from pydantic import TypeAdapter, ValidationError
@@ -11,10 +12,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import AppSetting, NotificationRuleState
+from app.models import (
+    AppSetting,
+    NotificationChannel,
+    NotificationChannelGroup,
+    NotificationChannelGroupMember,
+    NotificationRule,
+    NotificationRuleState,
+)
 from app.schemas.app_setting import (
+    AggregateBalanceNotificationRule,
     AppSettingsResponse,
     AppSettingsUpdateRequest,
+    BalanceNotificationRule,
+    ConnectivityFailureNotificationRule,
     NotificationChannelConfig,
     NotificationChannelGroupConfig,
     NotificationRuleSet,
@@ -76,9 +87,14 @@ def get_app_setting_record(db: Session) -> AppSetting | None:
 def get_runtime_app_settings(db: Session) -> RuntimeAppSettings:
     """Return the effective runtime settings used across services."""
     row = get_app_setting_record(db)
-    notification_channels = _parse_notification_channels(row.notification_channels_json if row else None)
-    notification_channel_groups = _parse_notification_channel_groups(row.notification_channel_groups_json if row else None)
-    notification_rules = _parse_notification_rules(row.notification_rules_json if row else None)
+    if (row is not None and row.notification_center_v2_at is not None) or _has_normalized_notification_config(db):
+        notification_channels = _load_channels_from_tables(db)
+        notification_channel_groups = _load_groups_from_tables(db)
+        notification_rules = _load_rules_from_tables(db)
+    else:
+        notification_channels = _parse_notification_channels(row.notification_channels_json if row else None)
+        notification_channel_groups = _parse_notification_channel_groups(row.notification_channel_groups_json if row else None)
+        notification_rules = _parse_notification_rules(row.notification_rules_json if row else None)
     return RuntimeAppSettings(
         sync_max_workers=_coerce_int(
             row.sync_max_workers if row else None,
@@ -221,49 +237,20 @@ def update_app_settings(db: Session, payload: AppSettingsUpdateRequest) -> AppSe
     row.retention_daily_usage_days = payload.retention_daily_usage_days
     row.retention_rate_changes_days = payload.retention_rate_changes_days
     row.retention_announcements_days = payload.retention_announcements_days
-    row.notification_channels_json = [
-        {**item.model_dump(mode="json"), "apprise_url": encrypt_value(item.apprise_url)}
-        for item in payload.notification_channels
-    ]
-    row.notification_channel_groups_json = [item.model_dump(mode="json") for item in payload.notification_channel_groups]
-    row.notification_rules_json = payload.notification_rules.model_dump(mode="json")
+    if row.notification_center_v2_at is None:
+        row.notification_channels_json = [
+            {**item.model_dump(mode="json"), "apprise_url": encrypt_value(item.apprise_url)}
+            for item in payload.notification_channels
+        ]
+        row.notification_channel_groups_json = [item.model_dump(mode="json") for item in payload.notification_channel_groups]
+        row.notification_rules_json = payload.notification_rules.model_dump(mode="json")
     db.flush()
-    _purge_removed_notification_states(db, payload.notification_rules)
+    if row.notification_center_v2_at is None:
+        _purge_removed_notification_states(db, payload.notification_rules)
     db.commit()
     db.refresh(row)
 
-    return AppSettingsResponse(
-        sync_max_workers=row.sync_max_workers,
-        request_timeout=row.request_timeout,
-        sync_verify_ssl=row.sync_verify_ssl,
-        scheduler_timezone=row.scheduler_timezone,
-        sync_history_lookback_days=row.sync_history_lookback_days,
-        default_sync_interval_minutes=row.default_sync_interval_minutes,
-        shared_socks5_proxy_url=row.shared_socks5_proxy_url,
-        default_instance_proxy_mode=_coerce_proxy_mode(row.default_instance_proxy_mode),
-        notification_enabled=bool(row.notification_enabled),
-        default_balance_alert_threshold=row.default_balance_alert_threshold or DEFAULT_BALANCE_ALERT_THRESHOLD,
-        default_notification_channel_id=_resolve_default_notification_channel_id(
-            _parse_notification_channels(row.notification_channels_json),
-            row.default_notification_channel_id,
-        ),
-        notification_check_interval_minutes=row.notification_check_interval_minutes or DEFAULT_NOTIFICATION_CHECK_INTERVAL_MINUTES,
-        rate_change_notify_enabled=bool(row.rate_change_notify_enabled) if row.rate_change_notify_enabled is not None else True,
-        rate_change_min_percent=row.rate_change_min_percent or 0.0,
-        rate_change_cooldown_minutes=row.rate_change_cooldown_minutes or 60,
-        announcement_sync_enabled=bool(row.announcement_sync_enabled) if row.announcement_sync_enabled is not None else True,
-        announcement_notify_enabled=bool(row.announcement_notify_enabled) if row.announcement_notify_enabled is not None else True,
-        retention_sync_runs_days=row.retention_sync_runs_days or 30,
-        retention_notification_logs_days=row.retention_notification_logs_days or 90,
-        retention_daily_usage_days=row.retention_daily_usage_days or 180,
-        retention_rate_changes_days=row.retention_rate_changes_days or 180,
-        retention_announcements_days=row.retention_announcements_days or 90,
-        notification_channels=_parse_notification_channels(row.notification_channels_json),
-        notification_channel_groups=_parse_notification_channel_groups(row.notification_channel_groups_json),
-        notification_rules=_parse_notification_rules(row.notification_rules_json),
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
+    return build_app_settings_response(db)
 
 
 def mark_notification_scan_completed(db: Session, completed_at: datetime) -> None:
@@ -313,8 +300,125 @@ def _parse_notification_rules(value: object) -> NotificationRuleSet:
     try:
         return _RULE_SET_ADAPTER.validate_python(value)
     except ValidationError:
-        logger.warning("Invalid notification rule config detected; falling back to defaults.")
+        logger.warning("Invalid rule config detected; falling back to defaults.")
         return build_default_notification_rules()
+
+
+def _has_normalized_notification_config(db: Session) -> bool:
+    """Detect normalized rows on databases created before the v2 marker existed."""
+    return any(
+        db.scalar(select(model.id).limit(1)) is not None
+        for model in (NotificationChannel, NotificationChannelGroup, NotificationRule)
+    )
+
+
+def _load_channels_from_tables(db: Session) -> list[NotificationChannelConfig]:
+    """Build runtime channels from the normalized tables."""
+    rows = db.scalars(select(NotificationChannel).order_by(NotificationChannel.id.asc())).all()
+    channels: list[NotificationChannelConfig] = []
+    for row in rows:
+        secrets: dict[str, object] = {}
+        if row.secrets_json:
+            try:
+                parsed = json.loads(row.secrets_json)
+                if isinstance(parsed, dict):
+                    secrets = parsed
+            except (TypeError, ValueError):
+                logger.warning("Invalid encrypted notification secrets for channel %s", row.id)
+        apprise_url = str(secrets.get("apprise_url") or "") if row.type == "apprise" else ""
+        try:
+            channels.append(
+                NotificationChannelConfig(
+                    id=row.id,
+                    name=row.name,
+                    enabled=row.enabled,
+                    type=row.type,
+                    apprise_url=apprise_url,
+                    config=row.config_json or {},
+                    secrets=secrets,
+                )
+            )
+        except ValidationError:
+            logger.warning("Invalid notification channel config for id %s; skipping.", row.id)
+    return channels
+
+
+def _load_groups_from_tables(db: Session) -> list[NotificationChannelGroupConfig]:
+    """Build channel groups and membership from normalized tables."""
+    groups = db.scalars(select(NotificationChannelGroup).order_by(NotificationChannelGroup.id.asc())).all()
+    members = db.scalars(select(NotificationChannelGroupMember)).all()
+    by_group: dict[str, list[str]] = {}
+    for member in members:
+        by_group.setdefault(member.group_id, []).append(member.channel_id)
+    return [
+        NotificationChannelGroupConfig(
+            id=group.id,
+            name=group.name,
+            channel_ids=by_group.get(group.id, []),
+        )
+        for group in groups
+    ]
+
+
+def _load_rules_from_tables(db: Session) -> NotificationRuleSet:
+    """Adapt normalized rule rows back to the existing evaluator schema."""
+    rows = db.scalars(select(NotificationRule).order_by(NotificationRule.id.asc())).all()
+    low_balance: list[BalanceNotificationRule] = []
+    aggregate: list[AggregateBalanceNotificationRule] = []
+    connectivity: list[ConnectivityFailureNotificationRule] = []
+    for row in rows:
+        scope = row.scope_json or {}
+        condition = row.condition_json or {}
+        delivery = row.delivery_json or {}
+        base = {
+            "id": row.id,
+            "name": row.name,
+            "enabled": row.enabled,
+            "instance_ids": scope.get("instance_ids") or [],
+            "tags": scope.get("tags") or [],
+            "include_disabled": bool(scope.get("include_disabled")),
+            "notify_on_recovery": bool(delivery.get("notify_on_recovery", True)),
+            "channel_ids": delivery.get("channel_ids") or [],
+            "channel_group_ids": delivery.get("channel_group_ids") or [],
+            "contact_group_ids": delivery.get("contact_group_ids") or [],
+            "quiet_hours": condition.get("quiet_hours") or {},
+        }
+        try:
+            if row.event_type == "balance":
+                low_balance.append(
+                    BalanceNotificationRule(
+                        **base,
+                        severity=row.severity,
+                        threshold=condition.get("threshold"),
+                        resolve_threshold=condition.get("resolve_threshold"),
+                        min_consecutive_checks=int(condition.get("min_consecutive_checks") or 1),
+                    )
+                )
+            elif row.event_type == "aggregate_balance":
+                aggregate.append(
+                    AggregateBalanceNotificationRule(
+                        **base,
+                        severity=row.severity,
+                        threshold=condition.get("threshold"),
+                        resolve_threshold=condition.get("resolve_threshold"),
+                        min_consecutive_checks=int(condition.get("min_consecutive_checks") or 1),
+                    )
+                )
+            elif row.event_type == "connectivity":
+                connectivity.append(
+                    ConnectivityFailureNotificationRule(
+                        **base,
+                        consecutive_failures=int(condition.get("consecutive_failures") or 3),
+                        repeat_interval_minutes=int(condition.get("repeat_interval_minutes") or 180),
+                    )
+                )
+        except ValidationError:
+            logger.warning("Invalid normalized notification rule %s; skipping.", row.id)
+    return NotificationRuleSet(
+        low_balance_rules=low_balance,
+        aggregate_balance_rules=aggregate,
+        connectivity_failure_rules=connectivity,
+    )
 
 
 def _resolve_default_notification_channel_id(

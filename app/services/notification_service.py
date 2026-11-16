@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
 from typing import Any
 
@@ -12,7 +13,15 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.time import utcnow
-from app.models import Instance, NotificationLog, NotificationRuleState, SyncRun, UserSnapshot
+from app.models import (
+    Instance,
+    NotificationContact,
+    NotificationContactGroupMember,
+    NotificationLog,
+    NotificationRuleState,
+    SyncRun,
+    UserSnapshot,
+)
 from app.schemas.app_setting import (
     AggregateBalanceNotificationRule,
     BalanceNotificationRule,
@@ -28,6 +37,7 @@ from app.services.app_setting_service import (
     get_runtime_app_settings,
     mark_notification_scan_completed,
 )
+from app.services.notification_providers import ProviderMessage, send_via_channel
 
 
 logger = logging.getLogger(__name__)
@@ -56,6 +66,7 @@ class _NotificationDispatchContext:
     rule_name: str | None = None
     instance_id: int | None = None
     target_key: str | None = None
+    fields: dict[str, str] = field(default_factory=dict)
 
 
 def send_test_notification(db: Session, payload: NotificationTestRequest) -> NotificationTestResponse:
@@ -157,6 +168,13 @@ def dispatch_instance_health_event(
             rule_name="站点异常自动禁用",
             instance_id=instance.id,
             target_key=f"instance:{instance.id}",
+            fields={
+                "instance": instance.name,
+                "base_url": instance.base_url,
+                "status": "恢复" if event_type == "recovery" else "异常",
+                "error": error_message or instance.last_health_error or "-",
+                "time": now.isoformat(),
+            },
         ),
         results=results,
     )
@@ -318,6 +336,14 @@ def _evaluate_instance_balance_alerts(db: Session, *, instances: list[Instance],
                 rule_name="实例余额快捷告警",
                 instance_id=instance.id,
                 target_key=target_key,
+                fields={
+                    "instance": instance.name,
+                    "balance": _format_amount(balance),
+                    "threshold": _format_amount(threshold),
+                    "recovery_threshold": _format_amount(recovery_threshold),
+                    "base_url": instance.base_url,
+                    "time": now.isoformat(),
+                },
             ),
             recovery_context=_NotificationDispatchContext(
                 source_type="instance",
@@ -330,6 +356,14 @@ def _evaluate_instance_balance_alerts(db: Session, *, instances: list[Instance],
                 rule_name="实例余额快捷告警",
                 instance_id=instance.id,
                 target_key=target_key,
+                fields={
+                    "instance": instance.name,
+                    "balance": _format_amount(balance),
+                    "threshold": _format_amount(threshold),
+                    "recovery_threshold": _format_amount(recovery_threshold),
+                    "base_url": instance.base_url,
+                    "time": now.isoformat(),
+                },
             ),
         )
 
@@ -397,6 +431,9 @@ def _evaluate_low_balance_rules(db: Session, *, instances: list[Instance], now) 
                 threshold_hits_required=rule.min_consecutive_checks,
                 repeat_interval_minutes=None,
                 notify_on_recovery=rule.notify_on_recovery,
+                contact_group_ids=rule.contact_group_ids,
+                quiet_hours=rule.quiet_hours,
+                severity=rule.severity,
                 alert_channels=channels,
                 alert_title=title,
                 alert_body=body,
@@ -416,6 +453,15 @@ def _evaluate_low_balance_rules(db: Session, *, instances: list[Instance], now) 
                     rule_name=rule.name,
                     instance_id=instance.id,
                     target_key=target_key,
+                    fields={
+                        "instance": instance.name,
+                        "balance": _format_amount(balance),
+                        "threshold": _format_amount(rule.threshold),
+                        "recovery_threshold": _format_amount(_resolve_threshold(rule)),
+                        "base_url": instance.base_url,
+                        "severity": rule.severity,
+                        "time": now.isoformat(),
+                    },
                 ),
                 recovery_context=_NotificationDispatchContext(
                     source_type="rule",
@@ -428,6 +474,15 @@ def _evaluate_low_balance_rules(db: Session, *, instances: list[Instance], now) 
                     rule_name=rule.name,
                     instance_id=instance.id,
                     target_key=target_key,
+                    fields={
+                        "instance": instance.name,
+                        "balance": _format_amount(balance),
+                        "threshold": _format_amount(rule.threshold),
+                        "recovery_threshold": _format_amount(_resolve_threshold(rule)),
+                        "base_url": instance.base_url,
+                        "severity": rule.severity,
+                        "time": now.isoformat(),
+                    },
                 ),
             )
 
@@ -493,6 +548,9 @@ def _evaluate_aggregate_balance_rules(db: Session, *, instances: list[Instance],
             threshold_hits_required=rule.min_consecutive_checks,
             repeat_interval_minutes=None,
             notify_on_recovery=rule.notify_on_recovery,
+            contact_group_ids=rule.contact_group_ids,
+            quiet_hours=rule.quiet_hours,
+            severity=rule.severity,
             alert_channels=channels,
             alert_title=title,
             alert_body=body,
@@ -511,6 +569,14 @@ def _evaluate_aggregate_balance_rules(db: Session, *, instances: list[Instance],
                 rule_id=rule.id,
                 rule_name=rule.name,
                 target_key=target_key,
+                fields={
+                    "total_balance": _format_amount(total_balance),
+                    "threshold": _format_amount(rule.threshold),
+                    "recovery_threshold": _format_amount(_resolve_threshold(rule)),
+                    "instance_count": str(len(matched_instances)),
+                    "severity": rule.severity,
+                    "time": now.isoformat(),
+                },
             ),
             recovery_context=_NotificationDispatchContext(
                 source_type="rule",
@@ -522,6 +588,14 @@ def _evaluate_aggregate_balance_rules(db: Session, *, instances: list[Instance],
                 rule_id=rule.id,
                 rule_name=rule.name,
                 target_key=target_key,
+                fields={
+                    "total_balance": _format_amount(total_balance),
+                    "threshold": _format_amount(rule.threshold),
+                    "recovery_threshold": _format_amount(_resolve_threshold(rule)),
+                    "instance_count": str(len(matched_instances)),
+                    "severity": rule.severity,
+                    "time": now.isoformat(),
+                },
             ),
         )
         _delete_stale_rule_states(db, state_map, seen_target_keys)
@@ -595,6 +669,9 @@ def _evaluate_connectivity_failure_rules(
                 threshold_hits_required=1,
                 repeat_interval_minutes=rule.repeat_interval_minutes,
                 notify_on_recovery=rule.notify_on_recovery,
+                contact_group_ids=rule.contact_group_ids,
+                quiet_hours=rule.quiet_hours,
+                severity="critical",
                 alert_channels=channels,
                 alert_title=title,
                 alert_body=body,
@@ -614,6 +691,14 @@ def _evaluate_connectivity_failure_rules(
                     rule_name=rule.name,
                     instance_id=instance.id,
                     target_key=target_key,
+                    fields={
+                        "instance": instance.name,
+                        "streak": str(item.streak),
+                        "threshold": str(rule.consecutive_failures),
+                        "error": item.last_error or "-",
+                        "base_url": instance.base_url,
+                        "time": now.isoformat(),
+                    },
                 ),
                 recovery_context=_NotificationDispatchContext(
                     source_type="rule",
@@ -626,10 +711,38 @@ def _evaluate_connectivity_failure_rules(
                     rule_name=rule.name,
                     instance_id=instance.id,
                     target_key=target_key,
+                    fields={
+                        "instance": instance.name,
+                        "streak": "0",
+                        "threshold": str(rule.consecutive_failures),
+                        "base_url": instance.base_url,
+                        "time": now.isoformat(),
+                    },
                 ),
             )
 
         _delete_stale_rule_states(db, state_map, seen_target_keys)
+
+
+def _is_quiet_time(config: dict[str, object] | None, now, severity: str) -> bool:
+    """Return whether this event should be suppressed by the rule's quiet window."""
+    if not config or not config.get("enabled"):
+        return False
+    if severity == "critical" and config.get("allow_critical", True):
+        return False
+    try:
+        timezone = ZoneInfo(str(config.get("timezone") or "Asia/Shanghai"))
+    except ZoneInfoNotFoundError:
+        timezone = ZoneInfo("Asia/Shanghai")
+    local = now.astimezone(timezone)
+    current = local.strftime("%H:%M")
+    start = str(config.get("start") or "22:00")
+    end = str(config.get("end") or "08:00")
+    if start == end:
+        return True
+    if start < end:
+        return start <= current < end
+    return current >= start or current < end
 
 
 def _apply_state_transition(
@@ -652,21 +765,30 @@ def _apply_state_transition(
     now,
     alert_context: _NotificationDispatchContext,
     recovery_context: _NotificationDispatchContext,
+    contact_group_ids: list[str] | None = None,
+    quiet_hours: dict[str, object] | None = None,
+    severity: str = "warning",
 ) -> None:
     """Apply dedup, optional cooldown, and recovery rules around one state row."""
     state.last_value = current_value
     state.last_evaluated_at = now
+    recipients = resolve_contact_group_recipients(db, contact_group_ids or [])
+    quiet = _is_quiet_time(quiet_hours, now, severity)
 
     if is_active:
         state.consecutive_hits += 1
         if state.status != "alerting":
             if state.consecutive_hits < threshold_hits_required:
                 return
+            if quiet:
+                return
             results = _deliver_message(
                 alert_channels,
                 title=alert_title,
                 body=alert_body,
                 notify_type=alert_notify_type,
+                fields=alert_context.fields,
+                recipients=recipients,
             )
             _create_notification_log(db, context=alert_context, results=results)
             if _has_successful_delivery(results):
@@ -675,11 +797,15 @@ def _apply_state_transition(
             return
 
         if repeat_interval_minutes is not None and _is_repeat_due(state.last_triggered_at, repeat_interval_minutes, now):
+            if quiet:
+                return
             results = _deliver_message(
                 alert_channels,
                 title=alert_title,
                 body=alert_body,
                 notify_type=alert_notify_type,
+                fields=alert_context.fields,
+                recipients=recipients,
             )
             _create_notification_log(db, context=alert_context, results=results)
             if _has_successful_delivery(results):
@@ -690,12 +816,14 @@ def _apply_state_transition(
     if is_resolved:
         if state.status == "alerting":
             delivered = True
-            if notify_on_recovery:
+            if notify_on_recovery and not quiet:
                 results = _deliver_message(
                     alert_channels,
                     title=recovery_title,
                     body=recovery_body,
                     notify_type=recovery_notify_type,
+                    fields=recovery_context.fields,
+                    recipients=recipients,
                 )
                 _create_notification_log(db, context=recovery_context, results=results)
                 delivered = _has_successful_delivery(results)
@@ -819,15 +947,41 @@ def _instance_matches_rule(
     return True
 
 
+def resolve_contact_group_recipients(db: Session, group_ids: list[str]) -> dict[str, list[str]]:
+    """Expand contact groups into email/phone/chat recipient buckets."""
+    recipients: dict[str, list[str]] = {"email": [], "phone": [], "chat": []}
+    if not group_ids:
+        return recipients
+    members = db.scalars(
+        select(NotificationContactGroupMember).where(
+            NotificationContactGroupMember.group_id.in_(group_ids)
+        )
+    ).all()
+    contact_ids = list({member.contact_id for member in members})
+    if not contact_ids:
+        return recipients
+    contacts = db.scalars(
+        select(NotificationContact).where(
+            NotificationContact.id.in_(contact_ids),
+            NotificationContact.enabled.is_(True),
+        )
+    ).all()
+    for contact in contacts:
+        bucket = recipients.setdefault(contact.type, [])
+        if contact.value not in bucket:
+            bucket.append(contact.value)
+    return recipients
+
+
 def _expand_with_groups(
-    channel_ids: list[str],
-    group_ids: list[str],
+    channel_ids: list[str] | None,
+    group_ids: list[str] | None,
     groups: list[NotificationChannelGroupConfig],
 ) -> list[str]:
     """Merge explicit channel ids with the members of the selected groups."""
-    expanded = list(channel_ids)
+    expanded = list(channel_ids or [])
     group_map = {group.id: group for group in groups}
-    for group_id in group_ids:
+    for group_id in group_ids or []:
         group = group_map.get(group_id)
         if group:
             expanded.extend(group.channel_ids)
@@ -900,24 +1054,50 @@ def _deliver_message(
     title: str,
     body: str,
     notify_type: str,
+    fields: dict[str, str] | None = None,
+    recipients: dict[str, list[str]] | None = None,
+    template: dict[str, object] | None = None,
 ) -> list[NotificationTestChannelResult]:
     """Deliver a message to all selected channels and return per-channel outcomes."""
     results: list[NotificationTestChannelResult] = []
     for channel in channels:
         try:
-            delivered = _send_via_apprise(
-                channel.apprise_url,
-                title=title,
-                body=body,
-                notify_type=notify_type,
+            if getattr(channel, "type", "apprise") == "apprise":
+                delivered = _send_via_apprise(
+                    channel.apprise_url or str(channel.secrets.get("apprise_url") or ""),
+                    title=title,
+                    body=body,
+                    notify_type=notify_type,
+                )
+                if not delivered:
+                    raise RuntimeError("Apprise 返回发送失败。")
+                results.append(
+                    NotificationTestChannelResult(
+                        channel_id=channel.id,
+                        channel_name=channel.name,
+                        success=True,
+                    )
+                )
+                continue
+
+            provider_result = send_via_channel(
+                channel,
+                ProviderMessage(
+                    title=title,
+                    body=body,
+                    notify_type=notify_type,
+                    severity="critical" if notify_type == "failure" else "warning",
+                    fields=fields or {},
+                    recipients=recipients or {},
+                    template=template,
+                ),
             )
-            if not delivered:
-                raise RuntimeError("Apprise 返回发送失败。")
             results.append(
                 NotificationTestChannelResult(
                     channel_id=channel.id,
                     channel_name=channel.name,
-                    success=True,
+                    success=provider_result.success,
+                    error_message=provider_result.error_message,
                 )
             )
         except Exception as exc:  # pragma: no cover - network dependent

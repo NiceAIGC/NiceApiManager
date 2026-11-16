@@ -18,12 +18,20 @@ def _new_config_id(prefix: str) -> str:
 
 
 class NotificationChannelConfig(BaseModel):
-    """One outbound Apprise destination."""
+    """One outbound notification destination.
+
+    ``secrets`` is runtime-only and never serialized by API responses.
+    Legacy records keep ``apprise_url`` populated; typed providers use
+    ``config`` plus encrypted ``secrets``.
+    """
 
     id: str = Field(default_factory=lambda: _new_config_id("channel"), min_length=3, max_length=64)
     name: str = Field(min_length=1, max_length=80)
     enabled: bool = True
-    apprise_url: str = Field(min_length=1, max_length=2048)
+    type: str = Field(default="apprise", max_length=32)
+    apprise_url: str = Field(default="", max_length=2048)
+    config: dict[str, object] = Field(default_factory=dict)
+    secrets: dict[str, object] = Field(default_factory=dict, exclude=True)
 
     @field_validator("id")
     @classmethod
@@ -34,7 +42,7 @@ class NotificationChannelConfig(BaseModel):
             raise ValueError("通知渠道 ID 不能为空。")
         return normalized
 
-    @field_validator("name", "apprise_url")
+    @field_validator("name")
     @classmethod
     def strip_text_fields(cls, value: str) -> str:
         """Remove accidental surrounding spaces in user-entered text."""
@@ -42,6 +50,17 @@ class NotificationChannelConfig(BaseModel):
         if not normalized:
             raise ValueError("该字段不能为空。")
         return normalized
+
+    @field_validator("apprise_url")
+    @classmethod
+    def strip_apprise_url(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def validate_provider(self) -> "NotificationChannelConfig":
+        if self.type == "apprise" and not self.apprise_url and not self.secrets.get("apprise_url"):
+            raise ValueError("Apprise 渠道需要填写 Apprise URL。")
+        return self
 
 
 def _normalize_id_list(value: list[str] | None) -> list[str]:
@@ -101,6 +120,8 @@ class BaseNotificationRule(BaseModel):
     notify_on_recovery: bool = True
     channel_ids: list[str] = Field(default_factory=list)
     channel_group_ids: list[str] = Field(default_factory=list)
+    contact_group_ids: list[str] = Field(default_factory=list)
+    quiet_hours: dict[str, object] = Field(default_factory=dict)
 
     @field_validator("id")
     @classmethod
@@ -151,7 +172,7 @@ class BaseNotificationRule(BaseModel):
             normalized.append(tag)
         return normalized
 
-    @field_validator("channel_ids", "channel_group_ids", mode="before")
+    @field_validator("channel_ids", "channel_group_ids", "contact_group_ids", mode="before")
     @classmethod
     def normalize_channel_ids(cls, value: list[str] | None) -> list[str]:
         """Drop duplicate blank channel ids."""

@@ -547,7 +547,9 @@ export interface NotificationChannelConfig {
   id: string;
   name: string;
   enabled: boolean;
-  apprise_url: string;
+  type?: string;
+  apprise_url?: string;
+  config?: Record<string, unknown>;
 }
 
 export interface BalanceNotificationRule {
@@ -648,4 +650,170 @@ export interface NotificationLogListResponse {
   offset: number;
   limit: number;
   items: NotificationLogItem[];
+}
+
+export type NotificationChannelType =
+  | 'apprise'
+  | 'smtp'
+  | 'aliyun_sms'
+  | 'aliyun_voice'
+  | 'aliyun_directmail'
+  | 'webhook';
+
+export type NotificationEventType =
+  | 'balance'
+  | 'aggregate_balance'
+  | 'connectivity'
+  | 'instance_disabled'
+  | 'instance_recovered'
+  | 'rate_change'
+  | 'announcement'
+  | 'sync_failure'
+  | 'custom'
+  | 'test';
+
+export type NotificationSeverity = 'info' | 'warning' | 'critical';
+
+export interface NotificationChannelItem {
+  id: string;
+  name: string;
+  type: NotificationChannelType;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  has_secrets: boolean;
+  secret_fields: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface NotificationChannelPayload {
+  id?: string;
+  name: string;
+  type: NotificationChannelType;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  secrets?: Record<string, unknown>;
+}
+
+export interface NotificationChannelGroupItem {
+  id: string;
+  name: string;
+  channel_ids: string[];
+  created_at?: string | null;
+}
+
+export interface NotificationContactItem {
+  id: string;
+  name: string;
+  type: 'email' | 'phone' | 'chat';
+  value: string;
+  enabled: boolean;
+  labels: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface NotificationContactGroupItem {
+  id: string;
+  name: string;
+  contact_ids: string[];
+  created_at?: string | null;
+}
+
+export interface NotificationTemplateItem {
+  id: string;
+  name: string;
+  channel_type: string;
+  subject_template?: string | null;
+  body_template: string;
+  provider_template_code?: string | null;
+  param_map: Record<string, string>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface NotificationScope {
+  instance_ids: number[];
+  tags: string[];
+  include_disabled: boolean;
+}
+
+export interface NotificationQuietHours {
+  enabled: boolean;
+  start: string;
+  end: string;
+  timezone: string;
+  allow_critical: boolean;
+}
+
+export interface NotificationCondition {
+  threshold?: number | null;
+  resolve_threshold?: number | null;
+  min_consecutive_checks: number;
+  consecutive_failures: number;
+  repeat_interval_minutes: number;
+  cooldown_minutes: number;
+  change_percent?: number | null;
+  max_per_day?: number | null;
+  quiet_hours: NotificationQuietHours;
+}
+
+export interface NotificationDeliveryTarget {
+  channel_ids: string[];
+  channel_group_ids: string[];
+  contact_group_ids: string[];
+  template_id?: string | null;
+  notify_on_recovery: boolean;
+}
+
+export interface NotificationRuleItem {
+  id: string;
+  name: string;
+  enabled: boolean;
+  event_type: NotificationEventType;
+  severity: NotificationSeverity;
+  scope: NotificationScope;
+  condition: NotificationCondition;
+  delivery: NotificationDeliveryTarget;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface NotificationOverview {
+  active_alerts: number;
+  enabled_rules: number;
+  enabled_channels: number;
+  success_24h: number;
+  failed_24h: number;
+  last_scan_at?: string | null;
+  next_scan_at?: string | null;
+  channels: Array<{
+    id: string;
+    name: string;
+    type: string;
+    enabled: boolean;
+    last_status?: string | null;
+    last_error?: string | null;
+    last_sent_at?: string | null;
+  }>;
+}
+
+export interface NotificationDeliveryItem {
+  id: number;
+  instance_id?: number | null;
+  instance_name?: string | null;
+  rule_name?: string | null;
+  event_type: string;
+  source_type: string;
+  title: string;
+  body?: string | null;
+  delivery_status: string;
+  channels: NotificationTestChannelResult[];
+  error_message?: string | null;
+  created_at: string;
+}
+
+export interface NotificationDeliveryListResponse {
+  total: number;
+  items: NotificationDeliveryItem[];
 }

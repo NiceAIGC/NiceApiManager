@@ -31,15 +31,32 @@ interface NavItem {
   icon: ComponentType<{ className?: string }>;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { key: '/dashboard', label: '仪表盘', icon: LayoutDashboard },
-  { key: '/instances', label: '实例管理', icon: Database },
-  { key: '/groups', label: '分组倍率', icon: Network },
-  { key: '/pricing', label: '定价模型', icon: TrendingUp },
-  { key: '/logs', label: '日志记录', icon: RefreshCw },
-  { key: '/notifications', label: '告警通知', icon: Bell },
-  { key: '/settings', label: '系统设置', icon: Settings },
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  { label: '总览', items: [{ key: '/dashboard', label: '仪表盘', icon: LayoutDashboard }] },
+  {
+    label: '资产',
+    items: [
+      { key: '/instances', label: '实例管理', icon: Database },
+      { key: '/groups', label: '分组倍率', icon: Network },
+      { key: '/pricing', label: '定价模型', icon: TrendingUp },
+    ],
+  },
+  { label: '告警', items: [{ key: '/notifications', label: '告警中心', icon: Bell }] },
+  {
+    label: '系统',
+    items: [
+      { key: '/logs', label: '日志记录', icon: RefreshCw },
+      { key: '/settings', label: '系统设置', icon: Settings },
+    ],
+  },
 ];
+
+const NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
 
 function SidebarContent({ currentPath, onNavigate }: { currentPath: string; onNavigate: (path: string) => void }) {
   return (
@@ -51,27 +68,32 @@ function SidebarContent({ currentPath, onNavigate }: { currentPath: string; onNa
           <div className="truncate text-xs text-muted-foreground">中转站聚合管理</div>
         </div>
       </div>
-      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-        {NAV_ITEMS.map((item) => {
-          const active = currentPath === item.key || (item.key === '/logs' && currentPath.startsWith('/logs'));
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => onNavigate(item.key)}
-              className={cn(
-                'flex items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors',
-                active
-                  ? 'bg-primary/10 font-medium text-primary'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-              )}
-            >
-              <Icon className="size-4" />
-              {item.label}
-            </button>
-          );
-        })}
+      <nav className="flex flex-1 flex-col gap-4 overflow-y-auto p-2">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label} className="flex flex-col gap-0.5">
+            <div className="px-3 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">{group.label}</div>
+            {group.items.map((item) => {
+              const active = currentPath === item.key || (item.key === '/logs' && currentPath.startsWith('/logs'));
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => onNavigate(item.key)}
+                  className={cn(
+                    'flex items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors',
+                    active
+                      ? 'bg-primary/10 font-medium text-primary'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}
+                >
+                  <Icon className="size-4" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
       <div className="p-2 text-[11px] text-muted-foreground">单密码管理后台 · 全部数据本地存储</div>
     </div>

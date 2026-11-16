@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUpRight,
+  Bell,
   Pencil,
   Plus,
   RefreshCw,
@@ -44,6 +45,7 @@ import {
   MultiSelect,
   PageHeader,
   SelectField,
+  SegmentedControl,
   StarRating,
   StatCard,
   StatusBadge,
@@ -195,6 +197,7 @@ export function InstancesPage() {
   const [billingMode, setBillingMode] = useState<string>('all');
   const [enabled, setEnabled] = useState<string>('all');
   const [healthStatus, setHealthStatus] = useState<string>('all');
+  const [view, setView] = useState<'all' | 'attention' | 'low' | 'disabled'>('all');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
   const [sort, setSort] = useState<DataTableSort>({ column: 'last_7d_display_used_amount', direction: 'descending' });
@@ -325,7 +328,10 @@ export function InstancesPage() {
   );
 
   const rows = useMemo(() => {
-    const list = [...(data?.items ?? [])];
+    let list = [...(data?.items ?? [])];
+    if (view === 'attention') list = list.filter((item) => item.last_health_status !== 'healthy' || item.auto_disabled);
+    if (view === 'low') list = list.filter((item) => item.billing_mode === 'prepaid' && item.latest_display_quota != null && item.latest_display_quota <= (item.effective_balance_alert_threshold ?? 0));
+    if (view === 'disabled') list = list.filter((item) => !item.enabled);
     const direction = sort.direction === 'ascending' ? 1 : -1;
     return list.sort((left, right) => {
       const a = left[sort.column as keyof Instance];
@@ -333,7 +339,7 @@ export function InstancesPage() {
       if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b, 'zh-Hans-CN') * direction;
       return ((Number(a) || 0) - (Number(b) || 0)) * direction;
     });
-  }, [data, sort]);
+  }, [data, sort, view]);
 
   const syncOne = (item: Instance) => {
     if (syncMutation.isPending) return;
@@ -408,13 +414,14 @@ export function InstancesPage() {
     { id: 'remark', header: '备注', width: 110, cell: (item) => <span className="text-muted-foreground">{item.remark || '-'}</span> },
     {
       id: 'balance_alert_enabled',
-      header: '余额告警',
-      width: 84,
+      header: '告警',
+      width: 104,
       align: 'center',
       cell: (item) => (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="inline-flex">
+            <span className="inline-flex items-center gap-1.5">
+              <Bell className={cn('size-3.5', item.balance_alert_enabled ? 'text-primary' : 'text-muted-foreground/40')} />
               <Switch
                 checked={item.balance_alert_enabled}
                 aria-label="余额告警"
@@ -423,9 +430,13 @@ export function InstancesPage() {
             </span>
           </TooltipTrigger>
           <TooltipContent>
-            {item.balance_alert_enabled
-              ? `余额 ≤ ${formatMoney(item.effective_balance_alert_threshold)} 时通知${item.notification_channel_ids.length ? '指定渠道' : '默认渠道'}`
-              : '开启后使用全局默认阈值，可在编辑实例里自定义'}
+            <div className="flex flex-col gap-0.5 text-xs">
+              <span>余额告警：{item.balance_alert_enabled ? `开启（≤ ${formatMoney(item.effective_balance_alert_threshold)}）` : '关闭'}</span>
+              <span>倍率推送：{item.notify_rate_changes ? '开启' : '关闭'}</span>
+              <span>公告推送：{item.notify_announcements ? '开启' : '关闭'}</span>
+              <span>连接失败告警：{item.health_alert_enabled ? '开启' : '关闭'}</span>
+              <span className="text-muted-foreground">{item.balance_alert_enabled ? (item.notification_channel_ids.length ? '使用实例指定渠道' : '使用默认渠道') : '可在实例编辑里配置阈值和渠道'}</span>
+            </div>
           </TooltipContent>
         </Tooltip>
       ),
@@ -461,6 +472,7 @@ export function InstancesPage() {
     setBillingMode('all');
     setEnabled('all');
     setHealthStatus('all');
+    setView('all');
     setSelected(new Set());
   };
 
@@ -526,7 +538,19 @@ export function InstancesPage() {
               </ConfirmPopover>
             </div>
           </div>
-          <div className="flex flex-wrap items-end gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <SegmentedControl
+              size="sm"
+              value={view}
+              onChange={(value) => { setView(value as typeof view); setPage(1); }}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'attention', label: '需关注' },
+                { value: 'low', label: '低余额' },
+                { value: 'disabled', label: '已停用' },
+              ]}
+            />
+            <div className="h-5 w-px bg-border" />
             <div className="relative w-60">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input className="pl-8" placeholder="搜索实例名、地址、用户名" value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -558,7 +582,7 @@ export function InstancesPage() {
             pagination={{
               page,
               pageSize,
-              total: data?.total ?? 0,
+              total: view === 'all' ? (data?.total ?? 0) : rows.length,
               onPageChange: setPage,
               onPageSizeChange: (size) => { setPageSize(size); setPage(1); },
               pageSizeOptions: PAGE_SIZE_OPTIONS,

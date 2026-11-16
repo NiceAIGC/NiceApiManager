@@ -213,30 +213,6 @@ export function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>监控与通知</CardTitle>
-            <CardDescription>倍率变更与上游公告的检测和推送策略。</CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Controller control={control} name="rate_change_notify_enabled" render={({ field }) => (
-              <SwitchField label="倍率变更通知" description="检测到分组倍率新增/删除/变动时合并推送" checked={field.value} onCheckedChange={field.onChange} />
-            )} />
-            <Controller control={control} name="announcement_sync_enabled" render={({ field }) => (
-              <SwitchField label="上游公告同步" description="同步时顺带抓取上游公告；首次只建基线" checked={field.value} onCheckedChange={field.onChange} />
-            )} />
-            <Controller control={control} name="rate_change_min_percent" render={({ field }) => (
-              <NumberField label="倍率变动最小通知百分比" description="低于该百分比不记录不通知；0 表示全部记录" value={field.value} onValueChange={field.onChange} min={0} max={1000} step={0.1} />
-            )} />
-            <Controller control={control} name="rate_change_cooldown_minutes" render={({ field }) => (
-              <NumberField label="倍率变更冷却（分钟）" description="同分组同向变动冷却期内不重复通知" value={field.value} onValueChange={field.onChange} min={0} max={10080} />
-            )} />
-            <Controller control={control} name="announcement_notify_enabled" render={({ field }) => (
-              <SwitchField label="新公告推送" description="发现新公告时推送到默认渠道" checked={field.value} onCheckedChange={field.onChange} />
-            )} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle>数据保留</CardTitle>
             <CardDescription>超过保留天数的历史数据每小时自动清理，不影响当前快照。</CardDescription>
           </CardHeader>

@@ -10,6 +10,16 @@ from app.models.instance import Instance
 from app.models.instance_session import InstanceSession
 from app.models.notification_rule_state import NotificationRuleState
 from app.models.notification_log import NotificationLog
+from app.models.notification_config import (
+    NotificationChannel,
+    NotificationChannelGroup,
+    NotificationChannelGroupMember,
+    NotificationContact,
+    NotificationContactGroup,
+    NotificationContactGroupMember,
+    NotificationRule,
+    NotificationTemplate,
+)
 from app.models.pricing_model import PricingModel
 from app.models.rate_change_event import RateChangeEvent
 from app.models.sync_run import SyncRun
@@ -28,6 +38,14 @@ __all__ = [
     "InstanceSession",
     "NotificationRuleState",
     "NotificationLog",
+    "NotificationChannel",
+    "NotificationChannelGroup",
+    "NotificationChannelGroupMember",
+    "NotificationContact",
+    "NotificationContactGroup",
+    "NotificationContactGroupMember",
+    "NotificationRule",
+    "NotificationTemplate",
     "PricingModel",
     "RateChangeEvent",
     "SyncRun",

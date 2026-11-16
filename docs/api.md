@@ -379,6 +379,58 @@ X-API-Key: nam-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ---
 
+## 通知中心
+
+通知中心使用独立的规范化表存储渠道、联系人、模板和规则；旧的 `app_settings` JSON 配置会在启动迁移时自动导入。
+
+### 渠道
+
+- `GET /api/notifications/channels`
+- `POST /api/notifications/channels`
+- `PATCH /api/notifications/channels/{channel_id}`
+- `DELETE /api/notifications/channels/{channel_id}`
+
+渠道类型：`apprise`、`smtp`、`aliyun_sms`、`aliyun_voice`、`aliyun_directmail`、`webhook`。密钥写在 `secrets`，响应只返回 `has_secrets` 与 `secret_fields`。
+
+```json
+{
+  "name": "运维短信",
+  "type": "aliyun_sms",
+  "enabled": true,
+  "config": { "sign_name": "签名", "template_code": "SMS_123", "param_map": { "instance": "{{instance}}" } },
+  "secrets": { "access_key_id": "LTAI...", "access_key_secret": "..." }
+}
+```
+
+### 渠道分组 / 联系人 / 联系人组
+
+- `/api/notifications/channel-groups`
+- `/api/notifications/contacts`
+- `/api/notifications/contact-groups`
+
+### 规则 / 模板 / 测试 / 投递记录
+
+- `GET|POST|PATCH|DELETE /api/notifications/rules`
+- `GET|POST|PATCH|DELETE /api/notifications/templates`
+- `POST /api/notifications/test`
+- `GET /api/notifications/overview`
+- `GET /api/notifications/deliveries`
+
+### 自定义事件
+
+- `POST /api/notifications/events`
+
+```json
+{
+  "event_type": "deploy",
+  "severity": "warning",
+  "title": "部署完成",
+  "body": "v1.2.3 已上线",
+  "dedupe_key": "deploy-v1.2.3",
+  "fields": { "env": "prod" }
+}
+```
+
 ## 设置
 
 ### GET /api/settings
